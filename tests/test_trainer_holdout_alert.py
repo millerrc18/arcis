@@ -12,6 +12,7 @@ Post-fix, that condition emits:
 """
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -99,3 +100,66 @@ def test_holdout_populated_does_not_alert(tmp_path):
         mock_notify.assert_called_once()
     else:
         mock_notify.assert_not_called()
+
+
+def test_run_fine_tune_skips_before_subprocess_when_holdout_empty():
+    """Training handoff must not launch GPU work without a holdout set."""
+    from src.training import trainer
+
+    with patch.object(
+        trainer,
+        "export_training_data",
+        return_value=({"training": 42, "holdout": 0}, 42),
+    ), patch.object(trainer.subprocess, "run") as mock_run:
+        result = trainer.run_fine_tune(db_path=":memory:")
+
+    assert result is None
+    mock_run.assert_not_called()
+
+
+def test_training_subprocess_env_forces_utf8():
+    """Windows subprocesses must emit/capture UTF-8 so logs cannot crash decode."""
+    from src.training.trainer import _training_subprocess_env
+
+    env = _training_subprocess_env()
+    assert env["PYTHONUTF8"] == "1"
+    assert env["PYTHONIOENCODING"] == "utf-8"
+
+
+def test_should_train_blocks_gpu_handoff_when_split_not_viable():
+    """The scheduler gate should skip before run_fine_tune when holdout is empty."""
+    from src.training import trainer
+
+    with patch.object(trainer, "load_config", return_value={
+        "training": {
+            "enabled": True,
+            "auto_train_threshold": 50,
+            "auto_train_time_days": 7,
+            "auto_train_min_examples": 20,
+        }
+    }), patch.object(trainer, "init_training_tables"), \
+         patch.object(trainer, "get_active_model_version", return_value=None), \
+         patch.object(trainer, "get_training_example_counts", return_value={"total": 60}), \
+         patch.object(
+             trainer,
+             "get_training_split_viability",
+             return_value=(False, "HOLDOUT EMPTY: 60 training / 0 holdout", {"training": 60, "holdout": 0}),
+         ):
+        should, reason = trainer.should_train(db_path=":memory:")
+
+    assert should is False
+    assert "HOLDOUT EMPTY" in reason
+
+
+def test_run_fine_tune_activation_requires_all_gates_in_source():
+    """Model activation must stay after holdout, canary, and promotion gate checks."""
+    source = Path("src/training/trainer.py").read_text(encoding="utf-8")
+    assert 'status="evaluation"' in source
+    assert 'gate_result.get("decision") != "promote"' in source
+    assert "_activate_model_version(version_id, db_path)" in source
+    assert source.index('gate_result.get("decision") != "promote"') < source.index(
+        "_activate_model_version(version_id, db_path)"
+    )
+    assert source.index("_activate_model_version(version_id, db_path)") < source.index(
+        "update_config_model(version_name)"
+    )

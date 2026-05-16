@@ -29,8 +29,10 @@ WHY this architecture:
 
 import json
 import logging
+import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -67,6 +69,8 @@ TRAIN_SCRIPT = '''# training_data/train.py -- DEPRECATED: legacy single-stage tr
 # Uses old Unsloth API. The curriculum script (CURRICULUM_TRAIN_SCRIPT) is the
 # primary training path and uses standard PEFT/TRL 0.24 API instead.
 import json, sys, os
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ["UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY"] = "1"
 
 def main():
@@ -83,7 +87,7 @@ def main():
         bias="none", use_gradient_checkpointing="unsloth")
 
     examples = []
-    with open("training_data/dataset.jsonl") as f:
+    with open("training_data/dataset.jsonl", encoding="utf-8") as f:
         for line in f: examples.append(json.loads(line))
 
     def fmt(ex):
@@ -131,6 +135,8 @@ if __name__ == "__main__":
 # structure when learning complex decision-making.
 CURRICULUM_TRAIN_SCRIPT = '''
 import json, sys, os, torch
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 def main():
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -180,7 +186,7 @@ def main():
 
     def load_stage(fn):
         examples = []
-        with open(fn) as f:
+        with open(fn, encoding="utf-8") as f:
             for line in f: examples.append(json.loads(line))
         def fmt(ex):
             return {"text": tokenizer.apply_chat_template(
@@ -260,7 +266,8 @@ def main():
                  "training_data/lora_adapter",
                  "--outfile", "training_data/halcyon-latest.gguf",
                  "--outtype", "q5_k_m"],
-                capture_output=True, text=True, timeout=600,
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=600,
             )
             if result.returncode == 0:
                 print("[TRAIN] CPU-based GGUF conversion succeeded")
@@ -289,6 +296,8 @@ if __name__ == "__main__":
 # improvements, not dramatic behavioral changes.
 DPO_TRAIN_SCRIPT = '''
 import json, sys, os
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ["UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY"] = "1"
 
 def main():
@@ -305,7 +314,7 @@ def main():
         bias="none", use_gradient_checkpointing="unsloth")
 
     pairs = []
-    with open("training_data/preference_pairs.jsonl") as f:
+    with open("training_data/preference_pairs.jsonl", encoding="utf-8") as f:
         for line in f: pairs.append(json.loads(line))
 
     dataset = Dataset.from_list(pairs)
@@ -366,18 +375,56 @@ def should_train(db_path: str = DB_PATH) -> tuple[bool, str]:
         days_since = 999  # Arbitrary large number
 
     if new_count >= threshold:
-        return True, f"{new_count} new examples since last train (threshold: {threshold})"
+        viable, viability_reason, _ = get_training_split_viability(db_path=db_path)
+        if not viable:
+            return False, viability_reason
+        return True, f"{new_count} new examples since last train (threshold: {threshold}); {viability_reason}"
 
     if days_since >= time_days and new_count >= min_examples:
-        return True, f"{days_since} days since last train, {new_count} new examples"
+        viable, viability_reason, _ = get_training_split_viability(db_path=db_path)
+        if not viable:
+            return False, viability_reason
+        return True, f"{days_since} days since last train, {new_count} new examples; {viability_reason}"
 
     return False, f"{new_count} new examples, {days_since} days since last train (need {threshold} examples or {time_days} days with {min_examples}+ examples)"
+
+
+def get_training_split_viability(db_path: str = DB_PATH) -> tuple[bool, str, dict]:
+    """Return whether a training run can pass the temporal holdout gate.
+
+    Uses a temporary export directory so the watch loop can decide whether to
+    schedule the GPU training handoff without touching tracked training_data
+    artifacts.
+    """
+    with tempfile.TemporaryDirectory(prefix="arcis-training-viability-") as tmpdir:
+        split_counts, total = export_training_data(
+            output_dir=tmpdir,
+            db_path=db_path,
+            alert_on_empty_holdout=False,
+        )
+    train_count = split_counts.get("training", 0)
+    holdout_count = split_counts.get("holdout", 0)
+    counts = {
+        "total": total,
+        "training": train_count,
+        "holdout": holdout_count,
+    }
+    if total == 0 or train_count == 0:
+        return False, "Training split not viable: no exportable training examples", counts
+    if holdout_count == 0:
+        return (
+            False,
+            "Training split not viable: HOLDOUT EMPTY after 5-day temporal gap",
+            counts,
+        )
+    return True, f"holdout viable ({train_count} training / {holdout_count} holdout)", counts
 
 
 def export_training_data(
     output_dir: str = "training_data",
     holdout_pct: float = 0.15,
     db_path: str = DB_PATH,
+    alert_on_empty_holdout: bool = True,
 ) -> tuple[dict, int]:
     """Export training data with curriculum split and chronological holdout.
 
@@ -546,12 +593,13 @@ def export_training_data(
             "5-day gap pushed holdout past end of corpus. Model evaluation BLOCKED.",
             most_recent, days_stale,
         )
-        safe_send(
-            "trainer_holdout_empty",
-            train_count=len(train_examples),
-            most_recent_date=most_recent,
-            days_stale=days_stale,
-        )
+        if alert_on_empty_holdout:
+            safe_send(
+                "trainer_holdout_empty",
+                train_count=len(train_examples),
+                most_recent_date=most_recent,
+                days_stale=days_stale,
+            )
 
     def _write_jsonl(path, exs):
         with open(path, "w") as f:
@@ -735,6 +783,15 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     train_count = split_counts.get("training", example_count)
     holdout_count = split_counts.get("holdout", 0)
     print(f"[TRAINING] Exported {train_count} training + {holdout_count} holdout examples")
+    if train_count > 0 and holdout_count == 0:
+        msg = (
+            "[TRAINING] Skipping fine-tune: HOLDOUT EMPTY after 5-day "
+            "temporal gap. Model training and promotion are blocked until "
+            "eligible holdout examples exist."
+        )
+        logger.error(msg)
+        print(msg)
+        return None
 
     # Step 2: Write training script (curriculum if stage files exist, legacy otherwise)
     script_path = Path("training_data") / "train.py"
@@ -752,11 +809,15 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     print("[TRAINING] Running fine-tuning script...")
 
     # Step 3: Run as subprocess
+    train_env = _training_subprocess_env()
     try:
         result = subprocess.run(
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=train_env,
             timeout=7200,  # 2 hour timeout
         )
     except subprocess.TimeoutExpired:
@@ -791,13 +852,16 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
             ["ollama", "create", version_name, "-f", str(modelfile_path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
             check=True,
         )
         # Also keep halcyonlatest as alias for backward compatibility
         subprocess.run(
             ["ollama", "cp", version_name, "halcyonlatest"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60,
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"[TRAINING] ERROR: Failed to register model in Ollama: {e}")
@@ -827,8 +891,14 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
             logger.info("[CANARY] Model passed canary evaluation (score=%.4f)", canary_result.get("avg_score", 0))
             print(f"[TRAINING] Canary evaluation passed (score={canary_result.get('avg_score', 0):.4f})")
     except Exception as e:
-        logger.warning("[CANARY] Canary evaluation failed: %s — continuing without", e)
-        print(f"[TRAINING] Canary evaluation failed: {e} — continuing without")
+        logger.warning("[CANARY] Canary evaluation failed: %s — blocking promotion", e)
+        print(f"[TRAINING] Canary evaluation failed: {e} — model will NOT be promoted.")
+        return {
+            "version_name": version_name,
+            "examples_count": example_count,
+            "canary_failed": True,
+            "canary_details": str(e),
+        }
 
     # Step 5: Run holdout evaluation (if holdout exists)
     holdout_eval = None
@@ -874,7 +944,22 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
                 print(f"[TRAINING] Holdout evaluation: {holdout_score:.2f}")
         except Exception as e:
             logger.warning("[TRAINING] Holdout evaluation failed: %s", e)
-            print(f"[TRAINING] Holdout evaluation failed: {e} — continuing without")
+            print(f"[TRAINING] Holdout evaluation failed: {e} — model will NOT be promoted.")
+            return {
+                "version_name": version_name,
+                "examples_count": example_count,
+                "holdout_failed": True,
+                "holdout_error": str(e),
+            }
+    else:
+        logger.error("[TRAINING] Holdout file missing or empty after export — blocking promotion")
+        print("[TRAINING] Holdout file missing or empty — model will NOT be promoted.")
+        return {
+            "version_name": version_name,
+            "examples_count": example_count,
+            "holdout_failed": True,
+            "holdout_error": "missing_or_empty_holdout",
+        }
 
     # Step 6: Register version and update config
     counts = get_training_example_counts(db_path)
@@ -888,9 +973,47 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
         db_path=db_path,
         holdout_score=holdout_score,
         holdout_details=holdout_json,
+        status="evaluation",
     )
 
-    # Update local config to point to new version
+    # Step 6b: Promotion gate is the final activation gate. The trained model
+    # remains in evaluation until this returns decision='promote'.
+    try:
+        gate_result = run_promotion_gate_for_version(
+            version_id=version_id,
+            version_name=version_name,
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.warning("[TRAINING] Promotion gate failed: %s", exc)
+        print(f"[TRAINING] Promotion gate failed: {exc} — model remains evaluation-only.")
+        return {
+            "version_id": version_id,
+            "version_name": version_name,
+            "examples_count": example_count,
+            "holdout_score": holdout_score,
+            "promotion_gate_failed": True,
+            "promotion_gate_error": str(exc),
+        }
+
+    if gate_result.get("decision") != "promote":
+        logger.warning(
+            "[TRAINING] Promotion gate blocked activation for %s: %s",
+            version_name, gate_result.get("decision"),
+        )
+        print(
+            f"[TRAINING] Promotion gate decision={gate_result.get('decision')} — "
+            "model remains evaluation-only."
+        )
+        return {
+            "version_id": version_id,
+            "version_name": version_name,
+            "examples_count": example_count,
+            "holdout_score": holdout_score,
+            "promotion_gate": gate_result,
+        }
+
+    _activate_model_version(version_id, db_path)
     update_config_model(version_name)
 
     # Step 7: DPO refinement (if enough preference pairs exist).
@@ -906,12 +1029,13 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
         if dpo_count >= 100:
             print(f"[TRAINING] Running DPO refinement with {dpo_count} preference pairs...")
             dpo_script_path = Path("training_data") / "train_dpo.py"
-            with open(dpo_script_path, "w") as f:
+            with open(dpo_script_path, "w", encoding="utf-8") as f:
                 f.write(DPO_TRAIN_SCRIPT)
             try:
                 dpo_result = subprocess.run(
                     [sys.executable, str(dpo_script_path)],
-                    capture_output=True, text=True, timeout=3600,
+                    capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", env=train_env, timeout=3600,
                 )
                 if dpo_result.returncode == 0:
                     print("[TRAINING] DPO refinement complete")
@@ -926,25 +1050,21 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
     print(f"[TRAINING] Fine-tune complete. Registered {version_name} ({example_count} examples)")
 
-    # Step 8: Run promotion gate (pre-reg §4.6 — wired Sprint 1.B #49).
-    # Non-critical: a gate failure or exception never blocks the trainer
-    # from returning the new version record.
-    try:
-        run_promotion_gate_for_version(
-            version_id=version_id,
-            version_name=version_name,
-            db_path=db_path,
-        )
-    except Exception as exc:
-        logger.warning("[TRAINING] Promotion gate failed (non-critical): %s", exc)
-        print(f"[TRAINING] Promotion gate failed (non-critical): {exc}")
-
     return {
         "version_id": version_id,
         "version_name": version_name,
         "examples_count": example_count,
         "holdout_score": holdout_score,
+        "promotion_gate": gate_result,
     }
+
+
+def _training_subprocess_env() -> dict[str, str]:
+    """Environment for Windows-safe UTF-8 training subprocesses."""
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
 
 
 def _resolve_returns_for_gate(
@@ -1005,6 +1125,15 @@ def _apply_gate_decision(decision: str, version_id: str, db_path: str = DB_PATH)
         "[PROMOTION_GATE] version_id=%s decision=%s → status=%s",
         version_id, decision, new_status,
     )
+
+
+def _activate_model_version(version_id: str, db_path: str = DB_PATH) -> None:
+    """Promote an evaluation model to active after all gates pass."""
+    with connect_db(db_path) as conn:
+        conn.execute("UPDATE model_versions SET status = 'retired' WHERE status = 'active'")
+        conn.execute("UPDATE model_versions SET status = 'active' WHERE version_id = ?", (version_id,))
+        conn.commit()
+    logger.info("[PROMOTION_GATE] Activated model version_id=%s after gate pass", version_id)
 
 
 def run_promotion_gate_for_version(

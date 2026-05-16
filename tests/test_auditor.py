@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import pytest
+from datetime import datetime
 from unittest.mock import patch
 from pathlib import Path
 
@@ -70,6 +71,108 @@ class TestDailyAudit:
 
         result = run_daily_audit(db_path=db_path)
         assert result["overall_assessment"] == "green"  # Default safe
+
+    @patch("src.training.claude_client.generate_training_example")
+    @patch("src.evaluation.cto_report.generate_cto_report")
+    def test_deterministic_unknown_exit_ratio_forces_red(self, mock_cto, mock_claude, tmp_path):
+        from src.evaluation.auditor import run_daily_audit
+        from src.journal.store import initialize_database
+
+        db_path = str(tmp_path / "audit.sqlite3")
+        initialize_database(db_path)
+        now = datetime.now().isoformat()
+        with sqlite3.connect(db_path) as conn:
+            for i in range(8):
+                conn.execute(
+                    "INSERT INTO shadow_trades "
+                    "(trade_id, ticker, status, exit_reason, actual_exit_time, created_at, updated_at) "
+                    "VALUES (?, 'AAPL', 'closed', 'unknown', ?, ?, ?)",
+                    (f"unknown-{i}", now, now, now),
+                )
+            for i in range(2):
+                conn.execute(
+                    "INSERT INTO shadow_trades "
+                    "(trade_id, ticker, status, exit_reason, actual_exit_time, created_at, updated_at) "
+                    "VALUES (?, 'MSFT', 'closed', 'target_1', ?, ?, ?)",
+                    (f"known-{i}", now, now, now),
+                )
+            conn.commit()
+
+        mock_cto.return_value = {"trade_summary": {}, "by_model_version": {}}
+        mock_claude.return_value = json.dumps({
+            "overall_assessment": "green",
+            "summary": "All systems normal.",
+            "flags": [],
+            "metrics_to_watch": [],
+            "model_health": "healthy",
+        })
+
+        result = run_daily_audit(db_path=db_path)
+
+        assert result["overall_assessment"] == "red"
+        deterministic = result["deterministic_prechecks"]
+        assert any(f["metric"] == "unknown_exit_reason_ratio" for f in deterministic)
+
+    def test_deterministic_bracket_coverage_precheck(self, tmp_path):
+        from src.evaluation.auditor import _collect_deterministic_precheck_flags
+        from src.journal.store import initialize_database
+
+        db_path = str(tmp_path / "audit.sqlite3")
+        initialize_database(db_path)
+        now = datetime.now().isoformat()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO shadow_trades "
+                "(trade_id, ticker, status, stop_price, target_1, created_at, updated_at) "
+                "VALUES ('open-no-bracket', 'AAPL', 'open', NULL, 110.0, ?, ?)",
+                (now, now),
+            )
+            conn.commit()
+
+        flags = _collect_deterministic_precheck_flags(db_path, {"trade_summary": {}})
+
+        assert any(
+            f["metric"] == "missing_bracket_coverage" and f["severity"] == "critical"
+            for f in flags
+        )
+
+    def test_deterministic_critical_audit_blocks_new_entries_only(self, tmp_path, monkeypatch):
+        from src.risk import governor as gov_module
+        from src.risk.governor import RiskGovernor
+        from src.training.versioning import init_training_tables
+
+        db_path = str(tmp_path / "audit.sqlite3")
+        init_training_tables(db_path)
+        halt_file = str(tmp_path / "halt")
+        monkeypatch.setattr(gov_module, "_HALT_FILE", halt_file)
+
+        full_report = {
+            "deterministic_prechecks": [{
+                "severity": "critical",
+                "source": "deterministic_precheck",
+                "description": "Unknown exit reasons are 80% of recent closed trades.",
+            }]
+        }
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO audit_reports "
+                "(audit_id, created_at, audit_date, overall_assessment, summary, "
+                "flags, metrics_to_watch, model_health, full_report) "
+                "VALUES ('a1', ?, '2026-05-16', 'red', 'critical', '[]', '[]', 'degrading', ?)",
+                (datetime.now().isoformat(), json.dumps(full_report)),
+            )
+            conn.commit()
+
+        result = RiskGovernor({"risk_governor": {"enabled": True}}).check_trade(
+            ticker="AAPL",
+            allocation_dollars=1000.0,
+            features={},
+            portfolio={"db_path": db_path},
+        )
+
+        assert result["approved"] is False
+        assert "deterministic audit is critical" in result["rejection_reason"]
+        assert not Path(halt_file).exists()
 
 
 class TestEscalation:

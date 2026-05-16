@@ -6,7 +6,10 @@ return 'loss' at stop_price on day 1 for every resolved trade
 """
 
 import sqlite3
+from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -81,7 +84,15 @@ def test_simulator_returns_loss_when_stop_hit_first():
 # ── The D2-specific bug prevention ────────────────────────────────────
 
 
-def _seed_pending(db_path: str, attribution_id: str = "test-1", ticker: str = "AAPL"):
+ET = ZoneInfo("America/New_York")
+
+
+def _seed_pending(
+    db_path: str,
+    attribution_id: str = "test-1",
+    ticker: str = "AAPL",
+    scan_timestamp: str = "2026-01-01T10:00:00-05:00",
+):
     conn = sqlite3.connect(db_path)
     conn.executescript("""
         CREATE TABLE attribution_trades (
@@ -92,7 +103,7 @@ def _seed_pending(db_path: str, attribution_id: str = "test-1", ticker: str = "A
     """)
     conn.execute(
         "INSERT INTO attribution_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (attribution_id, ticker, "2026-01-01T10:00:00-05:00",
+        (attribution_id, ticker, scan_timestamp,
          100.0, 95.0, 105.0, "pending", None),
     )
     conn.commit()
@@ -161,6 +172,45 @@ def test_resolve_pending_flat_frame_also_works(tmp_path):
     ).fetchone()
     conn.close()
     assert row[0] == "win"
+
+
+def test_resolve_pending_uses_python_cutoff_not_sqlite_date_modifier(tmp_path):
+    """Only rows with an elapsed 8-day window are resolved.
+
+    This locks the Postgres-safe Python cutoff path. The old SQLite-only
+    expression used DATE(scan_timestamp, '+8 days') and would crash under PG.
+    """
+    db = str(tmp_path / "resolver.db")
+    old_scan = (datetime.now(ET) - timedelta(days=9)).isoformat()
+    fresh_scan = datetime.now(ET).isoformat()
+    _seed_pending(db, attribution_id="old-row", ticker="AAPL", scan_timestamp=old_scan)
+
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO attribution_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("fresh-row", "AAPL", fresh_scan, 100.0, 95.0, 105.0, "pending", None),
+    )
+    conn.commit()
+    conn.close()
+
+    with patch("yfinance.download", return_value=_flat_columns_frame()):
+        n = resolve_pending_outcomes(db_path=db)
+
+    assert n == 1
+    conn = sqlite3.connect(db)
+    rows = dict(conn.execute(
+        "SELECT attribution_id, ranker_only_outcome FROM attribution_trades"
+    ).fetchall())
+    conn.close()
+    assert rows["old-row"] == "win"
+    assert rows["fresh-row"] == "pending"
+
+
+def test_resolver_has_no_sqlite_date_modifier_cutoff():
+    """PG-routed resolver code must not use SQLite DATE(..., '+8 days')."""
+    source = Path("src/attribution/logger.py").read_text(encoding="utf-8")
+    assert "DATE(scan_timestamp" not in source
+    assert "+8 days" not in source
 
 
 # ── Hotfix regressions — bugs 1/2/3 from the reresolve rollout ────────

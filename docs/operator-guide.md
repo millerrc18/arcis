@@ -2,6 +2,85 @@
 
 > **Single-source operational runbook.** When something needs doing, breaking, or unbreaking — start here. Updated regularly; if you encounter a procedure that isn't here, add it.
 
+## Watch-Loop Root-Cause Hardening (2026-05-16)
+
+Use this section for the 2026-05-15 after-4pm failure class: PG dialect errors,
+training empty-holdout, reconciliation stale-reporting noise, deterministic
+audit criticals, YAML password warnings, and expected yfinance historical gaps.
+
+### No-reset guidance
+
+Do **not** reset the database for this class by default. These are app-layer
+compatibility and gating defects, not evidence of corrupt storage. Reset only if
+`PRAGMA integrity_check`, PG schema verification, or a table-count delta proves a
+separate database integrity incident. Otherwise:
+
+1. Keep the current DB intact.
+2. Deploy the app-layer fix.
+3. Repair data only from provable evidence.
+4. Leave ambiguous `unknown` exits as manual-review debt.
+
+### PG smoke checks
+
+After deploy with PG cutover enabled:
+
+```bash
+ARCIS_PG_CUTOVER_ENABLED=1 python -m pytest tests/attribution/test_resolver.py
+ARCIS_PG_CUTOVER_ENABLED=1 python -m pytest tests/test_stress_test_methodology.py
+```
+
+Acceptance:
+
+- Attribution resolver has no `date(text, unknown)` error.
+- Fresh attribution rows remain pending until the eight-day window elapses.
+- Stress-test persistence has no `INSERT OR REPLACE` syntax error.
+- Re-running one stress scenario overwrites the same deterministic result row.
+
+### Training empty-holdout behavior
+
+The 5-day temporal holdout gap stays in force. If the split produces training
+rows but zero holdout rows:
+
+- `should_train()` returns false before GPU handoff.
+- `run_fine_tune()` exits before launching the training subprocess.
+- One structured empty-holdout alert is emitted for the export path.
+- Model activation is blocked until holdout, canary, and promotion gate pass.
+
+This is expected containment. Do not bypass the holdout gate to force a model
+promotion.
+
+### Reconciliation stale interpretation
+
+Post-close reconciliation now reports stale rows in two buckets:
+
+- `resolved_stale`: stale local rows that the reconciler auto-closed with
+  terminal evidence. These are operator-visible but no longer a nightly failure.
+- `unresolved_stale`: stale rows that could not be safely closed. These remain
+  failures and need inspection.
+
+If the nightly summary is `[OK] ... (auto-closed stale: [...])`, the stale rows
+were resolved. If it is `[FAIL] ... unresolved stale`, inspect broker state and
+the row evidence before editing data.
+
+### Deterministic audit containment
+
+The daily audit now appends deterministic prechecks for unknown exit ratio,
+bracket coverage, stale reconciliation, drawdown, and model win rate. If the
+latest recent deterministic precheck is critical, the risk governor rejects new
+entries without writing the operator-only kill-switch file. Exit management and
+reconciliation continue.
+
+To clear the entry block, resolve the underlying data/risk condition and let a
+fresh audit run green/yellow without critical deterministic flags.
+
+### Config and market-data noise
+
+- Keep `config/settings*.yaml` email `password` empty.
+- Put the SMTP password only in `.env` as `EMAIL_PASSWORD`.
+- YAML password warnings are once per process.
+- Expected yfinance gaps in stress-test historical windows are structured
+  `caveats`, not repeated operational failures.
+
 ## Sprint 3 Cockpit Coherence (2026-05-07) — operator-visible changes
 
 After Sprint 3 deploys to main + Render rebuilds, halcyonlab.app will render:

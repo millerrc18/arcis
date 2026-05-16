@@ -143,6 +143,8 @@ def run_daily_audit(db_path: str = DB_PATH) -> dict:
             result = {"overall_assessment": "yellow", "summary": response[:500],
                       "flags": [], "metrics_to_watch": [], "model_health": "unknown"}
 
+    _append_deterministic_prechecks(result, cto_data, db_path)
+
     # Store result
     audit_id = str(uuid.uuid4())
     now = datetime.now(ET)
@@ -168,6 +170,236 @@ def run_daily_audit(db_path: str = DB_PATH) -> dict:
     logger.info("[AUDIT] Daily assessment: %s — %s",
                 result.get("overall_assessment"), (result.get("summary") or "")[:100])
     return result
+
+
+def _append_deterministic_prechecks(result: dict, cto_data: dict, db_path: str) -> None:
+    """Append hard-coded data-quality/risk checks to the LLM audit result.
+
+    Claude can miss mechanical failure modes in sparse reports. These prechecks
+    are deterministic and therefore run even when the Claude audit is green or
+    unavailable.
+    """
+    flags = _collect_deterministic_precheck_flags(db_path, cto_data)
+    result["deterministic_prechecks"] = flags
+    if not flags:
+        return
+
+    result.setdefault("flags", [])
+    result["flags"].extend(flags)
+
+    metrics = result.setdefault("metrics_to_watch", [])
+    for metric in (
+        "unknown_exit_reason_ratio",
+        "missing_bracket_coverage",
+        "reconciled_stale_closures",
+        "max_drawdown_pct",
+        "model_win_rate",
+    ):
+        if metric not in metrics:
+            metrics.append(metric)
+
+    if any(flag.get("severity") == "critical" for flag in flags):
+        result["overall_assessment"] = "red"
+        if result.get("model_health") in (None, "", "healthy", "unknown"):
+            result["model_health"] = "degrading"
+    elif result.get("overall_assessment") == "green":
+        result["overall_assessment"] = "yellow"
+
+
+def _collect_deterministic_precheck_flags(db_path: str, cto_data: dict) -> list[dict]:
+    """Return deterministic audit flags for failure modes the watch loop can prove."""
+    flags: list[dict] = []
+    _check_unknown_exit_ratio(flags, db_path)
+    _check_bracket_coverage(flags, db_path)
+    _check_reconciled_stale_volume(flags, db_path)
+    _check_drawdown(flags, cto_data)
+    _check_model_win_rate(flags, cto_data)
+    return flags
+
+
+def _deterministic_flag(
+    *,
+    severity: str,
+    category: str,
+    description: str,
+    recommendation: str,
+    metric: str,
+    value,
+    threshold,
+) -> dict:
+    return {
+        "severity": severity,
+        "category": category,
+        "description": description,
+        "recommendation": recommendation,
+        "source": "deterministic_precheck",
+        "metric": metric,
+        "value": value,
+        "threshold": threshold,
+    }
+
+
+def _check_unknown_exit_ratio(flags: list[dict], db_path: str) -> None:
+    cutoff = (datetime.now(ET) - timedelta(days=30)).isoformat()
+    try:
+        with connect_db(db_path) as conn:
+            row = conn.execute(
+                "SELECT "
+                "COUNT(*) as total, "
+                "SUM(CASE WHEN exit_reason IS NULL OR exit_reason = '' "
+                "OR LOWER(exit_reason) = 'unknown' THEN 1 ELSE 0 END) as unknown_count "
+                "FROM shadow_trades "
+                "WHERE status = 'closed' "
+                "AND COALESCE(quarantined, 0) = 0 "
+                "AND COALESCE(actual_exit_time, updated_at, created_at) >= ?",
+                (cutoff,),
+            ).fetchone()
+    except Exception as exc:
+        logger.warning("[AUDIT] Unknown-exit precheck failed: %s", exc)
+        return
+
+    total = int((row[0] if row else 0) or 0)
+    unknown_count = int((row[1] if row else 0) or 0)
+    if total < 10 or unknown_count == 0:
+        return
+
+    ratio = unknown_count / total
+    if ratio >= 0.25:
+        flags.append(_deterministic_flag(
+            severity="critical",
+            category="data_integrity",
+            description=(
+                f"Unknown exit reasons are {ratio:.0%} of recent closed trades "
+                f"({unknown_count}/{total})."
+            ),
+            recommendation=(
+                "Repair only rows with provable broker/order evidence; leave ambiguous rows "
+                "as manual-review data-quality debt."
+            ),
+            metric="unknown_exit_reason_ratio",
+            value=round(ratio, 4),
+            threshold=0.25,
+        ))
+    elif ratio >= 0.10:
+        flags.append(_deterministic_flag(
+            severity="alert",
+            category="data_integrity",
+            description=(
+                f"Unknown exit reasons are elevated at {ratio:.0%} of recent "
+                f"closed trades ({unknown_count}/{total})."
+            ),
+            recommendation="Inspect exit-reason writers and reconcile ambiguous rows manually.",
+            metric="unknown_exit_reason_ratio",
+            value=round(ratio, 4),
+            threshold=0.10,
+        ))
+
+
+def _check_bracket_coverage(flags: list[dict], db_path: str) -> None:
+    try:
+        with connect_db(db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM shadow_trades "
+                "WHERE status IN ('open', 'exit_pending') "
+                "AND COALESCE(quarantined, 0) = 0 "
+                "AND (stop_price IS NULL OR stop_price <= 0 "
+                "OR target_1 IS NULL OR target_1 <= 0)",
+            ).fetchone()
+    except Exception as exc:
+        logger.warning("[AUDIT] Bracket-coverage precheck failed: %s", exc)
+        return
+
+    missing = int((row[0] if row else 0) or 0)
+    if missing <= 0:
+        return
+    flags.append(_deterministic_flag(
+        severity="critical",
+        category="risk_governor_breach",
+        description=f"{missing} open trade(s) lack valid stop/target bracket coverage.",
+        recommendation=(
+            "Block new entries, repair or close unprotected positions, and verify "
+            "bracket writer persistence before resuming entry."
+        ),
+        metric="missing_bracket_coverage",
+        value=missing,
+        threshold=0,
+    ))
+
+
+def _check_reconciled_stale_volume(flags: list[dict], db_path: str) -> None:
+    cutoff = (datetime.now(ET) - timedelta(hours=24)).isoformat()
+    try:
+        with connect_db(db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM shadow_trades "
+                "WHERE status = 'closed' "
+                "AND COALESCE(quarantined, 0) = 0 "
+                "AND exit_reason = 'reconciled_stale' "
+                "AND COALESCE(actual_exit_time, updated_at, created_at) >= ?",
+                (cutoff,),
+            ).fetchone()
+    except Exception as exc:
+        logger.warning("[AUDIT] Reconciled-stale precheck failed: %s", exc)
+        return
+
+    stale_count = int((row[0] if row else 0) or 0)
+    if stale_count <= 0:
+        return
+    flags.append(_deterministic_flag(
+        severity="warning",
+        category="execution",
+        description=f"{stale_count} trade(s) were auto-closed by stale reconciliation in the last 24h.",
+        recommendation=(
+            "Treat auto-closed stale rows as resolved reconciliation output, but inspect "
+            "why the normal close path did not write terminal evidence."
+        ),
+        metric="reconciled_stale_closures",
+        value=stale_count,
+        threshold=0,
+    ))
+
+
+def _check_drawdown(flags: list[dict], cto_data: dict) -> None:
+    trade_summary = cto_data.get("trade_summary") or {}
+    try:
+        drawdown = abs(float(trade_summary.get("max_drawdown_pct") or 0))
+    except (TypeError, ValueError):
+        return
+    if drawdown < 25:
+        return
+    flags.append(_deterministic_flag(
+        severity="critical",
+        category="risk_governor_breach",
+        description=f"Max drawdown is {drawdown:.1f}%, above the deterministic audit ceiling.",
+        recommendation="Suppress new entries and review drawdown circuit-breaker state before reopening risk.",
+        metric="max_drawdown_pct",
+        value=round(drawdown, 2),
+        threshold=25,
+    ))
+
+
+def _check_model_win_rate(flags: list[dict], cto_data: dict) -> None:
+    by_model = cto_data.get("by_model_version") or {}
+    for model_name, metrics in by_model.items():
+        try:
+            trades = int(metrics.get("trades") or 0)
+            win_rate = float(metrics.get("win_rate") or 0)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if trades < 2 or win_rate > 0:
+            continue
+        flags.append(_deterministic_flag(
+            severity="critical",
+            category="model",
+            description=f"Model {model_name} has 0% win rate across {trades} recent closed trades.",
+            recommendation=(
+                "Block promotion and new entry exposure for this model until holdout, "
+                "canary, and promotion gates pass with non-zero realized wins."
+            ),
+            metric="model_win_rate",
+            value=win_rate,
+            threshold=">0 with at least 2 trades",
+        ))
 
 
 def run_weekly_audit(days: int = 7, db_path: str = DB_PATH) -> dict:

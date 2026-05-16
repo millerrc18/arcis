@@ -65,7 +65,7 @@ email:
   smtp_port: 587
   use_tls: true
   username: your-assistant-email@gmail.com   # The sending email address
-  password: your-app-password-here           # MOVE THIS TO .env → EMAIL_PASSWORD
+  password: ""                               # Must stay empty; set EMAIL_PASSWORD in .env.
   from_address: your-assistant-email@gmail.com
   to_address: your.work@email.com            # Primary recipient
   cc_addresses:                              # Optional additional recipients

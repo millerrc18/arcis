@@ -70,22 +70,27 @@ def run_postclose_reconciliation():
         return
 
     orphaned = result["orphaned"]
-    stale = result["stale"]
+    unresolved_stale = result.get("unresolved_stale", result["stale"])
+    resolved_stale = result.get("resolved_stale", result.get("marked_closed", []))
     discrep = result["discrepancies"]
     backfilled = result["backfilled"]
 
-    if not orphaned and not stale and not discrep:
+    if not orphaned and not unresolved_stale and not discrep:
         msg = (
             f"[OK] Reconciliation: {result['local_count']} local / "
             f"{result['alpaca_count']} Alpaca -- all matched"
         )
+        if resolved_stale:
+            msg += f" (auto-closed stale: {resolved_stale})"
     else:
         parts = []
         if orphaned:
             parts.append(f"{len(orphaned)} orphaned (backfilled: {backfilled})")
-        if stale:
-            tickers = [s["ticker"] for s in stale]
-            parts.append(f"{len(stale)} stale: {tickers}")
+        if unresolved_stale:
+            tickers = [s["ticker"] for s in unresolved_stale]
+            parts.append(f"{len(unresolved_stale)} unresolved stale: {tickers}")
+        if resolved_stale:
+            parts.append(f"{len(resolved_stale)} auto-closed stale: {resolved_stale}")
         if discrep:
             parts.append(f"{len(discrep)} mismatched")
         msg = f"[FAIL] Reconciliation: {', '.join(parts)}"

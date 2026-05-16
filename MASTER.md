@@ -76,6 +76,7 @@ with an unbeatable technological moat.
 | Component | Status |
 |---|---|
 | Watch loop (scan + monitor) | LIVE -- 13 scans/day, overnight mode |
+| Watch-loop hardening | LIVE after v0.36.11 hotfix -- PG-safe attribution cutoff + stress-test upsert, empty-holdout training skip before GPU handoff, deterministic audit prechecks, and entry suppression on recent critical deterministic audit without writing the operator-only kill switch |
 | Traffic Light | LIVE -- bootcamp floor 0.5 |
 | Risk governor | LIVE -- 8 checks |
 | Council v2 (5 agents) | LIVE -- failure sends Telegram alert |
@@ -101,6 +102,7 @@ with an unbeatable technological moat.
 | Walk-forward v1 promotion gate | LIVE -- v0.25.0, soft migration — `check_promotion_gate` reads `walkforward_results` rows when present (three-state outcome preserved); legacy DSR + PBO + OOS_efficiency path still runs when absent |
 | Capability registry + `/api/system/index` | LIVE -- v0.25.0, 4 in-process registries (ACTIONS, STATES, SYSTEMS, DECISIONS) populated at import via decorators; MCP-compatible JSON Schema for action I/O |
 | Training audit pipeline + quarantine | LIVE -- v0.26.0 — three-pass audit (citation / format / leakage); 1,706 clean / 76 quarantined this run; taxonomy: format_drift_missing_section, v1_attribution_contradicts_narrative, leakage_ngram_suspect |
+| Training activation gates | LIVE after v0.36.11 hotfix -- new models stay evaluation-only until temporal holdout, canary evaluation, and promotion gate all pass |
 | IB integration | DORMANT -- v0.18.0, `trading.ib_enabled=false`, all code preserved for reactivation per SD#41 |
 | Attribution resolver | FIXED -- v0.22.0 (this sprint), yfinance MultiIndex flatten; 1,600 rows re-resolved as v2_fixed |
 | PEAD enrichment | ELIMINATED per SD#3 — PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Replaced by Options Volatility Desk (Phase 3-4). |
