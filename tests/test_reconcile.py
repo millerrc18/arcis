@@ -257,6 +257,8 @@ def test_paper_reconcile_stale_auto_closed(mock_positions, db_path):
     assert len(result["stale"]) == 1
     assert result["stale"][0]["ticker"] == "MSFT"
     assert result["marked_closed"] == ["MSFT"]
+    assert result["resolved_stale"] == ["MSFT"]
+    assert result["unresolved_stale"] == []
 
     # Verify trade is closed with actual_exit_time set
     with sqlite3.connect(db_path) as conn:
@@ -300,6 +302,8 @@ def test_paper_reconcile_skips_recent_trade(mock_positions, db_path):
     assert len(result["stale"]) == 1
     assert result["stale"][0]["ticker"] == "NVDA"
     assert result["marked_closed"] == []  # NOT closed — too recent
+    assert result["resolved_stale"] == []
+    assert [s["ticker"] for s in result["unresolved_stale"]] == ["NVDA"]
 
     # Verify status is still 'open'
     with sqlite3.connect(db_path) as conn:

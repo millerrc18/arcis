@@ -18,6 +18,7 @@ from src.notifications import safe_send
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_BODY_LIMIT = 400
+_yaml_password_warning_emitted = False
 
 
 def _write_notification_sent(
@@ -71,7 +72,9 @@ def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
     # C4: require EMAIL_PASSWORD env var; YAML fallback removed
     password = os.environ.get("EMAIL_PASSWORD", "")
     yaml_password = email_cfg.get("password", "")
-    if yaml_password:
+    global _yaml_password_warning_emitted
+    if yaml_password and not _yaml_password_warning_emitted:
+        _yaml_password_warning_emitted = True
         logger.warning(
             "email.password YAML key is non-empty — passwords must be set via "
             "EMAIL_PASSWORD env var, not YAML config (security policy)"

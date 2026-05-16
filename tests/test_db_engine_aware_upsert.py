@@ -651,10 +651,11 @@ def test_replace_semantics_dict_matches_audit_verbatim():
 
     Source of truth:
         docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md
-        §7 (the 9-entry dict).
+        §7 plus the watch-loop stress_test_results hotfix entry.
 
-    The audit decided all 9 Phase 1 `action='replace'` target tables are
-    `in_place_update`. If this assertion fails, EITHER the audit doc was
+    The audited Phase 1 targets and stress_test_results are all leaf-style
+    persistence tables, so `in_place_update` preserves the intended idempotent
+    overwrite behavior. If this assertion fails, EITHER the audit doc was
     revised (in which case re-read §7 and update the dict) OR a future task
     added a new replace target without auditing it (in which case the new
     table needs an audit entry before it lands in the dict).
@@ -672,6 +673,7 @@ def test_replace_semantics_dict_matches_audit_verbatim():
         "walkforward_results": "in_place_update",
         "walkforward_trades": "in_place_update",
         "sp100_historical_constituents": "in_place_update",
+        "stress_test_results": "in_place_update",
     }
     assert _REPLACE_SEMANTICS == expected
 

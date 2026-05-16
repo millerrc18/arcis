@@ -778,15 +778,16 @@ from src.schema.sqlite import _sqlite_only_connect  # noqa: E402,F401
 #   For tables with NO incoming FKs, NO triggers, and NO rowid-dependent
 #   readers, these two paths are functionally identical. The T0.12 audit
 #   (docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md)
-#   classified all 9 Phase 1 `action='replace'` target tables as such — they
-#   are dispatched as `in_place_update`. The `delete_insert` branch is
+#   classified the Phase 1 `action='replace'` target tables as such; the
+#   watch-loop stress_test_results hotfix adds the same leaf-table semantic.
+#   These targets are dispatched as `in_place_update`. The `delete_insert` branch is
 #   implemented so that future tables that DO have cascade dependencies can
 #   route through it without code churn — the dispatch table is the policy
 #   surface.
 #
-# The audit's `_REPLACE_SEMANTICS` dict below MUST match the audit doc §7
-# verbatim. The test_replace_semantics_dict_matches_audit_verbatim test in
-# tests/test_db_engine_aware_upsert.py pins this.
+# The `_REPLACE_SEMANTICS` dict below MUST match the audit doc §7 plus any
+# explicitly audited hotfix additions. The
+# test_replace_semantics_dict_matches_audit_verbatim test pins this.
 
 _REPLACE_SEMANTICS = {
     "data_freshness": "in_place_update",
@@ -799,6 +800,7 @@ _REPLACE_SEMANTICS = {
     "walkforward_results": "in_place_update",
     "walkforward_trades": "in_place_update",
     "sp100_historical_constituents": "in_place_update",
+    "stress_test_results": "in_place_update",
 }
 
 

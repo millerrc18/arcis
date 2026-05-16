@@ -10,7 +10,7 @@ Tests: tests/test_attribution.py
 import logging
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
@@ -257,11 +257,13 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
     try:
         with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
+            cutoff = (datetime.now(ET) - timedelta(days=8)).isoformat()
             pending = conn.execute(
                 "SELECT attribution_id, ticker, ranker_only_entry, "
                 "ranker_only_stop, ranker_only_target, scan_timestamp "
                 "FROM attribution_trades WHERE ranker_only_outcome = 'pending' "
-                "AND DATE(scan_timestamp, '+8 days') <= DATE('now')"
+                "AND scan_timestamp <= ?",
+                (cutoff,),
             ).fetchall()
             if not pending:
                 return 0

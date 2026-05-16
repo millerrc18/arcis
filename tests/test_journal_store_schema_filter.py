@@ -9,11 +9,13 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from datetime import datetime
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from src.journal.store import (
+    close_shadow_trade,
     _filter_to_schema,
     initialize_database,
     insert_shadow_trade,
@@ -159,3 +161,28 @@ class TestWritePathsIntegration:
             ).fetchone()
         assert row["entry_price"] == 160.0
         assert row["target_1"] == 175.0
+
+    def test_close_shadow_trade_coerces_invalid_exit_reason(self, tmp_db):
+        trade = _valid_trade()
+        trade_id = insert_shadow_trade(trade, db_path=tmp_db)
+
+        with patch("src.journal.store._build_spy_excess_fields", return_value={}), \
+             patch("src.journal.store._broadcast_and_log_close"):
+            close_shadow_trade(
+                trade_id=trade_id,
+                exit_price=155.0,
+                exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
+                exit_reason=None,
+                pnl_dollars=50.0,
+                pnl_pct=3.3,
+                db_path=tmp_db,
+            )
+
+        with sqlite3.connect(tmp_db) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT status, exit_reason FROM shadow_trades WHERE trade_id=?",
+                (trade_id,),
+            ).fetchone()
+        assert row["status"] == "closed"
+        assert row["exit_reason"] == "unknown"

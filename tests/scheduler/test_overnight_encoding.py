@@ -110,6 +110,14 @@ def test_expected_ascii_markers_present_in_source():
     assert "[FAIL] Reconciliation:" in text, "Failure marker [FAIL] missing"
 
 
+def test_reconciliation_source_splits_resolved_and_unresolved_stale():
+    """Auto-closed stale rows should not keep the nightly result in FAIL."""
+    text = OVERNIGHT_PATH.read_text(encoding="utf-8")
+    assert "unresolved_stale" in text
+    assert "resolved_stale" in text
+    assert "auto-closed stale" in text
+
+
 def test_no_cross_mark_or_check_mark_escape_in_source():
     """The u274C (cross) and u2705 (check) escape sequences must not recur."""
     text = OVERNIGHT_PATH.read_text(encoding="utf-8")

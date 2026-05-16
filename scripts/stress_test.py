@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.attribution.logger import simulate_mechanical_outcome
 from src.config import DB_PATH
 from src.features.indicators import compute_atr
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -130,9 +130,10 @@ def get_stress_test_universe(scenario_start: str) -> list[str]:
         except Exception:
             excluded += 1
 
-    logger.warning("[STRESS] Excluded %d tickers (no data for %s). "
-                   "SURVIVORSHIP BIAS: results may overstate performance.",
-                   excluded, scenario_start)
+    if excluded:
+        logger.info("[STRESS] Excluded %d tickers with no yfinance data for %s; "
+                    "structured caveat will note survivorship/data-gap risk.",
+                    excluded, scenario_start)
     return valid
 
 
@@ -184,6 +185,10 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     equity_curve = [100000.0]  # Start with $100K (matches live starting capital)
     monthly_returns = {}
     regime_stats = {}  # {regime: {"trades": 0, "wins": 0, "stops": 0}}
+    market_data_gaps = {
+        "candidate_history": 0,
+        "forward_window": 0,
+    }
 
     current_equity = 100000.0
     # Fixed $2K per position (2% of capital). This matches the live risk
@@ -220,7 +225,10 @@ def run_scenario(name: str, start: str, end: str) -> dict:
                         period=14,
                     )
                     candidates.append((ticker, float(ret_5d), float(hist["Close"].iloc[-1]), atr))
+                else:
+                    market_data_gaps["candidate_history"] += 1
             except Exception:
+                market_data_gaps["candidate_history"] += 1
                 continue
 
         if not candidates:
@@ -247,9 +255,11 @@ def run_scenario(name: str, start: str, end: str) -> dict:
             try:
                 fwd_data = yf.download(to_yfinance_ticker(ticker), start=fwd_start, end=fwd_end, progress=False, auto_adjust=True)
                 if fwd_data is None or fwd_data.empty:
+                    market_data_gaps["forward_window"] += 1
                     continue
                 ohlcv = fwd_data.reset_index().to_dict("records")
             except Exception:
+                market_data_gaps["forward_window"] += 1
                 continue
 
             outcome, exit_price, days_held = simulate_mechanical_outcome(
@@ -331,6 +341,28 @@ def run_scenario(name: str, start: str, end: str) -> dict:
             "atr_mult": REGIME_BRACKETS[r]["stop_atr_mult"],
         }
 
+    caveats = [
+        {
+            "type": "survivorship_bias",
+            "severity": "warning",
+            "detail": (
+                "Universe membership is filtered to tickers with available yfinance "
+                "data for the scenario start; historical constituent membership is "
+                "not reconstructed in this script."
+            ),
+        }
+    ]
+    if any(market_data_gaps.values()):
+        caveats.append({
+            "type": "yfinance_historical_gap",
+            "severity": "info",
+            "detail": (
+                "Some candidate-history or forward-window downloads were unavailable "
+                "for the historical scenario and were skipped."
+            ),
+            "counts": dict(market_data_gaps),
+        })
+
     result = {
         "scenario": name,
         "start_date": start,
@@ -348,6 +380,8 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         "equity_curve": equity_curve,
         "regime_breakdown": regime_breakdown,
         "universe_size": len(universe),
+        "market_data_gaps": market_data_gaps,
+        "caveats": caveats,
         # Explicitly flagged so downstream consumers (dashboard, reports) can
         # display a caveat. True survivorship-bias removal requires historical
         # index membership data from scrape_sp_changes.py.
@@ -365,34 +399,43 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     return result
 
 
+def _stress_result_id(result: dict) -> str:
+    """Stable idempotency key for one scenario/date/model result row."""
+    model_version = result.get("model_version", "mechanical_brackets")
+    key = "|".join([
+        result["scenario"],
+        result["start_date"],
+        result["end_date"],
+        model_version,
+    ])
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"arcis:stress_test_results:{key}"))
+
+
 def store_result(result: dict, db_path: str = DB_PATH) -> None:
     """Store stress test result in database."""
     try:
         with connect_db(db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO stress_test_results "
-                "(result_id, scenario, start_date, end_date, total_trades, "
-                "win_rate, total_pnl_pct, max_drawdown_pct, max_drawdown_duration_days, "
-                "calmar_ratio, monthly_returns_json, regime_breakdown_json, "
-                "equity_curve_json, model_version, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    str(uuid.uuid4()),
-                    result["scenario"],
-                    result["start_date"],
-                    result["end_date"],
-                    result["total_trades"],
-                    result["win_rate"],
-                    result["total_pnl_pct"],
-                    result["max_drawdown_pct"],
-                    result["max_drawdown_duration_days"],
-                    result["calmar_ratio"],
-                    json.dumps(result.get("monthly_returns", {})),
-                    json.dumps(result.get("regime_breakdown", {})),
-                    json.dumps(result.get("equity_curve", [])),
-                    result.get("model_version", "mechanical_brackets"),
-                    datetime.now(ET).isoformat(),
-                ),
+            engine_aware_upsert(
+                conn,
+                "stress_test_results",
+                {
+                    "result_id": _stress_result_id(result),
+                    "scenario": result["scenario"],
+                    "start_date": result["start_date"],
+                    "end_date": result["end_date"],
+                    "total_trades": result["total_trades"],
+                    "win_rate": result["win_rate"],
+                    "total_pnl_pct": result["total_pnl_pct"],
+                    "max_drawdown_pct": result["max_drawdown_pct"],
+                    "max_drawdown_duration_days": result["max_drawdown_duration_days"],
+                    "calmar_ratio": result["calmar_ratio"],
+                    "monthly_returns_json": json.dumps(result.get("monthly_returns", {})),
+                    "regime_breakdown_json": json.dumps(result.get("regime_breakdown", {})),
+                    "equity_curve_json": json.dumps(result.get("equity_curve", [])),
+                    "model_version": result.get("model_version", "mechanical_brackets"),
+                    "created_at": datetime.now(ET).isoformat(),
+                },
+                action="replace",
             )
             conn.commit()
         print(f"  Result stored in DB for {result['scenario']}")

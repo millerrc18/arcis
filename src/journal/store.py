@@ -430,6 +430,12 @@ def close_shadow_trade(
     db_path: str = DB_PATH,
 ) -> None:
     """Close a shadow trade with exit details and outcome metadata."""
+    extras, trade_row = _populate_exit_metadata(
+        trade_id, exit_time, exit_price, db_path,
+    )
+    from src.shadow_trading.exit_reason import coerce_exit_reason
+    ticker = trade_row["ticker"] if trade_row else ""
+    exit_reason = coerce_exit_reason(exit_reason or "unknown", ticker=ticker)
     fields = {
         "status": "closed",
         "actual_exit_price": exit_price,
@@ -438,9 +444,6 @@ def close_shadow_trade(
         "pnl_dollars": pnl_dollars,
         "pnl_pct": pnl_pct,
     }
-    extras, trade_row = _populate_exit_metadata(
-        trade_id, exit_time, exit_price, db_path,
-    )
     fields.update(extras)
     fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)

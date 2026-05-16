@@ -429,12 +429,17 @@ def reconcile_live_trades(
             except Exception as _tg_err:
                 logger.debug("[RECONCILE] Telegram notify failed for %s: %s", ticker, _tg_err)
 
+    resolved_stale = list(marked_closed)
+    unresolved_stale = [ticker for ticker in stale if ticker not in set(resolved_stale)]
+
     return {
         "desk": desk,
         "alpaca_positions": len(alpaca_positions),
         "tracked_positions": len(tracked),
         "orphaned": orphaned,
         "stale": stale,
+        "resolved_stale": resolved_stale,
+        "unresolved_stale": unresolved_stale,
         "backfilled": backfilled,
         "marked_closed": marked_closed,
         "error": _live_fetch_error,
@@ -1060,6 +1065,13 @@ def reconcile_paper_trades(
                     )
                 logger.info("[RECONCILE-PAPER] Closed uncertain trade as failed: %s", ticker)
 
+    resolved_stale = list(marked_closed)
+    resolved_stale_set = set(resolved_stale)
+    unresolved_stale = [
+        entry for entry in stale
+        if entry.get("ticker") not in resolved_stale_set
+    ]
+
     return {
         "desk": desk,
         "alpaca_count": len(alpaca_positions),
@@ -1067,6 +1079,8 @@ def reconcile_paper_trades(
         "matched": matched,
         "orphaned": orphaned,
         "stale": stale,
+        "resolved_stale": resolved_stale,
+        "unresolved_stale": unresolved_stale,
         "discrepancies": discrepancies,
         "backfilled": backfilled,
         "skipped": skipped,

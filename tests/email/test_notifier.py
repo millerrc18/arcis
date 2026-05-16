@@ -85,17 +85,45 @@ class TestEmailPasswordEnvRequired:
         mock_smtp_instance = MagicMock()
         mock_smtp_instance.sendmail.return_value = {}
 
+        import src.email.notifier as mod
+        importlib.reload(mod)
+        mod._yaml_password_warning_emitted = False
+
         with patch("src.email.notifier.load_config", return_value=config), \
              patch.dict(os.environ, {"EMAIL_PASSWORD": "env-secret"}, clear=False), \
              patch("smtplib.SMTP", return_value=mock_smtp_instance), \
              patch("src.email.notifier.logger") as mock_logger:
-            from src.email.notifier import send_email
-            send_email("Subject", "Body")
+            mod.send_email("Subject", "Body")
 
         # A warning must have been emitted about the YAML password key
         warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
         assert any("password" in w.lower() or "yaml" in w.lower() for w in warning_calls), \
             f"Expected a warning about YAML password key, got: {warning_calls}"
+
+    def test_yaml_password_warning_is_once_per_process(self):
+        """Repeated sends should not spam the same YAML password warning."""
+        config = _make_config({"password": "yaml-secret"})
+
+        mock_smtp_instance = MagicMock()
+        mock_smtp_instance.sendmail.return_value = {}
+
+        import src.email.notifier as mod
+        importlib.reload(mod)
+        mod._yaml_password_warning_emitted = False
+
+        with patch("src.email.notifier.load_config", return_value=config), \
+             patch.dict(os.environ, {"EMAIL_PASSWORD": "env-secret"}, clear=False), \
+             patch("smtplib.SMTP", return_value=mock_smtp_instance), \
+             patch("src.email.notifier.logger") as mock_logger:
+            mod.send_email("Subject 1", "Body")
+            mod.send_email("Subject 2", "Body")
+
+        warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+        yaml_warnings = [
+            w for w in warning_calls
+            if "password" in w.lower() or "yaml" in w.lower()
+        ]
+        assert len(yaml_warnings) == 1
 
 
 # ---------------------------------------------------------------------------

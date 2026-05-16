@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### PATCH hotfix - watch-loop root-cause hardening
+
+Release intent: `PATCH hotfix - watch-loop root-cause hardening`. This PR does
+not bump `src/version.py`; cut the runtime version only if this PR becomes the
+release boundary.
+
+#### Fixed
+
+- Replaced SQLite-only attribution cutoff SQL with a Python-computed timestamp
+  so the post-close resolver works on the PG-routed path.
+- Replaced stress-test `INSERT OR REPLACE` persistence with
+  `engine_aware_upsert` and deterministic `stress_test_results.result_id`
+  values.
+- Blocked fine-tuning before GPU handoff when the 5-day temporal split leaves
+  an empty holdout; UTF-8 subprocess env/encoding is now forced for training
+  scripts.
+- Split reconciliation output into `resolved_stale` and `unresolved_stale` so
+  stale rows auto-closed by the reconciler do not keep the nightly summary in
+  failure state.
+- Added writer-side exit-reason coercion for `close_shadow_trade` and
+  deterministic audit prechecks for unknown exits, bracket coverage, stale
+  reconciliation, drawdown, and model win rate.
+- Suppressed repeated YAML email-password warnings and kept `.env` /
+  `EMAIL_PASSWORD` as the only password source.
+- Converted expected stress-test yfinance historical gaps into structured
+  caveats instead of repeated failure noise.
+
+#### Hardened
+
+- New trained models remain evaluation-only until holdout evaluation, canary
+  evaluation, and the promotion gate pass.
+- A recent critical deterministic audit suppresses new entry risk through the
+  risk governor without writing the operator-only kill switch; exit management
+  and reconciliation continue.
+
+#### Docs
+
+- Added `docs/audits/2026-05-16-watchloop-root-cause-hardening.md`.
+- Updated `docs/operator-guide.md` and `MASTER.md` with durable operator and
+  system behavior changes.
+
 
 ## [v0.36.10] — 2026-05-15 — Codemod safety tool (closes the v0.36.8 failure class)
 

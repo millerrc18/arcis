@@ -16,6 +16,7 @@ Tests:
 """
 
 import pytest
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -134,3 +135,34 @@ def test_timeout_not_counted_as_win():
     wr = compute_win_rate_from_trades(trades)
     # 1 win out of 3 trades
     assert abs(wr - 1 / 3) < 1e-9, f"Expected {1/3:.6f}, got {wr}"
+
+
+def test_stress_result_id_is_deterministic_for_upsert():
+    """Same scenario payload must produce the same stress_test_results key."""
+    from scripts.stress_test import _stress_result_id
+
+    result = {
+        "scenario": "covid_crash",
+        "start_date": "2020-02-20",
+        "end_date": "2020-04-30",
+        "model_version": "v0.36.10",
+    }
+    assert _stress_result_id(result) == _stress_result_id(dict(result))
+
+    changed = dict(result)
+    changed["model_version"] = "v0.36.11"
+    assert _stress_result_id(result) != _stress_result_id(changed)
+
+
+def test_stress_test_persistence_has_no_raw_insert_or_replace():
+    """PG-routed stress persistence must use engine_aware_upsert."""
+    source = Path("scripts/stress_test.py").read_text(encoding="utf-8")
+    assert "INSERT OR REPLACE" not in source
+    assert "engine_aware_upsert" in source
+
+
+def test_stress_test_records_yfinance_gap_caveats():
+    """Expected historical-data gaps should become structured caveats."""
+    source = Path("scripts/stress_test.py").read_text(encoding="utf-8")
+    assert "market_data_gaps" in source
+    assert "yfinance_historical_gap" in source
