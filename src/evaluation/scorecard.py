@@ -95,8 +95,15 @@ def generate_weekly_scorecard(
     avg_mae_pct = sum(mae_pcts) / len(mae_pcts) if mae_pcts else 0
     mfe_mae_ratio = abs(metrics["avg_mfe"] / metrics["avg_mae"]) if metrics["avg_mae"] != 0 else 0
 
-    # Hold period stats
-    durations = [t.get("duration_days", 0) or 0 for t in closed]
+    # Hold period stats — v0.36.13 sibling-search sweep (operator memory
+    # feedback_review_sibling_search 2026-04-26). Excludes sentinel
+    # duration_days=999 (from the legacy 'unknown' backfill) and unmeasurable
+    # exit reasons (reconciled_stale/unknown/manual/qty_mismatch_partial_fill)
+    # using the cto_report helper. Pre-fix this list included 11 sentinel-999
+    # trades that pushed the 'longest' value to 999 days on the weekly
+    # scorecard, masking the real 1-7 day pullback distribution.
+    from src.evaluation.cto_report import _measurable_hold_durations
+    durations = _measurable_hold_durations(closed)
     shortest = min(durations) if durations else 0
     longest = max(durations) if durations else 0
 

@@ -317,3 +317,142 @@ class TestCalibrationExcludesOrphansAndUnmeasurable:
             f"Expected 1 excluded_unmeasurable_exit (reconciled_stale), "
             f"got {result['excluded_unmeasurable_exit']}"
         )
+
+
+# ── QA Cycle 2: _check_regime_classification_flag wired into prechecks ───────
+
+class TestRegimeClassificationFlagWired:
+    """v0.36.13 QA fix: ensure _check_regime_classification is invoked from
+    _collect_deterministic_precheck_flags so the Alert 2 false-positive
+    suppression actually takes effect at runtime."""
+
+    def test_flag_function_added_to_collector(self):
+        """The collector must invoke the new wrapper."""
+        import inspect
+        from src.evaluation import auditor
+
+        source = inspect.getsource(auditor._collect_deterministic_precheck_flags)
+        assert "_check_regime_classification_flag" in source, (
+            "_collect_deterministic_precheck_flags must call "
+            "_check_regime_classification_flag — otherwise the Alert 2 "
+            "false-positive suppression isn't reachable from run_daily_audit"
+        )
+
+    def test_flag_fires_on_high_unknown_fraction(self, tmp_path):
+        """When >50% of measurable trades have regime='unknown' and the
+        denominator is >=5, a critical flag should fire."""
+        conn = _make_mem_db()
+        _setup_shadow_trades_table(conn)
+        # 6 trades with regime='unknown', 2 with regime='GREEN', 3 with NULL.
+        # Denominator = 8 (excluding NULLs), unknown_fraction = 6/8 = 75% > 50%
+        rows = [
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "GREEN", 1.0, "target_1"),
+            ("closed", "GREEN", 1.0, "target_1"),
+            ("closed", None, 1.0, "target_1"),
+            ("closed", None, 1.0, "target_1"),
+            ("closed", None, 1.0, "target_1"),
+        ]
+        conn.executemany(
+            "INSERT INTO shadow_trades (status, regime_at_entry, duration_days, exit_reason) "
+            "VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        db_path = _db_from_conn(conn, str(tmp_path))
+
+        from src.evaluation.auditor import _check_regime_classification_flag
+
+        flags: list = []
+        _check_regime_classification_flag(flags, db_path)
+
+        assert len(flags) == 1, f"Expected 1 critical flag, got {len(flags)}"
+        flag = flags[0]
+        assert flag["severity"] == "critical"
+        assert flag["category"] == "regime"
+        assert flag["metric"] == "regime_unknown_fraction"
+
+    def test_flag_does_not_fire_with_thin_denominator(self, tmp_path):
+        """Denominator < 5 measurable trades — remain silent to avoid noise."""
+        conn = _make_mem_db()
+        _setup_shadow_trades_table(conn)
+        rows = [
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "unknown", 1.0, "stop_loss"),
+            ("closed", "GREEN", 1.0, "target_1"),
+            ("closed", None, 1.0, "target_1"),
+        ]
+        conn.executemany(
+            "INSERT INTO shadow_trades (status, regime_at_entry, duration_days, exit_reason) "
+            "VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        db_path = _db_from_conn(conn, str(tmp_path))
+
+        from src.evaluation.auditor import _check_regime_classification_flag
+
+        flags: list = []
+        _check_regime_classification_flag(flags, db_path)
+        assert flags == [], (
+            "Thin denominator (< 5 measurable trades) must not fire the flag"
+        )
+
+    def test_flag_does_not_fire_when_unknown_below_threshold(self, tmp_path):
+        """When unknown_fraction <= 50% the flag stays silent — production
+        PG state today has 0 unknown / 45 GREEN, which should NOT alarm."""
+        conn = _make_mem_db()
+        _setup_shadow_trades_table(conn)
+        rows = [
+            ("closed", "GREEN", 1.0, "target_1"),
+        ] * 10 + [
+            ("closed", "unknown", 1.0, "stop_loss"),
+        ] * 3  # 3/13 = 23% < 50%
+        conn.executemany(
+            "INSERT INTO shadow_trades (status, regime_at_entry, duration_days, exit_reason) "
+            "VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        db_path = _db_from_conn(conn, str(tmp_path))
+
+        from src.evaluation.auditor import _check_regime_classification_flag
+
+        flags: list = []
+        _check_regime_classification_flag(flags, db_path)
+        assert flags == [], (
+            "unknown_fraction <= 50% must not fire the flag"
+        )
+
+
+# ── QA Cycle 2: scorecard.py sibling-search sweep ────────────────────────────
+
+class TestScorecardSiblingDurationsFiltered:
+    """v0.36.13 QA fix: src/evaluation/scorecard.py:99 was the unswept sibling
+    of cto_report.py:440 and model_monitor.py:85. Operator memory
+    feedback_review_sibling_search (2026-04-26) requires sweeping all
+    sibling sites; pre-fix scorecard pulled sentinel-999 into the
+    'longest hold' figure on the weekly scorecard, masking the real
+    1-7 day pullback distribution."""
+
+    def test_scorecard_imports_measurable_helper(self):
+        """The hold-period block must source durations from the shared filter."""
+        scorecard_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "src", "evaluation", "scorecard.py"
+        )
+        with open(scorecard_path, encoding="utf-8") as f:
+            source = f.read()
+        assert "_measurable_hold_durations" in source, (
+            "scorecard.py must import and use _measurable_hold_durations from "
+            "cto_report — the unfiltered list comprehension was the unswept "
+            "sibling of cto_report.py:440 and model_monitor.py:85"
+        )
+        assert "[t.get(\"duration_days\", 0) or 0 for t in closed]" not in source, (
+            "Raw unfiltered durations list comprehension must NOT remain in "
+            "scorecard.py after the sibling-search sweep"
+        )

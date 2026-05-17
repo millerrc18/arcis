@@ -214,7 +214,52 @@ def _collect_deterministic_precheck_flags(db_path: str, cto_data: dict) -> list[
     _check_reconciled_stale_volume(flags, db_path)
     _check_drawdown(flags, cto_data)
     _check_model_win_rate(flags, cto_data)
+    _check_regime_classification_flag(flags, db_path)
     return flags
+
+
+def _check_regime_classification_flag(flags: list[dict], db_path: str) -> None:
+    """Wire `_check_regime_classification` into the deterministic precheck flag stream.
+
+    v0.36.13 (QA Cycle 2 wire-up): the Track-(d) audit-hardening commit added
+    `_check_regime_classification(db_path)` as a stats helper that excludes
+    NULL `regime_at_entry` from the denominator (instead of folding NULL into
+    'unknown'). The helper itself returns observability stats but DOES NOT
+    emit a flag. Without this caller, the 'All trades classified as unknown
+    regime' false-positive in the daily Telegram audit alerts would continue
+    firing because nothing in the deterministic precheck path was invoking
+    the corrected denominator math.
+
+    Fires CRITICAL when more than 50% of measurable closed trades have
+    `regime_at_entry='unknown'` over a denominator of at least 5 trades.
+    """
+    stats = _check_regime_classification(db_path)
+    denominator = stats.get("denominator", 0)
+    if denominator < 5:
+        # Not enough measurable trades to assess; remain silent rather than
+        # alarm operators on a thin denominator.
+        return
+    unknown_fraction = stats.get("unknown_fraction", 0.0)
+    if unknown_fraction <= 0.5:
+        return
+    flags.append(_deterministic_flag(
+        severity="critical",
+        category="regime",
+        description=(
+            f"{unknown_fraction * 100:.1f}% of {denominator} measurable closed "
+            f"trades have regime_at_entry='unknown' (NULL entries excluded "
+            f"from denominator; null_count={stats.get('null_count', 0)})"
+        ),
+        recommendation=(
+            "Investigate regime classification system. Pre-fix audit folded "
+            "NULL into 'unknown' which inflated the denominator and fired "
+            "false-positive alerts; this flag fires only on REAL unknown-class "
+            "saturation among measurable trades."
+        ),
+        metric="regime_unknown_fraction",
+        value=stats,
+        threshold="<=50%",
+    ))
 
 
 def _deterministic_flag(
