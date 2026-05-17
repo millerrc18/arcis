@@ -74,6 +74,7 @@ def collect_short_interest(
     tickers_processed = 0
     records_stored = 0
     errors = 0
+    entitlement_gap = False  # v0.36.12 R3: set on first 403 to short-circuit
 
     with connect_db(db_path) as conn:
         for ticker in tickers:
@@ -91,6 +92,20 @@ def collect_short_interest(
                 if resp is None:
                     logger.warning("[SHORT] Failed to fetch %s after retries", ticker)
                     continue
+                # v0.36.12 R3: detect 403 entitlement gap and short-circuit
+                # the remaining ~101 tickers. Pre-fix this loop log-spammed
+                # 102 warnings + threshold-failed the overnight cycle on what
+                # is really an API plan / key entitlement issue rather than
+                # a system failure.
+                if resp.status_code == 403:
+                    logger.warning(
+                        "[SHORT] Finnhub returned 403 for %s — short-interest "
+                        "endpoint not entitled on current API plan. Skipping "
+                        "remaining %d tickers for this cycle.",
+                        ticker, len(tickers) - tickers_processed - 1,
+                    )
+                    entitlement_gap = True
+                    break
                 resp.raise_for_status()
                 data = resp.json().get("data", [])
 
@@ -151,6 +166,25 @@ def collect_short_interest(
             time.sleep(1.0)
 
     total = len(tickers)
+    # v0.36.12 R3: if we broke on a 403 entitlement gap, treat as a
+    # structured skip rather than a partial-failure exception. The
+    # remaining tickers weren't actually attempted, so the >50% threshold
+    # would otherwise spuriously trip on what is plan/key state, not a
+    # system fault.
+    if entitlement_gap:
+        result = {
+            "tickers_processed": tickers_processed,
+            "records_stored": records_stored,
+            "errors": 0,
+            "skipped_entitlement": True,
+        }
+        logger.info(
+            "[SHORT] Collection skipped — Finnhub plan does not entitle "
+            "short-interest endpoint (HTTP 403). %s",
+            result,
+        )
+        return result
+
     if total > 0 and errors > total * 0.5:
         from src.data_collection.errors import CollectorPartialFailureError
         raise CollectorPartialFailureError(

@@ -801,6 +801,7 @@ _REPLACE_SEMANTICS = {
     "walkforward_trades": "in_place_update",
     "sp100_historical_constituents": "in_place_update",
     "stress_test_results": "in_place_update",
+    "minute_bars": "in_place_update",
 }
 
 
