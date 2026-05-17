@@ -723,6 +723,19 @@ def run_data_collection(db_path: str = DB_PATH,
     else:
         results["short_interest"] = "skipped (not settlement date)"
 
+    # 10b. FINRA short volume (Mon-Fri only — FINRA publishes T+1 on trading days)
+    # v0.36.13 — replaces defunct Finnhub /stock/short-interest (403).
+    # NOTE: short_volume != short_interest (see short_volume_finra.py docstring).
+    if now.weekday() < 5:
+        try:
+            from src.data_collection.short_volume_finra import collect_finra_short_volume
+            results["short_volume_finra"] = collect_finra_short_volume()
+        except Exception as e:
+            logger.warning("[SHORT_VOLUME_FINRA] Collection failed: %s", e)
+            results["short_volume_finra"] = {"error": str(e)}
+    else:
+        results["short_volume_finra"] = "skipped (weekend — no FINRA publication)"
+
     # 11. Fed communications
     print("[WATCH]   [11/12] Fed communications...")
     try:
