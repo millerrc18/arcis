@@ -1,5 +1,10 @@
 """FINRA short interest collector via Finnhub.
 
+DEPRECATED v0.36.13 — see src/data_collection/short_volume_finra.py.
+Finnhub plan no longer entitles /stock/short-interest (403). The early-exit
+from v0.36.12 stays in place during transition; this collector will be
+removed in v0.37.0.
+
 Called by: scheduler/watch.py
 Calls: config.py
 Owns tables: short_interest
@@ -51,6 +56,10 @@ def collect_short_interest(
 
     Returns: {"tickers_processed": int, "records_stored": int}
     """
+    # DEPRECATED v0.36.13 — see src/data_collection/short_volume_finra.py.
+    # Finnhub plan no longer entitles /stock/short-interest (403). The early-exit
+    # from v0.36.12 stays in place during transition; this collector will be
+    # removed in v0.37.0.
     # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — short_interest is in
     # both 'free' and 'fundamental-1' matrices, so this is a no-op on current
     # plans. Guards against future plan tiers that exclude the feature and

@@ -214,7 +214,52 @@ def _collect_deterministic_precheck_flags(db_path: str, cto_data: dict) -> list[
     _check_reconciled_stale_volume(flags, db_path)
     _check_drawdown(flags, cto_data)
     _check_model_win_rate(flags, cto_data)
+    _check_regime_classification_flag(flags, db_path)
     return flags
+
+
+def _check_regime_classification_flag(flags: list[dict], db_path: str) -> None:
+    """Wire `_check_regime_classification` into the deterministic precheck flag stream.
+
+    v0.36.13 (QA Cycle 2 wire-up): the Track-(d) audit-hardening commit added
+    `_check_regime_classification(db_path)` as a stats helper that excludes
+    NULL `regime_at_entry` from the denominator (instead of folding NULL into
+    'unknown'). The helper itself returns observability stats but DOES NOT
+    emit a flag. Without this caller, the 'All trades classified as unknown
+    regime' false-positive in the daily Telegram audit alerts would continue
+    firing because nothing in the deterministic precheck path was invoking
+    the corrected denominator math.
+
+    Fires CRITICAL when more than 50% of measurable closed trades have
+    `regime_at_entry='unknown'` over a denominator of at least 5 trades.
+    """
+    stats = _check_regime_classification(db_path)
+    denominator = stats.get("denominator", 0)
+    if denominator < 5:
+        # Not enough measurable trades to assess; remain silent rather than
+        # alarm operators on a thin denominator.
+        return
+    unknown_fraction = stats.get("unknown_fraction", 0.0)
+    if unknown_fraction <= 0.5:
+        return
+    flags.append(_deterministic_flag(
+        severity="critical",
+        category="regime",
+        description=(
+            f"{unknown_fraction * 100:.1f}% of {denominator} measurable closed "
+            f"trades have regime_at_entry='unknown' (NULL entries excluded "
+            f"from denominator; null_count={stats.get('null_count', 0)})"
+        ),
+        recommendation=(
+            "Investigate regime classification system. Pre-fix audit folded "
+            "NULL into 'unknown' which inflated the denominator and fired "
+            "false-positive alerts; this flag fires only on REAL unknown-class "
+            "saturation among measurable trades."
+        ),
+        metric="regime_unknown_fraction",
+        value=stats,
+        threshold="<=50%",
+    ))
 
 
 def _deterministic_flag(
@@ -400,6 +445,54 @@ def _check_model_win_rate(flags: list[dict], cto_data: dict) -> None:
             value=win_rate,
             threshold=">0 with at least 2 trades",
         ))
+
+
+def _check_regime_classification(db_path: str) -> dict:
+    """Return regime distribution stats, excluding NULL regime_at_entry rows.
+
+    NULL regime_at_entry means the trade pre-dates regime capture or had a
+    capture failure (Track f). These are NOT 'unknown' regimes — they are
+    unmeasured. Folding them into the 'unknown' bucket would inflate the
+    unknown fraction and trigger false-positive audit alerts.
+
+    Returns a dict with:
+      - denominator: count of rows with non-NULL regime_at_entry
+      - null_count: count excluded from denominator (observability only)
+      - unknown_fraction: fraction of denominator that equals 'unknown'
+      - regime_counts: breakdown of non-NULL regimes
+    """
+    try:
+        with connect_db(db_path) as conn:
+            rows = conn.execute(
+                "SELECT regime_at_entry, COUNT(*) as cnt "
+                "FROM shadow_trades "
+                "WHERE status = 'closed' "
+                "GROUP BY regime_at_entry"
+            ).fetchall()
+    except Exception as exc:
+        logger.warning("[AUDIT] Regime classification check failed: %s", exc)
+        return {"denominator": 0, "null_count": 0, "unknown_fraction": 0.0, "regime_counts": {}}
+
+    null_count = 0
+    regime_counts: dict[str, int] = {}
+    for row in rows:
+        regime = row[0]
+        cnt = int(row[1] or 0)
+        if regime is None:
+            null_count += cnt
+        else:
+            regime_counts[regime] = cnt
+
+    denominator = sum(regime_counts.values())
+    unknown_count = regime_counts.get("unknown", 0)
+    unknown_fraction = unknown_count / denominator if denominator > 0 else 0.0
+
+    return {
+        "denominator": denominator,
+        "null_count": null_count,
+        "unknown_fraction": round(unknown_fraction, 4),
+        "regime_counts": regime_counts,
+    }
 
 
 def run_weekly_audit(days: int = 7, db_path: str = DB_PATH) -> dict:

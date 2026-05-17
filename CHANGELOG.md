@@ -3,6 +3,332 @@
 ## [Unreleased]
 
 
+## [v0.36.13] — 2026-05-17 — Training Page + Audit Hardening
+
+Six-track PATCH bundle resolving training-page blank charts, FED scraper
+breakage, Finnhub entitlement loss, four recurring false-positive audit
+alerts, duration-sentinel data archaeology, and forensic logging for the
+`regime_at_entry` NULL class on live scans.
+
+Root cause shared across all tracks: **legacy data archaeology + writer/reader
+contract drift**. The deterministic audit added in v0.36.11 was correctly
+surfacing symptoms; the underlying anomalies were data-quality issues, not
+model degradation.
+
+---
+
+### Track (a) — Training outcome bucketing fix
+
+Three stacked bugs in the training pipeline that silently dropped 48 of 88
+closed trades and produced empty Training-page outcome distribution charts.
+
+#### Fixed
+
+- **`src/training/data_collector.py:311`** — `SELECT st.*, r.*` had 11 column
+  collisions: `ticker, target_1, target_2, setup_type, setup_confidence,
+  max_favorable_excursion, max_adverse_excursion, created_at, updated_at,
+  llm_timeout_days, recommendation_id`. For 48 of 88 closed trades with
+  `recommendation_id=NULL` (post-MO/BK manual cleanups), the LEFT JOIN missed
+  and `r.ticker=NULL` overrode `st.ticker`. Every such trade was logged as
+  `[TRAINING] Skipping None trade_id=...` and dropped — half the corpus
+  silently lost. Rewritten to explicit column list with
+  `r.created_at AS scan_created_at` alias; downstream callers updated to
+  prefer `scan_created_at` for rec_date semantic, falling back to `st.created_at`.
+- **`_classify_outcome`** — returned LOSS for `reconciled_stale` / `unknown` /
+  `manual` / `qty_mismatch_partial_fill` trades (pnl=$0, not > 0). Added
+  `_UNMEASURED_EXIT_REASONS = frozenset({"reconciled_stale", "unknown",
+  "manual", "qty_mismatch_partial_fill"})` and `UNMEASURED` classification.
+  The main training loop now skips UNMEASURED trades before the Stage-1 LLM
+  call — 63 closed trades no longer generate "why this was a bad trade" theses
+  for outcomes we never measured.
+
+  **Note for future maintainers:** `_UNMEASURED_EXIT_REASONS` in
+  `src/training/data_collector.py` and `_UNMEASURABLE_EXIT_REASONS` in
+  `src/evaluation/cto_report.py` are intentionally separate frozensets with
+  identical membership but different filter purposes: the training frozenset
+  gates corpus exclusion (skip LLM call entirely), while the evaluation
+  frozenset gates stat exclusion (drop from hold-period and confidence
+  calibration metrics). Do not consolidate them — the distinction clarifies
+  each module's intent and allows them to diverge independently if the two
+  use-cases evolve differently.
+- **`src/api/cloud_routes/training.py:138`** — dashboard
+  `COALESCE(trade_outcome, outcome_type, outcome)` was using the verbose
+  `_build_outcome_text()` blob as primary bucket key. The blob is a unique
+  multi-line string per trade, producing ~40 distinct buckets with none
+  matching `WIN/LOSS/TIMEOUT/PASS`, causing an empty chart. Reordered to
+  `COALESCE(outcome_type, outcome, trade_outcome)` so compact labels win.
+  Also added `outcome_type` column to both primary and contrastive INSERTs
+  (`WIN/LOSS/TIMEOUT` for primary; `NULL` for synthetic contrastive rows).
+
+#### Sibling-search receipt
+
+Swept `data_collector.py` and `cloud_routes/training.py` for related
+`SELECT *` wildcard joins, additional `_classify_outcome`-style pnl-only
+classification sites, and other COALESCE ordering bugs:
+
+- No other `SELECT st.*, <joined_table>.*` wildcard joins found in the
+  training pipeline; the explicit column list fix is isolated to the one
+  join at line 311.
+- `src/evaluation/cto_report.py`: also classifies outcomes via exit-reason
+  lists. Uses `_UNMEASURABLE_EXIT_REASONS` for stat exclusion — parallel
+  pattern, intentionally separate (see note above).
+- No other dashboard COALESCE ordering bugs found in `cloud_routes/training.py`.
+
+---
+
+### Track (b) — FED calendar scraper fix
+
+`fed_collector.py` date extraction broke when the Fed website stopped
+embedding 8-consecutive-digit tokens (`20260128`-style) directly in link text.
+Page continued returning HTTP 200 with structural selectors intact — the
+failure was silent (zero rows stored, no exception).
+
+#### Fixed
+
+- **`src/data_collection/fed_collector.py:_parse_href_date`** — replaced
+  8-digit regex `r"(\d{8})"` with patterns that match the current Fed href
+  formats (`/YYYY/MMDD.htm` path components and
+  `/monetarypolicy/fomcminutes<8-digit>.htm` URL substrings). Function still
+  returns `None` for non-date hrefs.
+- **Link filter** — updated CSS/HTML selectors to match observed 2026 page
+  structure confirmed by live probe (2026-05-17 PM): `div#article` present,
+  `div.col-xs-12` present, `<main>` NOT present, `fomcMinutes` tokens present;
+  8-digit bare tokens absent.
+- Updated fixture HTML in `tests/test_data_collectors.py` to reflect current
+  href format.
+
+#### Sibling-search receipt
+
+Reviewed all regex-based date parsers in `src/data_collection/` for the same
+brittle 8-consecutive-digit pattern:
+
+- `macro_collector.py`, `news_collector.py`, `docs_collector.py`: no
+  href-date parsing; date construction from API response fields only.
+- `fed_collector.py` was the only collector with bare href-date regex
+  extraction. No siblings to fix.
+
+---
+
+### Track (c) — FINRA short-volume collector (replaces defunct Finnhub short_interest)
+
+Finnhub `/stock/short-interest` returns HTTP 403 across all 102 SP100
+tickers — plan entitlement lost. v0.36.12 added an early-exit so the
+overnight cycle no longer threshold-fails; this track provides a real
+replacement data source.
+
+**Important metric caveat:** FINRA daily short-volume differs from Finnhub
+settlement-date short-interest. FINRA `CNMSshvol` counts executed short sales
+per trading day (flow); Finnhub reported total short positions per member firm
+bi-monthly (stock). Both signal the same directional pressure but are not
+numerically comparable. Any model feature or dashboard panel previously reading
+from `short_interest` (0 rows since entitlement loss) and now reading from
+`short_volume_daily` is using a same-direction but semantically different
+metric. Callers should update column references and display labels accordingly.
+
+#### Added
+
+- **`src/data_collection/short_volume_finra.py`** — new collector hitting
+  `https://cdn.finra.org/equity/regsho/daily/CNMSshvol{YYYYMMDD}.txt`
+  (pipe-delimited, no auth, ~500 KB/day). Filters to SP100. Computes
+  `short_ratio = short_volume / total_volume`. Stores to `short_volume_daily`.
+- **`short_volume_daily` table** in `src/schema/registry.py` — columns:
+  `ticker`, `trade_date`, `short_volume`, `short_exempt_volume`,
+  `total_volume`, `short_ratio`, `source` (default `'finra'`), `collected_at`.
+  Composite PK `(ticker, trade_date)`. `sync_to_postgres=True`,
+  `sync_mode="incremental"`, `sync_time_column="trade_date"`.
+  The existing `short_interest` table is left in place, marked deprecated in
+  its schema description.
+- **`src/scheduler/overnight.py`** — FINRA short-volume task wired into the
+  Mon–Fri overnight schedule (FINRA publishes T+1).
+- **`tests/data_collection/test_short_volume_finra.py`** — full regression-
+  lock suite: URL format, pipe-delimited parser, SP100 filtering, `short_ratio`
+  computation, schema column coverage. HTTP layer mocked per CLAUDE.md rule.
+
+#### Sibling-search receipt
+
+Reviewed all callers of the old `short_interest` table to ensure none are
+silently reading 0 rows without warning:
+
+- `src/data_collection/short_interest_collector.py` — early-exit path added
+  in v0.36.12 is intact; updated to log a deprecation hint pointing to
+  `short_volume_daily`.
+- Dashboard short-interest panel: reads from `short_volume_daily` after this
+  change. Label update recommended but not enforced in this track (out of
+  scope for hotfix).
+- No model-feature extractors found that join directly on `short_interest` —
+  feature pipeline reads via the collector's output dict, not raw SQL joins.
+
+---
+
+### Track (d) — Audit hardening: suppress four false-positive alerts
+
+Four audit alerts firing daily, all sourced from data-quality pollution rather
+than model degradation. Each fix includes a data-quality filter and a
+regression-lock test with fixture rows containing both polluted and clean data.
+
+#### Fixed
+
+1. **"75% good process → bad outcome" quadrant skew**
+   (`src/evaluation/cto_report.py:583`) — `is_win = "win" in source` was
+   bucketing `contrastive_win` (synthetic training rows, 10 of 75) as real
+   wins. Added `WHERE source IN ('blinded_win', 'blinded_loss',
+   'blinded_timeout', 'blinded_pass')` to exclude all `contrastive_*` rows
+   from quadrant analysis. Also tightened `quality_score_auto IS NOT NULL`
+   requirement: previously `score is not None and score >= 3.0` let NULL
+   scores fall into the `bad_process_*_outcome` bucket, inflating the bad-
+   process count.
+
+2. **"All trades classified as 'unknown' regime"** (`src/evaluation/auditor.py`)
+   — audit was coalescing NULL `regime_at_entry` → `'unknown'` and then
+   reporting 100% 'unknown' regime. PG state is 45 GREEN / 398 NULL / 0
+   'unknown'. Fix: skip NULL rows from the percentage denominator; do not fold
+   them into 'unknown'. The alert now only fires if explicitly-written 'unknown'
+   values exist, not for the NULL class (which is addressed by Track f).
+
+3. **"Avg hold period 336 days"** (`src/evaluation/cto_report.py:440, 756`;
+   `src/evaluation/model_monitor.py:85`) — exclude trades where
+   `duration_days = 999` (sentinel written by the old backfill script; see
+   Track e) OR `exit_reason IN ('unknown', 'reconciled_stale', 'manual',
+   'qty_mismatch_partial_fill')`. The filter reduces the PG average from 137.7
+   days to ~1.5 days, consistent with the pullback strategy's intended hold
+   window.
+
+4. **"0% confidence calibration + no rubric ≥70"**
+   (`src/evaluation/cto_report.py:_compute_confidence_calibration`) — added
+   two exclusion filters: `recommendation_id IS NOT NULL` (removes the 48
+   LEFT-JOIN orphans repaired in Track a) and unmeasurable exit reasons (the
+   same `_UNMEASURABLE_EXIT_REASONS` frozenset used in stat exclusion).
+
+#### Sibling-search receipt
+
+After fixing the four filter sites, swept `src/evaluation/` for other
+quadrant, hold-period, or calibration computations that might share the same
+NULL/sentinel/contrastive-contamination patterns:
+
+- **`src/evaluation/scorecard.py:99`** — uses a similar pnl-sign outcome
+  classification without an unmeasurable-reason guard. Same pattern as the
+  pre-fix `_classify_outcome`. **Out of scope for this hotfix**; filed as
+  known follow-up. Deferred: `scorecard.py` is not in the live training
+  loop; fixing it does not unblock the Training page.
+- **`src/evaluation/canary.py:234`** — `duration_days` sentinel check absent.
+  Would benefit from the same `duration_days = 999` exclusion. **Out of scope
+  for this hotfix**; filed as known follow-up. Deferred: canary fires on
+  aggregate, not per-trade, so the distortion is less acute than in the CTO
+  report's hold-period line.
+- All other `cto_report.py` metric sites reviewed; no additional
+  contrastive-contamination paths found beyond the four fixed above.
+
+---
+
+### Track (e) — Data archaeology: sentinel duration_days=999 cleanup
+
+One-shot interactive backfill script for pre-existing sentinel pollution in
+`shadow_trades`.
+
+#### Added
+
+- **`scripts/backfill_v0.36.13_archaeology.py`** — interactive script
+  (`input()` confirmation before commit). Actions:
+  - 11 trades with `exit_reason='unknown'` and `duration_days=999` (all
+    share synthetic `actual_entry_time='2026-05-05T12:09:43.107835'` from
+    the old bulk backfill): sets `duration_days=NULL` and
+    `actual_entry_time=NULL`. `exit_reason` left as `'unknown'` — the
+    outcome is genuinely unknown, only the sentinel is removed.
+  - 3 trades with `exit_reason='manual'` and `duration_days=999`: same
+    treatment.
+  - 49 `reconciled_stale` trades: no change (real durations 0–7 days).
+  - Attempts `regime_at_entry` backfill for NULL trades from available
+    regime history. NOTE: `regime_snapshots` table does not exist in PG;
+    the script queries `market_regime` / `regimes` per the schema registry.
+    If no historical regime exists for a trade's entry timestamp, leaves NULL.
+  - Runs all updates in a single transaction; prints pre/post counts; rolls
+    back on operator cancel.
+- **`tests/test_backfill_v0_36_13_archaeology.py`** — regression-lock suite
+  validating pre/post state logic and rollback behavior.
+
+#### Sibling-search receipt
+
+Searched `scripts/` for other one-shot backfill scripts using the same
+`duration_days=999` or `actual_entry_time='2026-05-05T12:09:43.107835'`
+sentinel values to ensure no sibling scripts would re-introduce the pollution:
+
+- No other scripts write `duration_days=999` as a sentinel. The original
+  source was the v0.36.10-era bulk-reconciliation pass; that script has no
+  successor.
+- `scripts/post_close_check.py`: reads `duration_days` but does not write
+  it. Not affected.
+
+---
+
+### Track (f) — Forensic logging for regime_at_entry NULL on live scans
+
+13 of 18 currently-open trades have `regime_at_entry=NULL`. Root cause traces
+to a vocabulary mismatch spanning three subsystems; cross-subsystem fix is
+deferred to the next sprint. This track adds forensic logging so the next
+overnight cycle leaves a clear trail.
+
+#### Added
+
+- **`src/services/scan_service.py`** — added explicit logging when
+  `feat.get("regime")` and `feat.get("market_regime")` are both None at the
+  regime-capture site. The log entry records the feat-dict keys present, the
+  ticker, and the scan timestamp so the next failure is immediately traceable.
+
+#### Known follow-up (deferred — see `docs/audits/2026-05-17-v0.36.13-training-page/regime_capture_followup.md`)
+
+The root-cause trace identified a secondary bug at `scan_service.py:370`: the
+ternary `feat.get("regime") or feat.get("market_regime")` reads keys that are
+never set by the enrichment pipeline. The enricher sets `feat["regime_label"]`
+and the nested `feat["traffic_light"]` dict — neither `"regime"` nor
+`"market_regime"`. This line has been ineffective from day one.
+
+The fix requires a **vocabulary decision**: the feature pipeline has two
+incompatible regime vocabularies sharing the `regime_label` key name:
+
+- `src/features/regime.py` — 5-label descriptive vocabulary
+  (`calm_uptrend`, `volatile_uptrend`, `calm_downtrend`,
+  `volatile_downtrend`, `transitional`)
+- `src/features/traffic_light.py` — 3-label sizing vocabulary
+  (`GREEN`, `YELLOW`, `RED`)
+
+The `shadow_trades.regime_at_entry` column currently stores 3-label values
+(45 `GREEN` rows). The correct fix is to read
+`feat.get("traffic_light", {}).get("regime_label", "")` (matching
+`executor.py:1116`) rather than the non-existent `"regime"` key — but this
+change must be validated against all downstream readers before landing.
+Additionally, `enrichment.py:_apply_traffic_light` has a broad exception
+handler that leaves `feat["traffic_light"]` unset on failure; plugging that
+gap is the deeper fix that would prevent the NULL class on future scans.
+
+The `regime_capture_followup.md` audit doc (created in this sprint by the T6
+agent) contains the full subsystem trace, the call graph from
+`compute_market_regime()` through `executor.py:1116`, and the recommended
+next-sprint scope. Review it before dispatching any follow-up work on this
+class.
+
+#### Sibling-search receipt
+
+Searched for all sites reading `feat.get("regime")` or
+`feat.get("market_regime")` across `src/`:
+
+- `scan_service.py:370` — the site under investigation; forensic logging
+  added.
+- `src/services/scan_service.py:370` was the only callsite using the
+  non-existent `"regime"` / `"market_regime"` keys. All other regime reads
+  in the codebase correctly use `feat.get("traffic_light", {})` or
+  `feat.get("regime_label")`.
+
+---
+
+### Service deploy
+
+Restart `nssm restart ArcisWatchLoop` after merge to load the updated
+modules. The short-volume collector begins populating `short_volume_daily`
+on the next weekday overnight run (T+1 after merge). One-shot archaeology
+script (`scripts/backfill_v0.36.13_archaeology.py`) requires manual operator
+invocation against the PG instance.
+
+
 ## [v0.36.12] — 2026-05-17 — Residual PG-dialect collector hotfixes
 
 Closes the three issue classes left over after v0.36.11's watch-loop

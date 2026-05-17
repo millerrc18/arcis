@@ -135,10 +135,13 @@ def create_router(runtime, verify_auth):
             # Without COALESCE this returned an empty distribution and the
             # Training page rendered "Outcome data pending migration"
             # indefinitely.
+            # v0.36.13 reorder: outcome_type wins (clean WIN/LOSS/TIMEOUT label);
+            # outcome (legacy short label) is second; trade_outcome (verbose
+            # multi-line blob) is fallback only for legacy rows pre-v0.36.13.
             outcome_rows = runtime.query(
-                "SELECT COALESCE(trade_outcome, outcome_type, outcome) as outcome, "
+                "SELECT COALESCE(outcome_type, outcome, trade_outcome) as outcome, "
                 "COUNT(*) as count FROM training_examples "
-                "WHERE COALESCE(trade_outcome, outcome_type, outcome) IS NOT NULL "
+                "WHERE COALESCE(outcome_type, outcome, trade_outcome) IS NOT NULL "
                 "GROUP BY 1"
             )
             outcome_counts = {r["outcome"]: r["count"] for r in outcome_rows} if outcome_rows else None

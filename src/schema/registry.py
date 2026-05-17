@@ -954,6 +954,34 @@ _register(TableDef(
 ))
 
 _register(TableDef(
+    name="short_volume_daily",
+    description="FINRA daily short-sale volume per ticker (v0.36.13 replacement for Finnhub short_interest). "
+                "NOTE: short_volume is NOT equivalent to short_interest. "
+                "short_volume = executed short sales per day (FINRA REGSHO). "
+                "short_interest = total short positions reported bi-monthly. "
+                "Same directional signal; different metric.",
+    columns=[
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("trade_date", "TEXT", nullable=False),
+        ColumnDef("short_volume", "REAL"),
+        ColumnDef("short_exempt_volume", "REAL"),
+        ColumnDef("total_volume", "REAL"),
+        ColumnDef("short_ratio", "REAL"),
+        ColumnDef("source", "TEXT", default="finra"),
+        ColumnDef("collected_at", "TEXT", nullable=False),
+    ],
+    primary_key=["ticker", "trade_date"],
+    indexes=[
+        IndexDef("idx_short_volume_daily_ticker_date", ["ticker", "trade_date"],
+                 unique=False),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="trade_date",
+    sync_conflict_col="ticker, trade_date",
+))
+
+_register(TableDef(
     name="fed_communications",
     description="Federal Reserve speeches, minutes, and press conferences",
     columns=[

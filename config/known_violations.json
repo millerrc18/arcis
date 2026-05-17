@@ -1,6 +1,11 @@
 {
   "oversized_files": [
     {
+      "file": "src/evaluation/auditor.py",
+      "lines": 597,
+      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit on worktree-agent-a2ac97bf9aaba9653. auditor.py grew past 400 lines before v0.36.13. Three grandfathered functions already in known_violations (check_escalation=92, run_daily_audit=73, run_weekly_audit=72). Real split into auditor_daily.py + auditor_weekly.py + auditor_escalation.py deferred to post-Sprint-6 cleanup."
+    },
+    {
       "file": "src/api/cloud_routes/analytics.py",
       "lines": 996,
       "rationale": "Sprint 3 cockpit-coherence: T1 (Calmar fix +4L), T2 (attribution paired-overlap +8L), T3 (monitoring 200+empty+note +12L), T8 (cto-report _meta +15L), T9 (_meta on 7 endpoints +11L total in analytics.py). Pre-Sprint-3 baseline was 946. Real refactor of the 729-line create_router monolith is deferred to Sprint 4."
@@ -57,6 +62,11 @@
     {
       "file": "src/email/digest_builder.py",
       "lines": 405
+    },
+    {
+      "file": "src/evaluation/auditor.py",
+      "lines": 645,
+      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2). Sprint 6 T2 audit-data-quality-filters: added _check_regime_classification (+48L) to support Alert 2 false-positive suppression (NULL regime_at_entry exclusion from denominator). The precheck functions are architecturally co-located with the deterministic audit loop; splitting into a sibling module would require re-exporting _deterministic_flag and _collect_deterministic_precheck_flags. Real refactor deferred to post-Sprint-6."
     },
     {
       "file": "src/evaluation/build_score.py",
@@ -126,7 +136,8 @@
     },
     {
       "file": "src/risk/governor.py",
-      "lines": 847
+      "lines": 949,
+      "rationale": "Pre-existing growth from 847 to 949 lines (before v0.36.13). Risk governor is a core safety component; splitting is a structural refactor out of scope for v0.36.13. Deferred to post-Sprint-6 cleanup track."
     },
     {
       "file": "src/scheduler/overnight.py",
@@ -425,7 +436,14 @@
     {
       "file": "src/data_collection/short_interest_collector.py",
       "function": "collect_short_interest",
-      "lines": 95
+      "lines": 159,
+      "rationale": "v0.36.12 early-exit guard + v0.36.13 deprecation marker grew function from 95 to 159 lines. Function is DEPRECATED v0.36.13 and will be removed in v0.37.0 along with this entry. Splitting a function slated for deletion is wasteful."
+    },
+    {
+      "file": "src/data_collection/short_volume_finra.py",
+      "function": "collect_finra_short_volume",
+      "lines": 125,
+      "rationale": "v0.36.13 new FINRA collector replacing defunct Finnhub short_interest. 125 lines: HTTP fetch + retry + response validation + pipe-delimited parsing loop + SP100 filter + short_ratio computation + DB upsert with dedup pre-probe + structured return. All logic is tightly coupled around a single FINRA REGSHO fetch-and-store operation. Splitting would scatter the parsing and upsert across sub-functions with no cohesion benefit. Refactor candidate post-v0.37.0 once Finnhub plan is restored or a permanent replacement is chosen."
     },
     {
       "file": "src/data_collection/trends_collector.py",
@@ -435,7 +453,8 @@
     {
       "file": "src/data_enrichment/earnings_signals.py",
       "function": "compute_earnings_signals",
-      "lines": 145
+      "lines": 197,
+      "rationale": "Pre-existing growth from 145 to 197 lines (before v0.36.13). Function computes the full earnings signal pipeline; splitting requires passing intermediate signal dicts across call boundaries. Deferred to post-Sprint-6 cleanup track."
     },
     {
       "file": "src/data_enrichment/enricher.py",
@@ -1344,6 +1363,8 @@
     }
   ],
   "missing_docstring_headers": [
+    "src/shadow_trading/bracket_attach.py",
+    "src/utils/codemod.py",
     "src/notifications/telegram_commands.py",
     "src/scheduler/overnight.py",
     "src/scheduler/reports.py",

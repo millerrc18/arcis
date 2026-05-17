@@ -111,6 +111,8 @@ EXPECTED_TABLES = {
     "platform_events",
     # Sprint 5 Wave C7b — plan-gated Finnhub paid-tier sinks (T21, T22, T23)
     "institutional_holdings", "filings_sentiment", "press_releases",
+    # v0.36.13 — FINRA daily short-volume (replaces defunct Finnhub short_interest)
+    "short_volume_daily",
 }
 
 

@@ -23,6 +23,40 @@ if TYPE_CHECKING:
     from src.platform.strategy_spec import StrategySpec
 
 
+def _log_regime_capture_failure(ticker: str, feat: dict) -> None:
+    """Forensic logging for the regime_at_entry NULL class (2026-05-17).
+
+    Live PG state showed 13 of 18 OPEN shadow trades on 2026-05-15 with
+    regime_at_entry=NULL. The investigation pinned the writer at
+    src/shadow_trading/executor.py:1116 which reads
+    feat["traffic_light"]["regime_label"] and falls back to "" when the
+    enrichment chain (src/features/enrichment.py:_apply_traffic_light) has
+    failed. The chain depends on FRED credit data, SPY OHLCV, and the
+    traffic_light_state singleton — any one of which can be missing or
+    intermittently unreachable.
+
+    This helper emits a WARNING with the sorted feat keys so an operator
+    auditing the watch log after the next scan cycle can see exactly which
+    enrichment step short-circuited. Only fires when BOTH `regime` and
+    `market_regime` keys are missing or falsy — by then both the Telegram
+    notification (feat.get("regime") or feat.get("market_regime")) and the
+    DB writer (feat["traffic_light"]["regime_label"]) have already lost
+    the regime signal silently.
+
+    See docs/audits/2026-05-17-v0.36.13-training-page/regime_capture_followup.md
+    for the cross-subsystem analysis.
+    """
+    if not feat.get("regime") and not feat.get("market_regime"):
+        try:
+            keys = sorted(feat.keys())
+        except Exception:
+            keys = []
+        logger.warning(
+            "[SCAN] regime_at_entry NULL for %s — feat keys=%s",
+            ticker, keys,
+        )
+
+
 def _resolve_attribution_hooks(
     strategy: "StrategySpec" | None,
 ) -> tuple[bool, bool]:
@@ -360,6 +394,7 @@ def run_scan(
                     _concurrent = len(get_open_shadow_trades())
                 except Exception:
                     _concurrent = None
+                _log_regime_capture_failure(ticker, feat)
                 safe_send(
                     "trade_opened",
                     ticker=ticker, entry_price=_entry, stop=_stop, target=_target,

@@ -84,6 +84,13 @@ OUTCOME_FIELDS = {
     "duration_days", "status", "outcome_type",
 }
 
+_UNMEASURED_EXIT_REASONS = frozenset({
+    "reconciled_stale",
+    "unknown",
+    "manual",
+    "qty_mismatch_partial_fill",
+})
+
 
 def _sanitize_feature_snapshot(snapshot: str) -> str:
     """Remove lines containing outcome-correlated fields from feature text.
@@ -107,10 +114,11 @@ def _sanitize_feature_snapshot(snapshot: str) -> str:
 
 def _classify_outcome(trade: dict) -> str:
     """Classify a closed trade's outcome type for prompt selection."""
-    exit_reason = trade.get("exit_reason", "")
-
+    exit_reason = (trade.get("exit_reason") or "").lower()
     if "timeout" in exit_reason:
         return "TIMEOUT"
+    if exit_reason in _UNMEASURED_EXIT_REASONS:
+        return "UNMEASURED"
     pnl = float(trade.get("pnl_dollars") or 0)
     if pnl > 0:
         return "WIN"
@@ -264,11 +272,13 @@ def _emit_contrastive_example(
         conn.execute(
             """INSERT INTO training_examples
                (example_id, created_at, source, ticker, recommendation_id,
-                feature_snapshot, trade_outcome, instruction, input_text, output_text)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                feature_snapshot, trade_outcome, outcome_type,
+                instruction, input_text, output_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (contrastive_id, created_at, contrastive_source,
              trade.get("ticker"), link_recommendation_id,
              feature_input, outcome_text,
+             None,  # outcome_type — synthetic example, no real outcome
              contrastive_prompt, feature_input, contrastive_response),
         )
         conn.commit()
@@ -309,7 +319,13 @@ def collect_training_examples_from_closed_trades_detailed(
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
-            SELECT st.*, r.*
+            SELECT
+                st.*,
+                r.enriched_prompt,
+                r.price_at_recommendation,
+                r.trend_state,
+                r.pullback_depth_pct,
+                r.created_at AS scan_created_at
             FROM shadow_trades st
             LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id
             WHERE st.status = 'closed'
@@ -364,7 +380,7 @@ def collect_training_examples_from_closed_trades_detailed(
             feature_input = _build_feature_input(trade)
 
         # Get the scan/recommendation date for the blinded prompt
-        rec_date = (trade.get("created_at") or "")[:10]  # YYYY-MM-DD
+        rec_date = (trade.get("scan_created_at") or trade.get("created_at") or "")[:10]  # YYYY-MM-DD
 
         # Some older / reconciled trades can have missing recommendation rows or
         # null recommendation_id. Keep these eligible by assigning a stable
@@ -387,6 +403,14 @@ def collect_training_examples_from_closed_trades_detailed(
         # validation, risk weighting, signal decay) but the template itself
         # never reveals the outcome. Self-blinding is preserved architecturally.
         outcome_type = _classify_outcome(trade)
+        if outcome_type == "UNMEASURED":
+            skipped_no_features += 1
+            logger.info(
+                "[TRAINING] Skipping %s trade_id=%s — unmeasured exit_reason=%s",
+                trade.get("ticker"), trade.get("trade_id"),
+                trade.get("exit_reason"),
+            )
+            continue
         outcome_prompt = _get_outcome_prompt(outcome_type)
         try:
             stage1_response = generate_training_example(outcome_prompt, feature_input, purpose="backfill_blinded")
@@ -463,10 +487,12 @@ def collect_training_examples_from_closed_trades_detailed(
             conn.execute(
                 """INSERT INTO training_examples
                    (example_id, created_at, source, ticker, recommendation_id,
-                    feature_snapshot, trade_outcome, instruction, input_text, output_text)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    feature_snapshot, trade_outcome, outcome_type,
+                    instruction, input_text, output_text)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (example_id, created_at, source, trade.get("ticker"),
                  link_recommendation_id, feature_input, outcome_text,
+                 outcome_type,
                  outcome_prompt, feature_input, final_output),
             )
             conn.commit()
