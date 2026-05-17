@@ -223,6 +223,18 @@ _REPLACE_SEMANTICS = {
 
 **Acceptance reminder for T0.4 (per spec):** if `engine_aware_upsert(action='replace')` is called on a table not present in this dict, the helper MUST raise `ValueError("engine_aware_upsert(action='replace') called on table <name> without semantic classification — add to _REPLACE_SEMANTICS dict")` to force every future `replace` target through this audit.
 
+## 7.1. Post-audit hotfix additions
+
+Tables added to `_REPLACE_SEMANTICS` after the original 9-table Phase-1 audit. Each entry confirms the table satisfies the same leaf-table criteria (no incoming FKs, no triggers, no rowid-dependent readers) so `in_place_update` is semantically identical to native SQLite `INSERT OR REPLACE`.
+
+| Table | Added | Source | Audit notes |
+|---|---|---|---|
+| `operator_view_state` | Phase-3 revised T6 | (PR n/a — added with operator_view_state introduction) | TEXT PK; no incoming FKs; readers query by key. |
+| `stress_test_results` | v0.36.11 watch-loop hardening (PR #1122) | `scripts/stress_test.py` migration off `INSERT OR REPLACE` | TEXT UUID PK (deterministic UUID5 keyed by scenario/start/end/model); leaf table. |
+| `minute_bars` | v0.36.12 residual hotfix (collect_1min_bars sibling fix) | `scripts/collect_1min_bars.py` migration off `INSERT OR REPLACE` | Composite TEXT PK `(ticker, timestamp)`; no incoming FKs; no triggers; readers query by ticker + time window. yfinance bars are immutable for stable historical timestamps so in-place update preserves the documented "idempotent re-collection" intent. |
+
+If you add a new entry here you MUST also update `tests/test_db_engine_aware_upsert.py::test_replace_semantics_dict_matches_audit_verbatim`'s `expected` dict.
+
 ## 8. Audit reproducibility
 
 The findings are reproducible from a clean clone:

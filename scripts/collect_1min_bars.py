@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH  # noqa: E402
 from src.universe.sp100 import get_sp100_universe, to_yfinance_ticker  # noqa: E402
-from src.utils.db import connect_db  # noqa: E402
+from src.utils.db import connect_db, engine_aware_upsert  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -120,15 +120,18 @@ def _fetch_minute_bars(ticker: str, target_date: datetime) -> list[dict]:
 
 
 def _upsert_bars(conn: sqlite3.Connection, bars: list[dict]) -> int:
-    """Idempotent upsert via INSERT OR REPLACE on the composite PK."""
+    """Idempotent upsert via engine_aware_upsert(action='replace').
+
+    Replaces a former raw `INSERT OR REPLACE` that broke on the PG-routed
+    overnight cycle (`syntax error at or near "OR"`) — v0.36.12 sibling
+    fix for the v0.36.11 stress_test_results migration. `minute_bars` is
+    classified `in_place_update` in `_REPLACE_SEMANTICS` (audit doc §7.1
+    post-audit hotfix additions) — leaf table, no FKs, no triggers.
+    """
     if not bars:
         return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO minute_bars "
-        "(ticker, timestamp, open, high, low, close, volume, trade_count) "
-        "VALUES (:ticker, :timestamp, :open, :high, :low, :close, :volume, :trade_count)",
-        bars,
-    )
+    for bar in bars:
+        engine_aware_upsert(conn, "minute_bars", bar, action="replace")
     return len(bars)
 
 

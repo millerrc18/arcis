@@ -3,6 +3,70 @@
 ## [Unreleased]
 
 
+## [v0.36.12] — 2026-05-17 — Residual PG-dialect collector hotfixes
+
+Closes the three issue classes left over after v0.36.11's watch-loop
+hardening. Two of them are sibling-search misses (`feedback_review_sibling_search`
+discipline from 2026-04-26): when v0.36.11 fixed raw `INSERT OR REPLACE` in
+`scripts/stress_test.py`, the same anti-pattern in `scripts/collect_1min_bars.py`
+was missed and continued crashing every overnight 1-min-bars pull. The third
+is a previously-undiagnosed PG transaction-abort cascade in the FRED macro
+collector that silently dropped 22+ series per overnight run.
+
+### Fixed
+
+- **`scripts/collect_1min_bars.py`** — replaced raw `INSERT OR REPLACE INTO minute_bars`
+  with `engine_aware_upsert(action="replace")`. Pre-fix the PG-routed overnight
+  cycle failed with `syntax error at or near "OR"` 17 times in a row (Sat 2026-05-16
+  23:30 → Sun 2026-05-17 00:00); no 1-min bars were stored for 2026-05-15.
+- **`src/data_collection/macro_collector.py`** — replaced raw `INSERT INTO macro_snapshots`
+  with `engine_aware_upsert(action="ignore")` so PG handles same-day re-runs
+  natively via `ON CONFLICT (series_id, collected_date) DO NOTHING`. Also added
+  `except DBError` with `conn.rollback()` as a defensive belt-and-suspenders.
+  Pre-fix one `IntegrityError` on FEDFUNDS poisoned the shared PG connection
+  and 22+ subsequent FRED series silently dropped with
+  `current transaction is aborted, commands ignored until end of transaction block`.
+  Silent data loss — `[MACRO] Collection complete: {'series_collected': 31, ...}`
+  was still logged because the collector reports the *attempted* count, not the
+  persisted count.
+- **`src/data_collection/short_interest_collector.py`** — early-exit on the first
+  HTTP 403 from Finnhub's `/stock/short-interest` endpoint, with a single
+  "entitlement gap" warning. Returns `{"skipped_entitlement": True}` rather
+  than threshold-failing the overnight cycle. Pre-fix the collector retried
+  102 tickers, log-spammed 102 WARN lines, and threshold-failed the entire
+  overnight collection on what is really an API-plan / key-entitlement issue.
+
+### Added
+
+- `minute_bars` to `_REPLACE_SEMANTICS` (in_place_update) per the T0.12 audit
+  process. Leaf table — no incoming FKs, no triggers — same shape as
+  `stress_test_results`. Audit doc updated with §7.1 "Post-audit hotfix
+  additions" tracking `operator_view_state` + `stress_test_results` +
+  `minute_bars`.
+- `tests/test_collectors_pg_dialect_residuals.py` — 5 regression-lock tests
+  pinning the three fixes plus the audit-dict entry.
+
+### Sibling-search coverage
+
+Reviewed all `INSERT OR REPLACE` and shared-conn loop sites to confirm no
+further misses:
+
+- `INSERT OR REPLACE INTO` raw SQL: only `scripts/collect_1min_bars.py:127`
+  remained (now fixed). Other matches in `src/utils/db.py`, `src/evaluation/build_score.py`,
+  `src/monitoring/system_metrics.py`, `src/platform/rigor/walkforward_universe.py`
+  are all engine-aware dispatchers or explanatory docstrings.
+- Shared-connection `for` loops with `INSERT` + `try/except continue` (cascade-risk):
+  only `macro_collector.py` exposed. `options_collector`, `trends_collector`,
+  `vix_collector`, `docs_collector` all open per-iteration connections so a
+  poisoned tx in one iteration can't leak into the next.
+
+### Service deploy
+
+No service restart strictly required — the codepaths affected are nightly
+overnight tasks, not the live trading loop. The next overnight cycle picks up
+the fix automatically once main lands and the watch loop is on v0.36.11+.
+
+
 ## [v0.36.11] — 2026-05-17 — Watch-loop root-cause hardening (release cut)
 
 Promotes the `[Unreleased]` watch-loop hardening section (merged 2026-05-16 in

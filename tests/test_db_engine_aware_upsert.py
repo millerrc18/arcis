@@ -674,6 +674,7 @@ def test_replace_semantics_dict_matches_audit_verbatim():
         "walkforward_trades": "in_place_update",
         "sp100_historical_constituents": "in_place_update",
         "stress_test_results": "in_place_update",
+        "minute_bars": "in_place_update",
     }
     assert _REPLACE_SEMANTICS == expected
 

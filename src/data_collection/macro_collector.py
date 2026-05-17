@@ -36,7 +36,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import DBError, connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -180,20 +180,28 @@ def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
                 if previous is not None and previous != 0:
                     change_pct = round((value - previous) / abs(previous) * 100, 4)
 
-                conn.execute(
-                    """INSERT INTO macro_snapshots
-                    (collected_at, collected_date, series_id, series_name,
-                     value, previous_value, change_pct)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        now.isoformat(),
-                        today_str,
-                        series_id,
-                        series_name,
-                        value,
-                        previous,
-                        change_pct,
-                    ),
+                # v0.36.12: was raw INSERT. On PG, duplicate-key on
+                # (series_id, collected_date) raised IntegrityError and the
+                # bare-except below logged-and-continued, leaving the PG tx
+                # poisoned — every subsequent series in this `with conn` block
+                # then failed with "current transaction is aborted". The
+                # engine_aware_upsert(action='ignore') path handles the dedup
+                # natively (ON CONFLICT DO NOTHING on PG, INSERT OR IGNORE on
+                # SQLite) so we never reach IntegrityError for the expected
+                # same-day re-run case.
+                engine_aware_upsert(
+                    conn,
+                    "macro_snapshots",
+                    {
+                        "collected_at": now.isoformat(),
+                        "collected_date": today_str,
+                        "series_id": series_id,
+                        "series_name": series_name,
+                        "value": value,
+                        "previous_value": previous,
+                        "change_pct": change_pct,
+                    },
+                    action="ignore",
                 )
                 series_collected += 1
 
@@ -208,6 +216,20 @@ def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
                 logger.debug("[MACRO] %s = %.4f (prev: %s, chg: %s%%)",
                              series_id, value, previous, change_pct)
 
+            except DBError as e:
+                # Defensive belt-and-suspenders against any DB-layer error
+                # we didn't anticipate. PG semantic divergence: a single
+                # IntegrityError aborts the whole transaction until rollback.
+                # Without this, the next loop iteration would fail with
+                # "current transaction is aborted, commands ignored until end
+                # of transaction block" and cascade for every remaining
+                # series. v0.36.12 incident: FEDFUNDS duplicate-key poisoned
+                # the tx and 22+ downstream FRED series silently dropped.
+                logger.warning("[MACRO] DB error on %s: %s", series_id, e)
+                try:
+                    conn.rollback()
+                except DBError:
+                    pass
             except Exception as e:
                 logger.warning("[MACRO] Error fetching %s: %s", series_id, e)
 
