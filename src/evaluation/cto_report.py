@@ -46,6 +46,40 @@ from src.utils.type_safety import safe_numeric
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+# v0.36.13 audit filter — exit reasons that represent synthetic or
+# operator-action closures rather than model-attributable outcomes.
+# These rows are excluded from stat aggregations (avg hold, confidence
+# calibration) so that sentinel values don't pollute real metrics.
+#
+# INTENTIONALLY NOT shared with src/training/data_collector.py's
+# _UNMEASURED_EXIT_REASONS (Task 1 ownership). That set governs corpus
+# exclusion; this set governs stat exclusion. The two may diverge in
+# the future as the training pipeline and the audit pipeline evolve
+# independently.
+_UNMEASURABLE_EXIT_REASONS = frozenset({
+    "unknown",
+    "reconciled_stale",
+    "manual",
+    "qty_mismatch_partial_fill",
+})
+
+
+def _measurable_hold_durations(trades: list[dict]) -> list[float]:
+    """v0.36.13 audit filter — exclude sentinel-999 + unmeasurable exits.
+
+    Returns durations only from trades whose duration_days is real and whose
+    exit_reason is a model-attributable outcome. The 11 unknown+999 +
+    3 manual+999 sentinel rows in PG were polluting the avg from ~1.5d to
+    137.7d (model_monitor) and triggering the 'avg hold 336 days' alert.
+    """
+    return [
+        _num(t.get("duration_days"))
+        for t in trades
+        if t.get("duration_days") is not None
+           and _num(t.get("duration_days")) != 999
+           and (t.get("exit_reason") or "").lower() not in _UNMEASURABLE_EXIT_REASONS
+    ]
+
 
 def _num(val, default=0):
     """Coerce a value to float. Guards against SQLite returning strings for numeric columns."""
@@ -437,7 +471,8 @@ def _compute_execution_analysis(closed: list) -> dict:
 
     avg_mfe_w = sum(_num(t.get("max_favorable_excursion")) for t in winners) / len(winners) if winners else 0
     avg_mae_l = sum(_num(t.get("max_adverse_excursion")) for t in losers) / len(losers) if losers else 0
-    avg_hold = sum(_num(t.get("duration_days")) for t in closed) / len(closed)
+    hold_durations = _measurable_hold_durations(closed)
+    avg_hold = sum(hold_durations) / len(hold_durations) if hold_durations else 0
 
     return {
         "avg_stop_distance_atr": 2.0,  # Default per our setup
@@ -578,7 +613,8 @@ def _compute_training_status(days: int, db_path: str) -> dict:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT source, quality_score_auto FROM training_examples "
-                "WHERE source IS NOT NULL"
+                "WHERE source IN ('blinded_win', 'blinded_loss', 'blinded_timeout', 'blinded_pass') "
+                "AND quality_score_auto IS NOT NULL"
             ).fetchall()
         quadrants = {
             "good_process_good_outcome": 0,
@@ -627,11 +663,19 @@ def _compute_confidence_calibration(closed: list, recommendations: list) -> dict
     """
     conv_map = {r.get("recommendation_id"): r.get("llm_conviction") for r in recommendations}
 
+    excluded_no_rec_id = sum(1 for t in closed if t.get("recommendation_id") is None)
+    trades_with_rec_id = [t for t in closed if t.get("recommendation_id") is not None]
+    measurable_trades = [
+        t for t in trades_with_rec_id
+        if (t.get("exit_reason") or "").lower() not in _UNMEASURABLE_EXIT_REASONS
+    ]
+    excluded_unmeasurable = len(trades_with_rec_id) - len(measurable_trades)
+
     bands = {"8-10": [], "5-7": [], "1-4": []}
     convictions = []
     pnls = []
 
-    for t in closed:
+    for t in measurable_trades:
         rec_id = t.get("recommendation_id")
         conv = _num(conv_map.get(rec_id))
         if conv is None:
@@ -679,6 +723,8 @@ def _compute_confidence_calibration(closed: list, recommendations: list) -> dict
         "is_calibrated": is_calibrated,
         "overconfidence_rate": round(overconfidence, 2),
         "total_with_conviction": len(convictions),
+        "excluded_no_recommendation_id": excluded_no_rec_id,
+        "excluded_unmeasurable_exit": excluded_unmeasurable,
     }
 
 
@@ -698,7 +744,7 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
     """
     pnl_pcts = [_num(t.get("pnl_pct")) for t in closed]
     pnl_dollars = [_num(t.get("pnl_dollars")) for t in closed]
-    durations = [_num(t.get("duration_days")) for t in closed]
+    durations = _measurable_hold_durations(closed)
 
     if len(pnl_pcts) < 2:
         return {

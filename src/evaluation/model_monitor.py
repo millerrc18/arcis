@@ -26,6 +26,19 @@ from src.utils.db import connect_db, engine_aware_column_info
 
 logger = logging.getLogger(__name__)
 
+# v0.36.13 audit filter — exit reasons that produce sentinel duration_days=999
+# or otherwise unmeasurable hold periods. Duplicated from
+# src/evaluation/cto_report._UNMEASURABLE_EXIT_REASONS (the canonical list for
+# stat-exclusion purposes). NOT shared intentionally: this set governs
+# model_monitor stat exclusion; cto_report governs broader calibration +
+# hold-period exclusion. The two may diverge as the pipelines evolve.
+_UNMEASURABLE_EXIT_REASONS = frozenset({
+    "unknown",
+    "reconciled_stale",
+    "manual",
+    "qty_mismatch_partial_fill",
+})
+
 
 def _compute_metrics(trades: list[dict]) -> dict:
     """Compute performance metrics from a list of closed trade dicts.
@@ -45,7 +58,13 @@ def _compute_metrics(trades: list[dict]) -> dict:
 
     pnl_dollars = [float(t.get("pnl_dollars") or 0) for t in trades]
     pnl_pcts = [float(t.get("pnl_pct") or 0) for t in trades]
-    durations = [float(t.get("duration_days") or 0) for t in trades]
+    durations = [
+        float(t.get("duration_days") or 0)
+        for t in trades
+        if t.get("duration_days") is not None
+           and float(t.get("duration_days") or 0) != 999
+           and (t.get("exit_reason") or "").lower() not in _UNMEASURABLE_EXIT_REASONS
+    ]
 
     wins = [p for p in pnl_dollars if p > 0]
     losses = [p for p in pnl_dollars if p < 0]
@@ -82,7 +101,7 @@ def _compute_metrics(trades: list[dict]) -> dict:
         if dd > max_dd:
             max_dd = dd
 
-    avg_hold = sum(durations) / n if n else 0
+    avg_hold = sum(durations) / len(durations) if durations else 0
     total_pnl_pct = sum(pnl_pcts)
     total_pnl_dollars = sum(pnl_dollars)
     avg_win = sum(wins) / len(wins) if wins else 0
