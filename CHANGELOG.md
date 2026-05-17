@@ -2,11 +2,28 @@
 
 ## [Unreleased]
 
-### PATCH hotfix - watch-loop root-cause hardening
 
-Release intent: `PATCH hotfix - watch-loop root-cause hardening`. This PR does
-not bump `src/version.py`; cut the runtime version only if this PR becomes the
-release boundary.
+## [v0.36.11] — 2026-05-17 — Watch-loop root-cause hardening (release cut)
+
+Promotes the `[Unreleased]` watch-loop hardening section (merged 2026-05-16 in
+PR #1122 as `df92c454` / `b5d7db6d`) to a tagged release. The hardening work
+itself was deferred-tag pending operator decision on whether it should be the
+release boundary — confirmed 2026-05-17. No new code in this cut; bumps
+`src/version.py` + `tests/test_version.py` and dates the section.
+
+Service deploy required: the watch loop process running pre-hardening Friday
+code (PID started 2026-05-15 15:59:51) must be restarted via
+`nssm restart ArcisWatchLoop` to load the new modules. Before restart the
+following recurred at every overnight cycle:
+
+- `function date(text, unknown) does not exist` (attribution resolver)
+- `syntax error at or near "OR"` (stress-test persistence)
+- `HOLDOUT EMPTY: corpus most recent ... — 5-day gap` (training scheduler)
+- Reconciliation reporting auto-resolved stale rows as failures
+
+All of the above are fixed by the modules loaded after restart.
+
+### PATCH hotfix - watch-loop root-cause hardening
 
 #### Fixed
 
