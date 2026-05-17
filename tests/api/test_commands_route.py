@@ -86,17 +86,18 @@ def test_expire_stale_requires_auth(runtime_stub, monkeypatch):
 def test_outcome_counts_uses_coalesce_in_training_query():
     """Tier 1.F: outcome_counts query must COALESCE the three outcome columns.
 
-    Pre-fix used `outcome` only (0/1844 NULL post-migration). The fix:
-    COALESCE(trade_outcome, outcome_type, outcome) — preferring the most-
-    populated column, falling back through to legacy.
+    Pre-fix used `outcome` only (0/1844 NULL post-migration). The v0.36.13
+    reorder places outcome_type first (clean WIN/LOSS/TIMEOUT label), followed
+    by the legacy `outcome` short label, with the verbose trade_outcome blob
+    as fallback only for pre-v0.36.13 rows.
     """
     import inspect
 
     from src.api.cloud_routes import training
 
     source = inspect.getsource(training)
-    assert "COALESCE(trade_outcome, outcome_type, outcome)" in source, (
+    assert "COALESCE(outcome_type, outcome, trade_outcome)" in source, (
         "Tier 1.F regression: outcome_counts query must use "
-        "COALESCE(trade_outcome, outcome_type, outcome). "
+        "COALESCE(outcome_type, outcome, trade_outcome). "
         "See #54 / cloud_routes/training.py outcome_rows query."
     )
