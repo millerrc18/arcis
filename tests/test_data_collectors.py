@@ -361,6 +361,26 @@ class TestFedCommunications:
         assert "beige_book" in result
         assert "speeches" in result
 
+    def test_parse_href_date_old_8digit_format(self):
+        from src.data_collection.fed_collector import _parse_href_date
+        assert _parse_href_date("/path/fomcminutes20260128.htm") == "2026-01-28"
+
+    def test_parse_href_date_year_mmdd_format(self):
+        from src.data_collection.fed_collector import _parse_href_date
+        assert _parse_href_date("/monetarypolicy/2026/0128.htm") == "2026-01-28"
+
+    def test_parse_href_date_invalid_returns_none(self):
+        from src.data_collection.fed_collector import _parse_href_date
+        assert _parse_href_date("/no-date-here.htm") is None
+
+    def test_parse_href_date_invalid_month_rejected(self):
+        from src.data_collection.fed_collector import _parse_href_date
+        assert _parse_href_date("/path/20269999.htm") is None
+
+    def test_parse_href_date_does_not_match_within_long_digit_run(self):
+        from src.data_collection.fed_collector import _parse_href_date
+        assert _parse_href_date("/asset/123456789012.css") is None
+
 
 # ── FRED Expanded Series ────────────────────────────────────────────
 

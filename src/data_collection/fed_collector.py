@@ -72,12 +72,29 @@ def _extract_text(soup: BeautifulSoup) -> str:
 
 
 def _parse_href_date(href: str) -> str | None:
-    """Extract a YYYY-MM-DD date from a Fed archive href."""
-    match = re.search(r"(\d{8})", href)
-    if not match:
-        return None
-    raw_date = match.group(1)
-    return f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+    """Extract a YYYY-MM-DD date from a Fed archive href.
+
+    Tries multiple patterns in order:
+      1. 8 consecutive digits not followed by another digit (legacy archive
+         format, e.g. fomcminutes20260128.htm). The negative lookahead
+         prevents matching within longer digit runs (hash fragments, etc.).
+      2. /YYYY/MMDD.htm (alternate current format).
+    Month and day components are validated to reject false-positive tokens.
+    Returns None if no pattern matches or the components are out of range.
+    """
+    match = re.search(r"(\d{4})(\d{2})(\d{2})(?!\d)", href)
+    if match:
+        yyyy, mm, dd = match.group(1), match.group(2), match.group(3)
+        if 1 <= int(mm) <= 12 and 1 <= int(dd) <= 31:
+            return f"{yyyy}-{mm}-{dd}"
+
+    match = re.search(r"/(\d{4})/(\d{2})(\d{2})", href)
+    if match:
+        yyyy, mm, dd = match.group(1), match.group(2), match.group(3)
+        if 1 <= int(mm) <= 12 and 1 <= int(dd) <= 31:
+            return f"{yyyy}-{mm}-{dd}"
+
+    return None
 
 
 def _already_collected(
@@ -198,7 +215,7 @@ def _collect_fomc_statements(
         comm_type="statement",
         since_date=since_date,
         collected_at=collected_at,
-        link_filter=lambda href, text: href.startswith("/") and ("statement" in text or "press release" in text),
+        link_filter=lambda href, text: href.startswith("/newsevents/pressreleases/monetary"),
         title_builder=lambda filing_date: f"FOMC Statement {filing_date}",
     )
 
@@ -213,7 +230,7 @@ def _collect_fomc_minutes(
         comm_type="minutes",
         since_date=since_date,
         collected_at=collected_at,
-        link_filter=lambda href, text: href.startswith("/") and "minutes" in text,
+        link_filter=lambda href, text: "fomcminutes" in href and href.endswith(".htm"),
         title_builder=lambda filing_date: f"FOMC Minutes {filing_date}",
     )
 
