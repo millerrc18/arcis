@@ -64,6 +64,11 @@
       "lines": 405
     },
     {
+      "file": "src/evaluation/auditor.py",
+      "lines": 645,
+      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2). Sprint 6 T2 audit-data-quality-filters: added _check_regime_classification (+48L) to support Alert 2 false-positive suppression (NULL regime_at_entry exclusion from denominator). The precheck functions are architecturally co-located with the deterministic audit loop; splitting into a sibling module would require re-exporting _deterministic_flag and _collect_deterministic_precheck_flags. Real refactor deferred to post-Sprint-6."
+    },
+    {
       "file": "src/evaluation/build_score.py",
       "lines": 481
     },
