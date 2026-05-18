@@ -35,7 +35,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -238,6 +238,11 @@ if os.path.exists(frontend_dist):
     # direct URLs (/shadow, /health, /diagnostics, ...) and page refreshes return
     # FastAPI's default {"detail":"Not Found"} JSON. /api/* and /ws/* paths still
     # 404 normally — that's the API surface, not the SPA.
+    #
+    # Non-SPA exceptions must return a Response (not re-raise) — re-raising from
+    # inside an exception handler bubbles to uvicorn and becomes a 500, which
+    # masked 401 responses pre-v0.36.21 and broke the frontend AuthGate
+    # redirect-on-401 path in `frontend/src/api.js`.
     @app.exception_handler(StarletteHTTPException)
     async def _spa_fallback_404(request: Request, exc: StarletteHTTPException):
         if (
@@ -247,6 +252,10 @@ if os.path.exists(frontend_dist):
             and os.path.exists(_index_html)
         ):
             return FileResponse(_index_html)
-        raise exc
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None) or None,
+        )
 
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")

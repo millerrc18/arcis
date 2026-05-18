@@ -3,6 +3,74 @@
 ## [Unreleased]
 
 
+## [v0.36.21] — 2026-05-18 — W21 execution cleanup: SPA fallback handler 500-vs-401 regression
+
+W21 continuation. Operator reported "the dashboard might be having an issue
+with the API — looks like everything" (every panel showing "failed to load").
+
+### Root cause
+
+`_spa_fallback_404` in `src/api/app.py:241-250` (introduced 2026-05-14 by
+commit `b45085c1` — "feat(dashboard): bundle morning hotfixes #142-#147")
+is registered as the global handler for **every** `StarletteHTTPException`.
+The handler correctly serves `index.html` for 404s on SPA routes, but for
+all other status codes it does `raise exc`. Raising inside an exception
+handler bubbles to uvicorn → uvicorn returns **HTTP 500**.
+
+Effect chain:
+1. Bearer token in browser localStorage expires (24h `SESSION_MAX_MS` in
+   `frontend/src/api.js:6`).
+2. SPA calls `/api/kpis` (or any authed endpoint).
+3. `verify_auth` raises `HTTPException(401, "Invalid or missing API token")`.
+4. `_spa_fallback_404` catches the 401, path `/api/kpis` doesn't match the
+   SPA-serve condition, falls through to `raise exc`.
+5. uvicorn returns 500 with the literal text "Internal Server Error".
+6. Frontend `fetchApi` at `frontend/src/api.js:33` only triggers the re-auth
+   redirect on `res.status === 401`. Sees 500, throws "API error: 500" to
+   the panel.
+7. Every dashboard panel renders "failed to load" while the user is silently
+   signed out — no AuthGate redirect, no path back to a working state without
+   a hard reload.
+
+### Fixed
+
+`src/api/app.py:251-255` — the SPA fallback handler now returns a
+`JSONResponse` mirroring FastAPI's default `HTTPException` response shape
+(`{"detail": exc.detail}` with the real `status_code`), instead of re-raising:
+
+```python
+return JSONResponse(
+    status_code=exc.status_code,
+    content={"detail": exc.detail},
+    headers=getattr(exc, "headers", None) or None,
+)
+```
+
+This restores 401 visibility for the frontend, which triggers the AuthGate
+re-auth flow.
+
+### Tests
+
+NEW `tests/api/test_spa_fallback_handler.py` (4 tests):
+
+- `test_unauthed_api_call_returns_401_not_500` — missing bearer on `/api/*`
+  returns **401**, body is `application/json` with `{"detail": ...}`.
+- `test_unauthed_api_call_with_bad_token_returns_401` — invalid bearer on
+  `/api/*` returns **401**, not 500.
+- `test_authed_api_call_still_works` — valid bearer still returns 200
+  (didn't break the working path).
+- `test_healthz_unaffected` — `/healthz` is still unauthenticated and 200.
+
+### Operator action required
+
+After this PR merges, the dashboard NSSM service (`ArcisDashboard`) needs
+a restart to pick up the fix. The watch-loop (`ArcisWatchLoop`) does not
+serve the dashboard API and doesn't need a restart for this fix.
+
+Once restarted, operators with expired tokens will see the AuthGate prompt
+again instead of broken panels.
+
+
 ## [v0.36.20] — 2026-05-18 — W21 execution cleanup: FINRA short-volume pre-overnight fix
 
 W21 pre-overnight de-risk. Manual pre-flight of every overnight task before
