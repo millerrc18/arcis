@@ -83,13 +83,18 @@ src/shadow_trading/executor.py:665: _dup_conn.execute("BEGIN IMMEDIATE")
 
 ## P1 — Data integrity / observability gaps
 
-### P1-1. 14 trades with sentinel `duration_days=999`
+### P1-1. ~~14 trades with sentinel `duration_days=999`~~ — **CLOSED 2026-05-18 v0.36.16**
 
-**Evidence:** PG query A3 — 11 unknown exit_reason + 3 manual exit_reason, all with `duration_days=999` (synthetic backfill from a prior session).
+**Resolution:** `scripts/backfill_v0.36.13_archaeology.py` ran with COMMIT. All 14 affected trades cleared (all `exit_reason='unknown'` — the 3 'manual' trades from the original spec had already been cleared via a prior session, count was 0 at run time).
 
-**Fix path:** `scripts/backfill_v0.36.13_archaeology.py` (already exists, interactive). Operator runs.
+**Two script PG-compat patches shipped with the cleanup:**
+- Raw psycopg2 connection wrapped with `PostgresConnectionWrapper` from `src.utils.db` so the script's `conn.execute()` calls work (psycopg2 raw conns don't expose top-level execute).
+- Regime-table probe rewritten to query `information_schema.tables` rather than `SELECT FROM <name>` — the latter aborted the PG transaction on missing relations, cascading every subsequent query in the script to "current transaction is aborted".
+- 3 regression-lock tests added at `tests/scripts/test_backfill_v0_36_13_archaeology_pg_compat.py`.
 
-**Effort:** ~5 min for operator
+**Post-state (PG halcyon):** `duration_days=999` count is now 0. `regime_at_entry IS NULL` count remains 555 (informational; P2-2 territory).
+
+**Effort actual:** ~25 min (5 min cleanup execution + 20 min script PG-compat patches + tests)
 
 ---
 

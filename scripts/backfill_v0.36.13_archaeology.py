@@ -37,15 +37,37 @@ _REGIME_TABLE_CANDIDATES = [
 def _probe_regime_table(conn) -> str | None:
     """Return the name of a daily-grain regime table, or None if absent.
 
-    Probes candidate table names via sqlite_master (SQLite) or
-    information_schema.tables (PG). Returns the first match.
+    Probes candidate table names via information_schema (PG-safe — doesn't
+    trigger the transaction-abort cascade that bare `SELECT FROM <table>`
+    would on a missing relation in PG).
+
+    W21 P1-1 fix: previous version did `SELECT 1 FROM <name> LIMIT 1` and
+    caught the error in a generic except. On PG, the failed query aborts
+    the surrounding transaction, causing all subsequent queries to fail
+    with "current transaction is aborted". information_schema.tables
+    succeeds regardless of whether the candidate exists.
     """
     for name in _REGIME_TABLE_CANDIDATES:
         try:
-            conn.execute(f"SELECT 1 FROM {name} LIMIT 1")
-            return name
+            row = conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_name = ? LIMIT 1",
+                (name,),
+            ).fetchone()
+            if row is not None:
+                return name
         except Exception:
-            continue
+            # SQLite path: information_schema doesn't exist; fall back to
+            # sqlite_master probe (also recoverable, no tx-abort on SQLite).
+            try:
+                row = conn.execute(
+                    f"SELECT 1 FROM {name} LIMIT 1"
+                ).fetchone()
+                if row is not None or row is None:
+                    # The query succeeded (even if 0 rows). Table exists.
+                    return name
+            except Exception:
+                continue
     return None
 
 
@@ -165,11 +187,20 @@ def main(argv: list[str] | None = None, *, conn=None) -> int:
                 return 1
             try:
                 import psycopg2
+                import psycopg2.extras
             except ImportError:
                 print("Run: pip install psycopg2-binary", file=sys.stderr)
                 return 1
-            conn = psycopg2.connect(db_url)
-            conn.autocommit = False
+            # W21 P1-1 fix: wrap with PostgresConnectionWrapper so the script's
+            # `conn.execute(...)` calls work uniformly across psycopg2 and
+            # sqlite3 (psycopg2 connection objects don't expose top-level
+            # execute()). The wrapper also handles the `?`->`%s` rewrite.
+            from src.utils.db import PostgresConnectionWrapper
+            raw = psycopg2.connect(
+                db_url, cursor_factory=psycopg2.extras.RealDictCursor
+            )
+            raw.autocommit = False
+            conn = PostgresConnectionWrapper(raw)
 
         _print_pre_counts(conn)
         print()

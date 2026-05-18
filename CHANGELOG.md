@@ -3,6 +3,56 @@
 ## [Unreleased]
 
 
+## [v0.36.16] — 2026-05-18 — W21 execution cleanup: P1-1 (archaeology + script PG-compat)
+
+W21 continuation. P0-1 + P0-2 shipped in v0.36.15; this release closes
+P1-1 (sentinel-999 cleanup) plus the two PG-compat bugs in the cleanup
+script that were blocking it from running.
+
+### Fixed (script PG-compat — two bugs that prevented `backfill_v0.36.13_archaeology.py` from running against PG)
+
+1. **Raw psycopg2 connection has no top-level `execute()` method.** Script
+   relied on the sqlite3.Connection convenience method. On PG, every
+   `conn.execute(...)` raised `AttributeError`. Fix: wrap psycopg2 in
+   `PostgresConnectionWrapper` from `src.utils.db` (the same wrapper
+   used everywhere else in the codebase). `cursor_factory=RealDictCursor`
+   set so the wrapper's row-key access works.
+
+2. **Regime-table probe aborted the PG transaction on missing relations.**
+   Original probe: `SELECT 1 FROM <name> LIMIT 1` in a try/except. On PG,
+   the failed query aborts the surrounding transaction, cascading every
+   subsequent query to `current transaction is aborted, commands ignored
+   until end of transaction block`. Fix: query `information_schema.tables`
+   instead (succeeds regardless of whether the candidate exists, no tx
+   abort). SQLite fallback path preserved for hermetic test environments.
+
+### Data cleanup applied
+
+- 14 trades with `exit_reason='unknown'` and `duration_days=999` → cleared
+  (`duration_days` → NULL, `actual_entry_time` → NULL). Exit reasons remain
+  `'unknown'` per spec discipline (no fabricated outcomes).
+- 0 trades with `exit_reason='manual'` and `duration_days=999` (the 3
+  manual entries from the original spec had already been cleared in a
+  prior session).
+- 555 `regime_at_entry IS NULL` rows reported but untouched (P2-2 work).
+
+### Added
+
+- `tests/scripts/test_backfill_v0_36_13_archaeology_pg_compat.py` — 3
+  regression-locks for the two script fixes:
+  - Asserts `PostgresConnectionWrapper` is imported
+  - Asserts `RealDictCursor` is used in psycopg2.connect()
+  - Asserts the regime probe uses `information_schema.tables`
+
+### Sibling-search
+
+- `grep -rn "SELECT 1 FROM .*LIMIT 1" scripts/` — only this script had the
+  pattern. No other recovery scripts at risk of the tx-abort cascade.
+- `grep -rn "psycopg2.connect" scripts/` — confirmed all PG-touching
+  scripts either wrap with `PostgresConnectionWrapper` or use `cursor()`
+  explicitly. No siblings.
+
+
 ## [v0.36.15] — 2026-05-18 — W21 execution cleanup: P0-1 + P0-2
 
 **Context:** Week of 2026-05-18 is dedicated to trading-execution-error cleanup
