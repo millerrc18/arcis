@@ -199,14 +199,25 @@ def _score_model_quality(conn: sqlite3.Connection) -> float:
     """
     try:
         cutoff = (datetime.now(ET) - timedelta(days=7)).isoformat()
+        # W21 P2-3 fix (2026-05-18): two-SUM rows on PG return both columns
+        # named `sum` via RealDictCursor, collapsing to a single dict entry
+        # → row[1] then IndexErrors with "list index out of range". Alias
+        # the SUMs to distinct column names and access by name.
         cur = conn.execute(
-            "SELECT SUM(llm_success), SUM(llm_total) FROM scan_metrics "
+            "SELECT SUM(llm_success) AS success_sum, "
+            "SUM(llm_total) AS total_sum FROM scan_metrics "
             "WHERE created_at >= ?",
             (cutoff,),
         )
         row = cur.fetchone()
-        if row and row[1] and row[1] > 0:
-            fallback_rate = 1 - (row[0] or 0) / row[1]
+        if row is None:
+            return 50.0
+        # PostgresConnectionWrapper + CompatRow supports both ['name'] and [int]
+        # access; sqlite3.Row supports the same. Use named access for clarity.
+        success_sum = row["success_sum"] if "success_sum" in row.keys() else row[0]
+        total_sum = row["total_sum"] if "total_sum" in row.keys() else row[1]
+        if total_sum and total_sum > 0:
+            fallback_rate = 1 - (success_sum or 0) / total_sum
             return round((1 - fallback_rate) * 100, 2)
         return 50.0  # no scan data yet
     except Exception as e:

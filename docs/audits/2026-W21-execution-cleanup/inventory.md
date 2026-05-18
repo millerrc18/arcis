@@ -187,9 +187,11 @@ ETN DB cleanup committed: `465b63ed` (no OID, no fills) closed with new vocab `'
 
 ---
 
-### P1-NEW-3. `connect_db` cutover-gate warning fires on every call → 570 warnings/hour
+### P1-NEW-3. ~~`connect_db` cutover-gate warning fires on every call~~ — **CLOSED 2026-05-18 v0.36.18**
 
-**Severity:** Low (noise, not correctness). Cleanup opportunity for operator log clarity.
+**Resolution:** dedup function `_warn_db_path_ignored_once` was using `id(db_path)` (memory address) as the key — each fresh string instance got a different id, so the "once" check failed → 570/hour. Fixed to dedup by `os.path.normpath(str(db_path)).lower()` which collapses str-equal values + backslash/forward-slash path separator variants. 3 regression-lock tests.
+
+**Original problem:**
 
 **Evidence:** WARN cluster cluster shows:
 - 465 occurrences of `[DB] connect_db(...) overridden by Phase 3 cutover gate; ARCIS_PG_CUTOVER_ENABLED=1 routes to PG. Unset to revert to SQLite path.`
@@ -204,9 +206,18 @@ The message is informational — it confirms the cutover gate is doing its job �
 
 ---
 
-### P1-NEW-4. 5 stale-position WARN signals being detected on EVERY scan cycle
+### P1-NEW-4. ~~5 stale-position WARN signals~~ — **CLOSED 2026-05-18 (auto-resolved by reconciler)**
 
-**Severity:** Medium (operator-visible noise + reveals reconcile gap).
+**Resolution:** the reconciler auto-closed all 5 ghost positions between 09:07-09:32 ET. The 1-hour safety guard didn't actually block closure — the guard was for IB-side outages, not Alpaca. The positions transitioned cleanly:
+- BMY → closed (reconciled_stale) 09:07
+- BK → closed (unknown) 09:07
+- COP → closed (unknown) 09:07
+- CVX → closed (unknown) 09:07
+- DIS → closed (reconciled_stale) 09:07
+
+The WARN logs I saw in the inventory scan were from the window BEFORE these closures (08:34-09:07). No code work needed.
+
+**Original signal context:**
 
 **Evidence:** From this morning's logs:
 ```
@@ -271,11 +282,9 @@ Of the 75 non-measurable, 10 have negative pnl (A12) suggesting real losses that
 
 ---
 
-### P2-3. `[BuildScore] model_quality error: list index out of range`
+### P2-3. ~~`[BuildScore] model_quality error: list index out of range`~~ — **CLOSED 2026-05-18 v0.36.18**
 
-**Evidence:** Fires daily ~16:45 ET. Investigation: `src/evaluation/build_score.py` `model_quality` computation indexing into an empty array.
-
-**Effort:** ~30 min trace + fix
+**Resolution:** `_score_model_quality()` SQL was `SELECT SUM(llm_success), SUM(llm_total) ...` without column aliases. On PG (psycopg2 RealDictCursor), both un-aliased SUMs collapse to the same column name `sum`, so the row dict has one entry — `row[1]` raises IndexError. Fixed by aliasing the SUMs (`AS success_sum`, `AS total_sum`) and accessing by name. 2 regression-lock tests at `tests/evaluation/test_build_score_model_quality_pg_compat.py`.
 
 ---
 
