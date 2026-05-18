@@ -36,12 +36,10 @@ import pytest
 # Postgres fixture detection — skip PG cases when no live cluster reachable.
 # ---------------------------------------------------------------------------
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
 
-_PG_SKIP_REASON = "TEST_DATABASE_URL / DATABASE_URL not set or not postgres://"
+_PG_SKIP_REASON = "TEST_DATABASE_URL not set or not postgres://"
 
 
 # Two registry tables to seed for the schema-count check. Picked because

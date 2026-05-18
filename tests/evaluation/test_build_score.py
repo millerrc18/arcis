@@ -84,9 +84,7 @@ class TestBuildScorePhaseProgress:
 #     `engine_aware_upsert(action='replace')` helper works correctly when the
 #     dedup key is stable, independent of the latent UUID-per-call bug.
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
 
 
@@ -126,7 +124,7 @@ def sqlite_conn():
 def pg_conn():
     """Live psycopg2 wrapper. Skips if TEST_DATABASE_URL not set."""
     if not _PG_AVAILABLE:
-        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+        pytest.skip("TEST_DATABASE_URL not set or not postgres://")
 
     import psycopg2
     import psycopg2.extras

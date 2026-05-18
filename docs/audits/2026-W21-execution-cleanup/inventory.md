@@ -308,7 +308,16 @@ Of the 75 non-measurable, 10 have negative pnl (A12) suggesting real losses that
 
 ## P4 — Test infrastructure hygiene (the v0.36.14 lesson)
 
-### P4-1. 24 test files mentioned in conftest as "broken fallback pattern"
+### P4-1. ~~24 test files mentioned in conftest as "broken fallback pattern"~~ — **CLOSED 2026-05-18 v0.36.19**
+
+**Resolution:** 21 test files swept via deterministic regex substitution. Each file's PG-URL assignment changed from the `TEST_DATABASE_URL or DATABASE_URL` fallback to `TEST_DATABASE_URL` only. Skip messages updated for consistency. Added `tests/test_p4_1_fallback_pattern_gone.py` as codebase-wide regression-lock — fails if any test file (outside the documented 3-file allowlist) reintroduces the pattern.
+
+The defense-in-depth picture now has 3 layers:
+1. v0.36.14 `pytest_configure` P0 guard — refuses pytest if env var matches prod signatures
+2. v0.36.14 `pg_wrapper` second-line defense — `pytest.fail` at fixture entry if env mutated mid-session
+3. v0.36.19 source elimination — test files no longer construct the fallback
+
+**Original problem context:**
 
 **Evidence:** conftest.py:31 docstring references 24 files using `os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL", "")`. Yesterday's grep found only 3 still matching the literal pattern — but the docstring count suggests there are more variants.
 

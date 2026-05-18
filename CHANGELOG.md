@@ -3,6 +3,91 @@
 ## [Unreleased]
 
 
+## [v0.36.19] — 2026-05-18 — W21 execution cleanup: P4-1 (test-file fallback sweep)
+
+W21 continuation. Closes P4-1 — proactive sweep of test files using the
+broken `TEST_DATABASE_URL or DATABASE_URL` fallback pattern that caused
+P0 incident #159 (PG wipe on 2026-05-17, see v0.36.14 entry).
+
+### Fixed (21 test files)
+
+Each file's PG-URL assignment changed from:
+```python
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
+    "DATABASE_URL", ""
+)
+```
+to:
+```python
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
+```
+
+This eliminates the fallback to `DATABASE_URL` (which on the operator's
+machine points at the local prod halcyon-pg via `.env`). Tests now skip
+cleanly when `TEST_DATABASE_URL` is unset, rather than falling through
+to the v0.36.14 pg_wrapper second-line defense that raises `pytest.fail`.
+
+Both code paths and operator-facing skip messages updated:
+- Code: `TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")`
+- Skip message: `"TEST_DATABASE_URL not set or not postgres://"` (was
+  `"TEST_DATABASE_URL / DATABASE_URL not set or not postgres://"`)
+
+### Files modified
+
+21 files in `tests/`, all converted via deterministic regex substitution
+with dry-run preview. Verified by running the parametrized test suite —
+sqlite variants pass, postgres variants skip cleanly. Sample run:
+`22 passed, 17 skipped in 0.69s`.
+
+- `tests/council/test_protocol.py`
+- `tests/council/test_value_tracker.py`
+- `tests/data_collection/test_analyst_collector.py`
+- `tests/data_collection/test_edgar_collector.py`
+- `tests/data_collection/test_insider_collector.py`
+- `tests/data_enrichment/test_staleness.py`
+- `tests/evaluation/test_build_score.py`
+- `tests/platform/rigor/test_walkforward_runner.py`
+- `tests/platform/rigor/test_walkforward_universe.py`
+- `tests/test_api_routes_system_date_now.py`
+- `tests/test_council_context_date_now.py`
+- `tests/test_db_engine_aware_upsert.py`
+- `tests/test_db_wrapper_rewrite.py`
+- `tests/test_edgar_collector_introspection.py`
+- `tests/test_event_risk_score_introspection.py`
+- `tests/test_ib_status_date_now.py`
+- `tests/test_ib_status_uptime_window.py`
+- `tests/test_model_monitor_introspection.py`
+- `tests/test_retention_introspection.py`
+- `tests/test_schema_validator_engine_aware.py`
+- `tests/test_startup_checks_introspection.py`
+
+### Added
+
+- `tests/test_p4_1_fallback_pattern_gone.py` — codebase-wide regression-
+  lock that fails if any test file (outside the documented allowlist)
+  reintroduces the broken fallback pattern. Allowlist: `conftest.py`
+  (docstring warning), `test_conftest_pg_guard.py` (guard's own test
+  fixture), and this file itself (its docstring contains the example).
+
+### Sibling-search
+
+- `grep -rln 'TEST_DATABASE_URL.*or.*DATABASE_URL' tests/ --include="*.py"`
+  now returns only the 3 allowlisted files. Pattern fully swept.
+- v0.36.14's pg_wrapper second-line defense remains as belt-and-suspenders
+  — if a future test reintroduces the pattern AND TEST_DATABASE_URL
+  accidentally matches a prod URL, the guard will still pytest.fail.
+
+### Note on layered defenses
+
+This is the third layer of defense against this class of bug:
+1. v0.36.14 pytest_configure P0 guard — refuses pytest if env var
+   matches prod signatures
+2. v0.36.14 pg_wrapper second-line defense — pytest.fail at fixture
+   entry time if the env var was mutated mid-session to match prod
+3. v0.36.19 (this) — eliminate the source of the issue by ensuring
+   test files never construct the fallback in the first place
+
+
 ## [v0.36.18] — 2026-05-18 — W21 execution cleanup: P1-NEW-3 + P2-3
 
 Two more W21 cleanup items closed. P1-NEW-4 (ghost positions) auto-resolved

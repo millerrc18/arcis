@@ -346,9 +346,7 @@ def test_runner_three_outcome_states_all_reachable():
 #     deterministic PKs so the REPLACE conflict path actually fires; on the
 #     second insert with same PK, non-target columns must be updated.
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
 
 
@@ -388,7 +386,7 @@ def sqlite_conn_runner():
 def pg_conn_runner():
     """Live psycopg2 wrapper. Skips if TEST_DATABASE_URL not set."""
     if not _PG_AVAILABLE:
-        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+        pytest.skip("TEST_DATABASE_URL not set or not postgres://")
 
     import psycopg2
     import psycopg2.extras

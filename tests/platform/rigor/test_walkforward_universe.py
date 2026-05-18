@@ -160,9 +160,7 @@ def test_resolver_deduplicates_reentries(tmp_path):
 #   * First insert lands the row; second insert with same composite PK
 #     UPDATES non-target columns (removed_date, company_name, reason).
 
-TEST_PG_URL_UNIV = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL_UNIV = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE_UNIV = TEST_PG_URL_UNIV.startswith("postgres")
 
 
@@ -202,7 +200,7 @@ def sqlite_conn_univ():
 def pg_conn_univ():
     """Live psycopg2 wrapper. Skips if TEST_DATABASE_URL not set."""
     if not _PG_AVAILABLE_UNIV:
-        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+        pytest.skip("TEST_DATABASE_URL not set or not postgres://")
 
     import psycopg2
     import psycopg2.extras
