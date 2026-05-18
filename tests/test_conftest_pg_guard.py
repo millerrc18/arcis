@@ -153,3 +153,101 @@ class TestPgGuardDoesNotFireWhenSafe:
             f"Guard should NOT fire for a non-prod DATABASE_URL.\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
+
+
+# ─── v0.36.14 extension: guard also checks TEST_DATABASE_URL ──────────────────
+
+
+class TestPgGuardFiresOnProdTestUrl:
+    """v0.36.14 (P0 incident #159): guard must ALSO refuse pytest when
+    TEST_DATABASE_URL itself points at prod (not just DATABASE_URL).
+
+    The 2026-05-17 wipe happened because an autouse fixture in
+    tests/notifications/test_platform_events.py auto-constructed
+    `TEST_DATABASE_URL=postgresql://halcyon:<docker_pg_password>@127.0.0.1:5433/halcyon`
+    — the operator's port 5433 hosts production halcyon. The original P0
+    guard only checked DATABASE_URL, so this fixture's mutation slipped
+    through and pg_wrapper dropped ~80 prod tables on teardown.
+    """
+
+    def test_exits_when_test_database_url_is_localhost_5433(self):
+        """Guard fires when TEST_DATABASE_URL matches localhost:5433."""
+        result = _run_collect({"TEST_DATABASE_URL": _PROD_DB_URL})
+        assert result.returncode == 2, (
+            f"Expected exit 2 for prod TEST_DATABASE_URL, got {result.returncode}.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_exits_when_test_database_url_is_127_0_0_1_5433(self):
+        """Guard fires when TEST_DATABASE_URL matches 127.0.0.1:5433."""
+        prod_url_ip = "postgresql://halcyon:secret@127.0.0.1:5433/halcyon"
+        result = _run_collect({"TEST_DATABASE_URL": prod_url_ip})
+        assert result.returncode == 2, (
+            f"Expected exit 2 for 127.0.0.1:5433 TEST_DATABASE_URL, got {result.returncode}.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_exits_when_test_database_url_contains_halcyon_app(self):
+        """Guard fires when TEST_DATABASE_URL has the halcyon_app: user signature."""
+        prod_url_user = "postgresql://halcyon_app:secret@somehost:9999/somedb"
+        result = _run_collect({"TEST_DATABASE_URL": prod_url_user})
+        assert result.returncode == 2, (
+            f"Expected exit 2 for halcyon_app: TEST_DATABASE_URL, got {result.returncode}.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_error_message_mentions_incident_159(self):
+        """Operator-facing message should reference P0 incident #159."""
+        result = _run_collect({"TEST_DATABASE_URL": _PROD_DB_URL})
+        combined = result.stdout + result.stderr
+        assert "#159" in combined, (
+            f"Error message should reference P0 incident #159.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_safe_test_database_url_does_not_trigger_new_guard(self):
+        """A TEST_DATABASE_URL pointing at port 5434 (non-prod) does NOT trigger."""
+        result = _run_collect({"TEST_DATABASE_URL": _TEST_DB_URL})
+        assert result.returncode != 2, (
+            f"Guard should NOT fire for safe TEST_DATABASE_URL (port 5434).\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_escape_hatch_bypasses_test_url_guard(self):
+        """ARCIS_ALLOW_PROD_PG_IN_TESTS=1 bypasses even the TEST_DATABASE_URL check."""
+        result = _run_collect({
+            "TEST_DATABASE_URL": _PROD_DB_URL,
+            "ARCIS_ALLOW_PROD_PG_IN_TESTS": "1",
+        })
+        assert result.returncode != 2, (
+            f"Guard should NOT fire when escape hatch is set.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+
+class TestPlatformEventsAutouseFixtureRemoved:
+    """v0.36.14 regression-lock: the autouse fixture in
+    tests/notifications/test_platform_events.py must NOT auto-construct a
+    TEST_DATABASE_URL targeting port 5433. The fixture body must be a no-op."""
+
+    def test_fixture_does_not_construct_prod_url(self):
+        """Read the source; assert the killer pattern is gone."""
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__),
+            "notifications",
+            "test_platform_events.py",
+        )
+        with open(path, encoding="utf-8") as f:
+            source = f.read()
+        # The killer pattern from the incident
+        assert 'f"postgresql://halcyon:{pw}@127.0.0.1:5433/halcyon"' not in source, (
+            "The auto-construction of TEST_DATABASE_URL targeting port 5433 must "
+            "be REMOVED. See CHANGELOG v0.36.14 / P0 #159."
+        )
+        # The autouse fixture should still exist as a no-op (preserves backwards
+        # compatibility for any test referencing it) with a clear docstring.
+        assert "REMOVED v0.36.14" in source, (
+            "Fixture docstring must reference the v0.36.14 removal so future "
+            "maintainers don't restore the dangerous behavior."
+        )
