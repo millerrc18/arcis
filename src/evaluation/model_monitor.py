@@ -37,6 +37,11 @@ _UNMEASURABLE_EXIT_REASONS = frozenset({
     "reconciled_stale",
     "manual",
     "qty_mismatch_partial_fill",
+    # W21 P1-NEW-2 (2026-05-18) — Alpaca returned 'position already closed
+    # at broker'; no broker fill on our side to derive P&L from.
+    "position_already_closed",
+    # W21 P1-NEW-1 (2026-05-18) — duplicate row created by reconciler race.
+    "duplicate_orphan_backfill",
 })
 
 

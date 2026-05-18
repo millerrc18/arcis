@@ -559,14 +559,30 @@ def reconcile_paper_trades(
         conn.row_factory = sqlite3.Row
         # STATUS-NARROW: orphan-check requires the broker to ALREADY have
         # this position. 'pending' has not been submitted yet; 'submission_
-        # uncertain' is post-submit limbo handled by its own resolver. Only
-        # 'open' satisfies the precondition that the broker should hold
-        # this position right now (regression caught by
-        # test_uncertain_trade_marked_failed_when_alpaca_has_no_position).
+        # uncertain' is post-submit limbo handled by its own resolver.
+        #
+        # W21 P1-NEW-1 fix (2026-05-18): also include 'exit_failed' and
+        # 'exit_pending' states. These represent trades-with-positions
+        # whose exit attempt failed at the broker (typically "insufficient
+        # qty available — all held_for_orders by bracket"). The broker
+        # still has the position; our DB tracks it; it is NOT an orphan.
+        # Before this fix, ETN had `90f28c15` in exit_failed briefly
+        # between 09:31:17 and 09:32:16 ET. The reconciler running at
+        # 09:32:09 didn't see it in tracked_map, marked ETN as orphan, and
+        # created duplicate shadow_trade `465b63ed`. Adding exit_failed/
+        # exit_pending to the status set closes that race.
+        #
+        # The 'test_uncertain_trade_marked_failed_when_alpaca_has_no_position'
+        # regression-guard (referenced in the prior comment) covers a
+        # DIFFERENT path — the `submission_uncertain` resolver, not the
+        # orphan-check. The status set here intentionally excludes
+        # 'submission_uncertain' for that reason.
         tracked = conn.execute(
-            "SELECT trade_id, ticker, planned_shares, COALESCE(broker, 'alpaca') as broker "
+            "SELECT trade_id, ticker, planned_shares, status, "
+            "COALESCE(broker, 'alpaca') as broker "
             "FROM shadow_trades "
-            "WHERE source = 'paper' AND status = 'open' AND desk = ?",
+            "WHERE source = 'paper' AND status IN "
+            "('open', 'exit_failed', 'exit_pending') AND desk = ?",
             (desk,),
         ).fetchall()
     tracked_map = {r["ticker"]: dict(r) for r in tracked}
