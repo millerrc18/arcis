@@ -344,19 +344,49 @@ The defense-in-depth picture now has 3 layers:
 
 ## P5 — Forward-observability (non-urgent)
 
-### P5-1. FED scrape — first real test tonight
+### P5-1. FED scrape — first real test tonight ✅ DONE (pre-flight 2026-05-18)
 
 **Evidence:** `fed_communications` has 2 rows from 2026-04-28. v0.36.13 T2 fixed the link_filter pattern. Tonight's overnight cycle is the first real test.
 
-**Effort:** Check tomorrow morning — if `fed_communications` count increased, fix works. If still 2, follow-up.
+**Resolution:** Manual pre-flight invocation against the live FED CDN succeeded. 4 speeches collected, parsed, and inserted. The v0.36.13 multi-strategy link-filter pattern works against production HTML. No code change needed for this item.
 
 ---
 
-### P5-2. FINRA short-volume — first real run tonight
+### P5-2. FINRA short-volume — first real run tonight ✅ DONE — bugs fixed (v0.36.20, 2026-05-18)
 
 **Evidence:** `short_volume_daily` table is empty (created in v0.36.13 but never populated). Tonight's overnight cycle should run the new FINRA collector for first time.
 
-**Effort:** Check tomorrow morning
+**Resolution:** Manual pre-flight invocation caught two PG-runtime bugs in `collect_finra_short_volume()` that would have failed at 21:30 ET:
+
+1. `get_sp100_at(target_date)` — `TypeError: fromisoformat: argument must be str` (passed `date` not ISO string).
+2. Even with ISO fix, `UniverseDataMissing: as_of=2026-05-15 is after latest covered date 2026-04-28` — PIT loader is 3 weeks stale, collector pulls T+1.
+
+Fixed in v0.36.20: switched import + call from `pit.get_sp100_at()` to `sp100.get_sp100_universe()`. Aligns with the T10 allowlist policy (live-runtime sites use current membership, only backtest/sim/training-backfill use PIT). Added the file to `tests/test_pit_universe_discipline.py` allowlist with rationale.
+
+Pre-flight result post-fix:
+```
+{'tickers_collected': 101, 'rows_inserted': 101, 'target_date': '2026-05-15', 'source': 'finra'}
+```
+
+Regression-lock: `tests/data_collection/test_short_volume_finra_universe_fix.py` (line-by-line walker that skips comments + docstrings to catch active code re-introducing the pre-fix call).
+
+---
+
+### P5-3 (NEW). build_score manual trigger ✅ DONE (pre-flight 2026-05-18)
+
+**Evidence:** v0.36.18 fixed an IndexError when fewer than N PSR records existed.
+
+**Resolution:** Manual `python -m src.main build-score` invocation succeeded. `model_quality=100.0`, no IndexError. v0.36.18 array-bounds fix validated in production.
+
+---
+
+### P5-4 (NEW). UPS stuck partial-fill ✅ DONE (cleanup 2026-05-18)
+
+**Evidence:** UPS `cdb246c7-b1b8-462d-bab4-3bb7babbf6c8` flagged with `needs_manual_review` (24 of 39 shares filled then exit refused).
+
+**Resolution:** Closed manually with broker-truth values: `actual_exit_price=99.40`, `actual_exit_time=2026-05-04T13:44:10.887795+00:00`, `pnl_dollars=-240.48`, `pnl_pct=-5.65`, `actual_shares=24`, `exit_reason=qty_mismatch_partial_fill` (already in `_UNMEASURABLE_EXIT_REASONS`, so excluded from outcome stats). ETN `90f28c15` also closed as overshoot exit ($381.27, pnl=-$118.80 / -5.67%).
+
+**`needs_manual_review` count: 1 → 0** as of 2026-05-18 pre-overnight.
 
 ---
 

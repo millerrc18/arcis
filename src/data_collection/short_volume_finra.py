@@ -37,7 +37,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection.errors import CollectorConfigError
-from src.universe.pit import get_sp100_at
+from src.universe.sp100 import get_sp100_universe
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -103,7 +103,19 @@ def collect_finra_short_volume(
             f"[SHORT_VOLUME_FINRA] HTTP {resp.status_code} from FINRA CDN: {url}"
         )
 
-    sp100 = get_sp100_at(target_date)
+    # W21 (2026-05-18 pre-overnight check) — replaced the original
+    # `get_sp100_at(target_date)` call. Two issues with the original:
+    #   1. Passed a date object to a function expecting an ISO string
+    #      (TypeError).
+    #   2. Even with the iso fix, `get_sp100_at()` raised
+    #      `UniverseDataMissing` when target_date is past the membership
+    #      data's `latest` (data/reference/sp100_history.json was 3 weeks
+    #      stale; daily collector pulls T+1).
+    # The right call for a DAILY data collector is `get_sp100_universe()`
+    # (current SP100 membership), not the point-in-time historical lookup.
+    # PIT is for backtesting historical signals; for "what's in SP100
+    # right now," the current-membership list is correct.
+    sp100 = set(get_sp100_universe())
 
     collected_at = datetime.now(ET).isoformat()
     trade_date_str = target_date.strftime("%Y-%m-%d")

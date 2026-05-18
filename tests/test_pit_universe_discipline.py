@@ -56,6 +56,8 @@ _ALLOWLIST: dict[str, str] = {
     "src/services/watchlist_service.py": "Watchlist build — today's market",
     # Training synthetic generator — survivorship bias undefined for fabricated outcomes
     "src/training/bootstrap.py": "Synthetic outcome generator — fake outcomes, no real market correlation",
+    # Daily data collectors — collect T+1 data for today's universe, not historical
+    "src/data_collection/short_volume_finra.py": "Daily FINRA REGSHO collector — filters CDN file for today's SP100; PIT raises UniverseDataMissing on T+1 anchors (W21 v0.36.20)",
 }
 
 
