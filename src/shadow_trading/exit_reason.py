@@ -35,6 +35,20 @@ CONTROLLED_VOCAB: frozenset[str] = frozenset({
     "retry_exit",
     "error",
     "unknown",
+    # W21 P1-NEW-2 (2026-05-18) — Alpaca returns 'position already closed at
+    # broker (qty=0)' when an exit cycle fires on a position that's no
+    # longer at the broker (likely a bracket leg fired and we missed the
+    # fill event, or the operator closed manually). The executor marks
+    # the trade `exit_pending:position_already_closed` and emits this as
+    # the exit_reason. Before this addition, coerce_exit_reason fell back
+    # to 'unknown', losing the broker's specific signal.
+    "position_already_closed",
+    # W21 P1-NEW-1 (2026-05-18) — used when cleaning up duplicate
+    # shadow_trades created by the reconciler's orphan-backfill race with
+    # the premature-exit-revert path. The canonical record retains the
+    # bracket OID and stays open; the duplicate gets closed with this
+    # reason. Excluded from outcome stats (no real fill).
+    "duplicate_orphan_backfill",
 })
 
 LEGACY_COERCIONS: dict[str, str] = {
@@ -63,6 +77,15 @@ LEGACY_COERCIONS: dict[str, str] = {
 # AND should not contribute to outcome statistics.
 EXCLUDED_FROM_OUTCOME_STATS: frozenset[str] = frozenset({
     "reconciled_stale",
+    # W21 P1-NEW-2 (2026-05-18) — same rationale as reconciled_stale: our
+    # exit attempt found broker qty=0 (position already closed by an
+    # earlier bracket leg or manual close), so there's no broker fill on
+    # our side to derive pnl_dollars/actual_exit_price from. Synthetic
+    # closure, exclude from win-rate/profit-factor/avg-winner aggregations.
+    "position_already_closed",
+    # W21 P1-NEW-1 (2026-05-18) — duplicate row created by the reconciler
+    # race; no real fill, no real P&L. Synthetic bookkeeping close.
+    "duplicate_orphan_backfill",
 })
 
 

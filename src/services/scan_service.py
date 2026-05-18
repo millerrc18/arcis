@@ -402,7 +402,18 @@ def run_scan(
                     setup_type=feat.get("setup_type"),
                     setup_confidence=feat.get("setup_confidence"),
                     sector=feat.get("sector") or feat.get("realized_sector"),
-                    regime_at_entry=feat.get("regime") or feat.get("market_regime"),
+                    # W21 P2-1 fix (2026-05-18): the enricher writes the regime
+                    # label to `feat["traffic_light"]["regime_label"]` (3-label
+                    # GREEN/YELLOW/RED vocabulary) and `feat["regime_label"]`
+                    # (5-label calm_uptrend/etc.). The pre-fix ternary read
+                    # non-existent keys (`feat["regime"]`, `feat["market_regime"]`),
+                    # so this Telegram-side payload was NULL even on healthy
+                    # enrichment runs. See regime_capture_followup.md from
+                    # v0.36.13 T6 Path B for the full investigation.
+                    regime_at_entry=(
+                        (feat.get("traffic_light") or {}).get("regime_label")
+                        or feat.get("regime_label")
+                    ),
                     vix_at_entry=feat.get("vix"),
                     concurrent_positions=_concurrent,
                     llm_conviction=candidate.get("llm_conviction"),

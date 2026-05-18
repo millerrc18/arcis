@@ -3,6 +3,97 @@
 ## [Unreleased]
 
 
+## [v0.36.17] — 2026-05-18 — W21 execution cleanup: P1-NEW-1 + P1-NEW-2 + P2-1
+
+W21 continuation. Bundles three independent fixes discovered during the
+market-open log inspection at 09:30 ET (operator memory:
+`feedback_week_of_2026_05_18_no_features_only_cleanup`).
+
+### Fixed
+
+#### P1-NEW-1: Reconciler creates duplicate orphan-backfill on race condition
+
+**Bug:** When a shadow_trade transitions briefly to `exit_failed` state
+(e.g., after a premature exit attempt collides with an active OCO
+bracket), the reconciler's orphan-check at
+`src/shadow_trading/reconcile.py:566` filtered by `status='open'` only.
+A second reconciler cycle scanning during that brief window saw the
+broker position with no matching tracked trade and created a duplicate
+shadow_trade.
+
+**Reproduction (ETN 2026-05-18 09:31-09:32 ET):**
+- 09:02 — Original `415531e1` closed as timeout
+- 09:07 — Reconciler orphan-backfilled `90f28c15` with active OCO
+- 09:31 — Watch loop tried `place_exit` on `90f28c15`; Alpaca rejected
+  ("insufficient qty — all 5 shares held by bracket")
+- 09:31 — `90f28c15` marked `exit_failed retry=1`
+- 09:32:09 — Reconciler scan saw broker has ETN, didn't see `90f28c15`
+  in tracked_map (filtered out), marked as orphan, created
+  duplicate `465b63ed`
+- 09:32:16 — "Premature exit revert" reset `90f28c15` to open
+- **Result:** 2 open ETN shadow_trades for 1 broker position
+
+**Fix:** extend the orphan-check tracked-status set to include
+`'exit_failed'` and `'exit_pending'`. These represent
+trades-with-positions-at-broker that just haven't settled their exit.
+The `'submission_uncertain'` state is intentionally excluded (handled
+by its own resolver; `test_uncertain_trade_marked_failed_when_alpaca_has_no_position`
+regression-guards that).
+
+**Data cleanup applied (committed):** ETN's `465b63ed` (no OID, never had
+a bracket) closed with new vocab `'duplicate_orphan_backfill'`.
+Canonical `90f28c15` (active OCO `b93cc89c`) reverted from
+`needs_manual_review` to `open`.
+
+#### P1-NEW-2: `coerce_exit_reason()` silently drops 'position_already_closed'
+
+**Bug:** When Alpaca returns 'position already closed at broker
+(qty=0)', the executor sets `exit_reason='position_already_closed'`.
+`coerce_exit_reason()` didn't recognize this vocab term and silently
+mapped to `'unknown'`, losing the broker-side signal.
+
+**Fix:** added `'position_already_closed'` to `CONTROLLED_VOCAB`.
+Also added to `EXCLUDED_FROM_OUTCOME_STATS` (same rationale as
+`reconciled_stale` — no real fill on our side) and to
+`_UNMEASURABLE_EXIT_REASONS` in both `cto_report.py` and
+`model_monitor.py` (same audit-filter rationale).
+
+#### P2-1: `scan_service.py` reads nonexistent regime keys
+
+**Bug:** `src/services/scan_service.py:405` constructed the Telegram
+trade-open payload with
+`regime_at_entry=feat.get("regime") or feat.get("market_regime")`. The
+enricher writes the regime label to `feat["traffic_light"]["regime_label"]`
+(3-label vocab) and `feat["regime_label"]` (5-label vocab) — never to
+`"regime"` or `"market_regime"`. Result: `regime_at_entry` was NULL
+in every Telegram trade-open notification even on healthy enrichment
+runs. See v0.36.13 T6 Path B followup audit
+(`docs/audits/2026-05-17-v0.36.13-training-page/regime_capture_followup.md`)
+for the full investigation that surfaced this.
+
+**Fix:** read `feat["traffic_light"]["regime_label"]` first (preferred
+3-label vocab), fall back to `feat["regime_label"]` (5-label) for
+hermetic test compatibility.
+
+### Added
+
+- `'duplicate_orphan_backfill'` to `CONTROLLED_VOCAB` and
+  `EXCLUDED_FROM_OUTCOME_STATS` for cleanup ops on the P1-NEW-1 class.
+- 13 regression-lock tests across:
+  - `tests/shadow_trading/test_reconcile_orphan_status_tracking.py` (2)
+  - `tests/services/test_scan_service_regime_keys.py` (2)
+  - `tests/shadow_trading/test_exit_reason_w21_vocab_additions.py` (6)
+  - `tests/shadow_trading/test_executor_begin_immediate_engine_aware.py` (3, from v0.36.15)
+
+### Sibling-search
+
+- `grep -rn "status = 'open' AND desk" src/` — only the orphan-check
+  site had this narrow filter. Other queries already use broader
+  status sets.
+- `grep -rn "feat.get..regime..." src/` — only `scan_service.py:405`
+  had the nonexistent-key ternary. No siblings.
+
+
 ## [v0.36.16] — 2026-05-18 — W21 execution cleanup: P1-1 (archaeology + script PG-compat)
 
 W21 continuation. P0-1 + P0-2 shipped in v0.36.15; this release closes

@@ -125,9 +125,15 @@ src/shadow_trading/executor.py:665: _dup_conn.execute("BEGIN IMMEDIATE")
 
 ---
 
-### P1-NEW-1. Reconciler creates duplicate open shadow_trades on "premature exit revert" path
+### P1-NEW-1. ~~Reconciler creates duplicate open shadow_trades~~ — **CLOSED 2026-05-18 v0.36.17**
 
-**Severity:** High. Active execution bug discovered 2026-05-18 ~09:32 ET.
+**Resolution:** Reconciler's orphan-check tracked-status filter extended to include `exit_failed` and `exit_pending` (was `'open'` only). The brief window where a trade transitions through `exit_failed` no longer leaks the trade out of `tracked_map`, preventing the duplicate orphan-backfill.
+
+ETN DB cleanup committed: `465b63ed` (no OID, no fills) closed with new vocab `'duplicate_orphan_backfill'`. Canonical `90f28c15` (active OCO `b93cc89c`) reverted to `open` from `needs_manual_review`.
+
+2 new regression-lock tests at `tests/shadow_trading/test_reconcile_orphan_status_tracking.py`.
+
+**Original trace** (for posterity):
 
 **Evidence:** ETN has 2 open shadow_trades (`90f28c15...` with bracket OID, `465b63ed...` without) for a single 5-share broker position.
 
@@ -161,9 +167,11 @@ src/shadow_trading/executor.py:665: _dup_conn.execute("BEGIN IMMEDIATE")
 
 ---
 
-### P1-NEW-2. `coerce_exit_reason()` doesn't recognize `'position_already_closed'` → drops signal to `'unknown'`
+### P1-NEW-2. ~~`coerce_exit_reason()` doesn't recognize `'position_already_closed'`~~ — **CLOSED 2026-05-18 v0.36.17**
 
-**Severity:** Medium. Signal loss — Alpaca explicitly says "position already closed at broker" and we silently coerce that to 'unknown', losing the cause.
+**Resolution:** Added `'position_already_closed'` to `CONTROLLED_VOCAB` in `src/shadow_trading/exit_reason.py`. Also added to `EXCLUDED_FROM_OUTCOME_STATS` and to `_UNMEASURABLE_EXIT_REASONS` in `cto_report.py` + `model_monitor.py`. 6 regression-lock tests.
+
+**Original problem:**
 
 **Evidence:** 4 events in this morning's logs:
 ```
@@ -241,15 +249,11 @@ Of the 75 non-measurable, 10 have negative pnl (A12) suggesting real losses that
 
 ## P2 — Live-path bugs from yesterday's investigations
 
-### P2-1. `scan_service.py:405` — secondary regime bug from T6
+### P2-1. ~~`scan_service.py:405` — secondary regime bug from T6~~ — **CLOSED 2026-05-18 v0.36.17**
 
-**Evidence:** v0.36.13 T6 followup audit doc at `docs/audits/2026-05-17-v0.36.13-training-page/regime_capture_followup.md`. The ternary `feat.get("regime") or feat.get("market_regime")` reads keys that DO NOT EXIST in the enriched feature dict — the enricher writes `feat["regime_label"]` and nested `feat["traffic_light"]["regime_label"]`.
+**Resolution:** Replaced the ternary with `feat.get("traffic_light", {}).get("regime_label") or feat.get("regime_label")`. 2 regression-lock tests at `tests/services/test_scan_service_regime_keys.py`. Next scan cycle will populate `regime_at_entry` in Telegram trade-open notifications correctly.
 
-**Impact:** Telegram-side `regime_at_entry` payload has been NULL even on healthy enrichment runs since this code was written. Doesn't affect DB writes (the DB writer at `executor.py:1116` defensively defaults to `""`).
-
-**Fix path:** Replace ternary with `feat.get("traffic_light", {}).get("regime_label") or feat.get("regime_label")`.
-
-**Effort:** ~15 min including regression test
+**Original problem context:** see [`regime_capture_followup.md`](../2026-05-17-v0.36.13-training-page/regime_capture_followup.md) from v0.36.13 T6 Path B investigation.
 
 ---
 
