@@ -30,9 +30,7 @@ import tempfile
 import pytest
 
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
 
 
@@ -75,7 +73,7 @@ def pg_conn():
     create it locally to exercise the cross-engine SQL parity.
     """
     if not _PG_AVAILABLE:
-        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+        pytest.skip("TEST_DATABASE_URL not set or not postgres://")
 
     import psycopg2
     import psycopg2.extras

@@ -203,9 +203,7 @@ def test_executemany_rewrites_template_once():
 # (or DATABASE_URL fallback). They skip when neither is set so CI doesn't
 # fail-loud on developer laptops missing the PG fixture.
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
 
 
@@ -224,7 +222,7 @@ def _make_pg_wrapper():
 
 @pytest.mark.skipif(
     not _PG_AVAILABLE,
-    reason="TEST_DATABASE_URL / DATABASE_URL not set or not postgres://",
+    reason="TEST_DATABASE_URL not set or not postgres://",
 )
 def test_c1_like_percent_position_with_bound_param():
     """C1: `LIKE '%position%'` survives format binding when a `?` param is bound.
@@ -268,7 +266,7 @@ def test_c1_like_percent_position_with_bound_param():
 
 @pytest.mark.skipif(
     not _PG_AVAILABLE,
-    reason="TEST_DATABASE_URL / DATABASE_URL not set or not postgres://",
+    reason="TEST_DATABASE_URL not set or not postgres://",
 )
 def test_c1_like_pct_trailing_wildcard():
     """C1: `LIKE 'PCT%'` survives — `%` inside the quote is data, not format-spec.
@@ -297,7 +295,7 @@ def test_c1_like_pct_trailing_wildcard():
 
 @pytest.mark.skipif(
     not _PG_AVAILABLE,
-    reason="TEST_DATABASE_URL / DATABASE_URL not set or not postgres://",
+    reason="TEST_DATABASE_URL not set or not postgres://",
 )
 def test_c1_equals_50pct_string_literal():
     """C1: `WHERE col = '50%'` survives — `%` inside quotes is data, not format-spec."""
@@ -367,7 +365,7 @@ def test_json_fragment_like_pattern_tokenizer():
 
 @pytest.mark.skipif(
     not _PG_AVAILABLE,
-    reason="TEST_DATABASE_URL / DATABASE_URL not set or not postgres://",
+    reason="TEST_DATABASE_URL not set or not postgres://",
 )
 def test_json_fragment_like_executes_against_pg():
     """T0.0 audit category (b): JSON-fragment LIKE pattern executes on PG.

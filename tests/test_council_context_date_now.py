@@ -29,9 +29,7 @@ import pytest
 
 ET = ZoneInfo("America/New_York")
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 if not TEST_PG_URL.startswith("postgres"):
     # Fall back to constructing from DOCKER_PG_PASSWORD per task brief:
     # postgresql://halcyon:$DOCKER_PG_PASSWORD@127.0.0.1:5433/halcyon
@@ -105,7 +103,7 @@ def pg_db():
     """
     if not _PG_AVAILABLE:
         pytest.skip(
-            "TEST_DATABASE_URL / DATABASE_URL not set or not postgres://"
+            "TEST_DATABASE_URL not set or not postgres://"
         )
 
     import psycopg2

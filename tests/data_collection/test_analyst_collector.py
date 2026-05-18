@@ -112,11 +112,9 @@ def pg_conn():
     """Live psycopg2 wrapper. Skips if TEST_DATABASE_URL not set."""
     import os
 
-    test_pg_url = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-        "DATABASE_URL", ""
-    )
+    test_pg_url = os.environ.get("TEST_DATABASE_URL", "")
     if not test_pg_url.startswith("postgres"):
-        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+        pytest.skip("TEST_DATABASE_URL not set or not postgres://")
 
     import psycopg2
     import psycopg2.extras
