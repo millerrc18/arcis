@@ -300,6 +300,20 @@ def test_site6_emergency_close_sdk_missing_persists():
 # Site 7 — stop-loss placement failure  persist + log (recoverable=False)
 # ===========================================================================
 
+def _no_dup_conn_mock():
+    """W21 P0-2: dup-check mock — returns a context manager whose execute() →
+    fetchone() returns None (i.e. no duplicate open trade exists).
+
+    Tests previously relied on the SQLite-only `BEGIN IMMEDIATE` to raise on
+    PG and skip the in-block SELECT. v0.36.15 made the check engine-aware, so
+    the in-block SELECT now runs on both engines — meaning tests must
+    explicitly mock the dup-check connection or rely on real DB state.
+    """
+    cm = MagicMock()
+    cm.__enter__.return_value.execute.return_value.fetchone.return_value = None
+    return cm
+
+
 def test_site7_stop_loss_failure_persists():
     """Stop-loss placement failure — submit_order raises → log_and_persist called
     with operation=place_stop_order, recoverable=False."""
@@ -313,6 +327,7 @@ def test_site7_stop_loss_failure_persists():
     mock_packet.position_sizing.allocation_dollars = 1500.0
 
     with patch("src.shadow_trading.executor.log_and_persist") as mock_lap:
+      with patch("src.shadow_trading.executor.connect_db", return_value=_no_dup_conn_mock()):
         with patch("src.shadow_trading.alpaca_adapter.place_bracket_order", side_effect=RuntimeError("bracket failed")):
             with patch("src.shadow_trading.alpaca_adapter.place_paper_entry", return_value={"order_id": "ord-7", "filled_avg_price": 150.0}):
                 with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_tc:
@@ -428,6 +443,7 @@ def test_site9_retry_market_order_failure_persists():
     mock_packet.position_sizing.allocation_dollars = 1500.0
 
     with patch("src.shadow_trading.executor.log_and_persist") as mock_lap:
+      with patch("src.shadow_trading.executor.connect_db", return_value=_no_dup_conn_mock()):
         # bracket raises ConnectionError → triggers network-error path
         with patch("src.shadow_trading.alpaca_adapter.place_bracket_order", side_effect=ConnectionError("net err")):
             # no ghost positions found

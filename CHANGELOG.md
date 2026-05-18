@@ -3,6 +3,70 @@
 ## [Unreleased]
 
 
+## [v0.36.15] — 2026-05-18 — W21 execution cleanup: P0-1 + P0-2
+
+**Context:** Week of 2026-05-18 is dedicated to trading-execution-error cleanup
+(no new features). This release closes the first two P0 items from the
+inventory at `docs/audits/2026-W21-execution-cleanup/inventory.md`.
+
+### P0-1: 18 open positions reconciled (broker ↔ DB linkage restored)
+
+After yesterday's PG wipe + SQLite restore, 12 of 18 open positions showed
+NULL `alpaca_order_id` in the restored DB. The watch-loop reconciler
+(running on v0.36.14 post-restart) closed 5 ghost positions, orphan-
+backfilled 9+ active ones with fresh OCO brackets, and surfaced the
+remaining DB-blind cases.
+
+**Recovery:** new one-shot script `scripts/recovery/backfill_alpaca_order_id_post_wipe_2026_05_18.py`
+queries Alpaca per-ticker, validates qty match against DB planned_shares,
+and backfills `shadow_trades.alpaca_order_id` when broker has exactly one
+active OCO. Qty-mismatch tickers (AVGO 6→4, KO 55→20) are SKIPPED rather
+than silently papered over — they remain as P1 partial-exit reconciliation
+work. 6 unambiguous backfills committed (BAC, COST, DUK, FDX, JNJ, UNP).
+
+**Final state:** 16 of 18 open positions have full DB→broker OID linkage.
+
+### P0-2: SQLite-only `BEGIN IMMEDIATE` → engine-aware (executor.py)
+
+`src/shadow_trading/executor.py:665` unconditionally executed
+`BEGIN IMMEDIATE` for the atomic duplicate-check, throwing
+`syntax error at or near "IMMEDIATE"` on PG ~18 times in 7 days of logs
+since the PG cutover. The exception-handler fallback was running correctly
+(via `get_open_shadow_trade_for_ticker`), but the noisy warnings muddied
+operator signal and the SQLite-native atomic check was silently disabled
+on PG.
+
+**Fix:** detect `PostgresConnectionWrapper` via `isinstance()` and skip
+`BEGIN IMMEDIATE` on PG. PG's default READ COMMITTED isolation provides
+equivalent SELECT semantics for the single-statement uniqueness check.
+The two `_dup_conn.rollback()` calls that paired with the BEGIN are
+likewise guarded.
+
+**Sibling-search:** grep confirms `BEGIN IMMEDIATE`/`BEGIN EXCLUSIVE` only
+appears at `src/shadow_trading/executor.py:665` (the fix site) — no
+other sites carry the same SQLite-only dialect leak.
+
+### Test fixture fix (collateral)
+
+`tests/shadow_trading/test_broker_partial_swallow_upgrades.py` had two
+tests (site7, site9) that inadvertently passed by relying on the OLD
+`BEGIN IMMEDIATE` syntax-error to skip the in-block SELECT. With the
+engine-aware fix, the SELECT now runs cleanly on both engines — meaning
+the in-block dup-check is no longer silently bypassed. The two affected
+tests now patch `src.shadow_trading.executor.connect_db` to return a
+controlled mock so test outcomes don't depend on real DB state. New
+helper `_no_dup_conn_mock()` documents the patching pattern.
+
+### Added
+
+- `scripts/recovery/backfill_alpaca_order_id_post_wipe_2026_05_18.py`
+  — one-shot recovery script with --dry-run/--commit + qty validation
+- `tests/shadow_trading/test_executor_begin_immediate_engine_aware.py`
+  — 3 regression-locks pinning the engine-aware guard pattern
+- `docs/audits/2026-W21-execution-cleanup/inventory.md` — full inventory
+  of execution-layer issues; updated to mark P0-1 closed inline
+
+
 ## [v0.36.14] — 2026-05-18 — PG-wipe prevention (P0 incident #159)
 
 PATCH hotfix closing two layered safety defects that allowed
