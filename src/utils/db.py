@@ -74,7 +74,7 @@ DBIntegrityError: tuple = (sqlite3.IntegrityError, psycopg2.IntegrityError)
 
 _SENTINEL = object()
 
-_DB_PATH_WARNED: set[int] = set()
+_DB_PATH_WARNED: set[str] = set()  # W21 P1-NEW-3: dedup by NORMALIZED string, not id()
 
 _GATE_ON_NO_PG_URL_WARNED: bool = False
 
@@ -101,7 +101,19 @@ def _warn_gate_on_no_pg_url_once() -> None:
 
 
 def _warn_db_path_ignored_once(db_path) -> None:
-    key = id(db_path)
+    """Log a one-time WARN when connect_db's db_path arg is ignored by the cutover gate.
+
+    W21 P1-NEW-3 (2026-05-18) fix: previously deduped by `id(db_path)` which is
+    the memory address of the Python str object. Each connect_db() caller passes
+    a freshly-instantiated string (or one from .env reloaded each call), so the
+    id differs even when the path is identical → 570 warnings/hour in production.
+
+    Dedup by NORMALIZED string value instead. Forward-slash and backslash
+    variants collapse to the same key via os.path.normpath() + .lower() so
+    `C:\\arcis\\data\\...` and `C:/arcis/data/...` produce the same dedup key.
+    """
+    import os
+    key = os.path.normpath(str(db_path)).lower()
     if key in _DB_PATH_WARNED:
         return
     _DB_PATH_WARNED.add(key)

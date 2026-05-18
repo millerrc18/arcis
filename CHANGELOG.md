@@ -3,6 +3,62 @@
 ## [Unreleased]
 
 
+## [v0.36.18] — 2026-05-18 — W21 execution cleanup: P1-NEW-3 + P2-3
+
+Two more W21 cleanup items closed. P1-NEW-4 (ghost positions) auto-resolved
+by the reconciler — no code change needed; marked closed in the inventory.
+
+### Fixed
+
+#### P1-NEW-3: cutover-gate WARN fires on every connect_db call
+
+**Bug:** `_warn_db_path_ignored_once` in `src/utils/db.py` used
+`id(db_path)` (Python object memory address) as the dedup key. Different
+callers passed freshly-instantiated string objects with different ids
+even when the path value was identical — and forward-slash vs
+backslash variants of the same path always have different ids. Result:
+the "_once" function fired 570 times in 1 hour of normal operation.
+
+**Fix:** dedup by `os.path.normpath(str(db_path)).lower()`. Different
+str instances with the same value collapse to one key. Backslash and
+forward-slash variants of the same path collapse to one key.
+
+3 regression-lock tests in `tests/utils/test_warn_db_path_dedup.py`.
+
+#### P2-3: `[BuildScore] model_quality error: list index out of range` daily
+
+**Bug:** `_score_model_quality()` in `src/evaluation/build_score.py`:
+```sql
+SELECT SUM(llm_success), SUM(llm_total) FROM scan_metrics WHERE ...
+```
+
+On PG (psycopg2 RealDictCursor), both un-aliased `SUM()` columns are
+named `sum`, so the row dict has only one entry. Indexing `row[1]`
+then raises `IndexError: list index out of range`. Fired daily at
+~16:45 ET in build-score computation.
+
+**Fix:** alias the SUMs (`AS success_sum`, `AS total_sum`), access by
+name. Works on both SQLite and PG.
+
+2 regression-lock tests in `tests/evaluation/test_build_score_model_quality_pg_compat.py`.
+
+### Closed without code change
+
+- **P1-NEW-4** (5 stale ghost positions): auto-resolved by the reconciler
+  between 09:07-09:32 ET. BMY/BK/COP/CVX/DIS all closed properly with
+  exit_reason='unknown' or 'reconciled_stale'. The 1-hour safety guard
+  didn't actually block closure (it was for IB outages, not Alpaca). No
+  code work needed; inventory entry marked closed.
+
+### Sibling-search
+
+- `grep -rn "id(.*)" src/utils/db.py | grep -v "id(self)"` — no other
+  "_once" warn functions use `id()` for dedup. Only the cutover-gate
+  variant had this bug.
+- `grep -rn "SELECT SUM(.*), SUM(.*)" src/` — no other queries select
+  multiple un-aliased SUMs in the same row. The P2-3 pattern was unique.
+
+
 ## [v0.36.17] — 2026-05-18 — W21 execution cleanup: P1-NEW-1 + P1-NEW-2 + P2-1
 
 W21 continuation. Bundles three independent fixes discovered during the
