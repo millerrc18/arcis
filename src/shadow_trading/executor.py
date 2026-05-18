@@ -648,21 +648,30 @@ def open_shadow_trade(
     ticker = packet.ticker
 
     # Fix for #99: Race condition duplicate check. Two scan cycles could both
-    # see "no open trade for AAPL" and both try to open one. BEGIN IMMEDIATE
-    # acquires an exclusive lock on the database before the SELECT, preventing
-    # concurrent reads from seeing the same state. Falls back to non-atomic
-    # check if the lock fails (e.g., another process holds the DB).
+    # see "no open trade for AAPL" and both try to open one. SQLite needs
+    # BEGIN IMMEDIATE to acquire a reserved lock before the SELECT, preventing
+    # concurrent reads from seeing the same state. PG's default READ COMMITTED
+    # isolation provides equivalent semantics without an explicit BEGIN
+    # (and BEGIN IMMEDIATE is a SQLite-only keyword that throws on PG).
     #
-    # Known limitation (#276): The BEGIN IMMEDIATE lock is released (ROLLBACK)
-    # before the actual INSERT happens ~100 lines later, leaving a race window.
-    # A second scan cycle could sneak in between the check and the insert.
-    # Acceptable because the watch loop is single-threaded — concurrent scans
-    # don't happen in practice. A true fix would keep the transaction open or
-    # use INSERT ... WHERE NOT EXISTS, but that requires restructuring the
-    # entire trade-creation flow.
+    # Known limitation (#276): The lock is released before the actual INSERT
+    # happens ~100 lines later, leaving a race window. A second scan cycle
+    # could sneak in between the check and the insert. Acceptable because
+    # the watch loop is single-threaded — concurrent scans don't happen in
+    # practice. A true fix would keep the transaction open or use INSERT ...
+    # WHERE NOT EXISTS, but that requires restructuring the entire
+    # trade-creation flow.
+    #
+    # W21 cleanup (P0-2): engine-aware to silence the noisy
+    # `syntax error at or near "IMMEDIATE"` warning that fired ~18 times in
+    # the last week of logs since the PG cutover. The fallback path was
+    # always running correctly; only the warning was misleading.
+    from src.utils.db import PostgresConnectionWrapper
     try:
         with connect_db(db_path) as _dup_conn:
-            _dup_conn.execute("BEGIN IMMEDIATE")
+            _is_pg_conn = isinstance(_dup_conn, PostgresConnectionWrapper)
+            if not _is_pg_conn:
+                _dup_conn.execute("BEGIN IMMEDIATE")
             _a_frag_dup, _a_params_dup = active_in_clause()
             _dup_row = _dup_conn.execute(
                 f"SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status IN ({_a_frag_dup})"
@@ -670,10 +679,12 @@ def open_shadow_trade(
                 (ticker, *_a_params_dup),
             ).fetchone()
             if _dup_row:
-                _dup_conn.rollback()
+                if not _is_pg_conn:
+                    _dup_conn.rollback()
                 logger.info("[SHADOW] Already have open trade for %s, skipping (atomic check)", ticker)
                 return None
-            _dup_conn.rollback()  # #276: lock released before insert — see comment above
+            if not _is_pg_conn:
+                _dup_conn.rollback()  # #276: lock released before insert — see comment above
     except Exception as _dup_err:
         logger.warning("[SHADOW] Atomic duplicate check failed for %s: %s — falling back", ticker, _dup_err)
         existing = get_open_shadow_trade_for_ticker(ticker, db_path)

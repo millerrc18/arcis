@@ -1,0 +1,270 @@
+# 2026-W21 Execution Cleanup — Inventory
+
+**Goal:** Catalog every known trading-execution error in the system. Burn down through the week. No new features until this list is clear.
+
+**Operator directive (2026-05-18):** No new features this week. Tidy the house first. (Memory: `feedback_week_of_2026_05_18_no_features_only_cleanup`.)
+
+**Date opened:** 2026-05-18
+**Author:** PM session
+**Status:** OPEN — awaiting operator prioritization
+**Source data:** `git log --since="2026-05-11"`, `logs/arcis.log` last ~7 days, PG halcyon state queries (post-recovery), code scan of `src/shadow_trading/`, `src/services/`, `src/trading/`, `src/journal/`
+
+---
+
+## P0 — Production risk RIGHT NOW
+
+### P0-1. ~~Twelve~~ open positions show NULL `alpaca_order_id` in PG — **CLOSED 2026-05-18 09:26**
+
+**Resolution:**
+- Watch-loop reconciler (running post-restart) auto-closed 5 ghost positions and orphan-backfilled 9+ active ones via `reconcile_paper_trades`. State after reconciler: 18 open positions, 8 still DB-blind, 2 of which had qty mismatches.
+- One-shot recovery script `scripts/recovery/backfill_alpaca_order_id_post_wipe_2026_05_18.py` ran with qty validation: **6 unambiguous backfills committed** (BAC, COST, DUK, FDX, JNJ, UNP). 2 qty mismatches (AVGO 6→4, KO 55→20) skipped and surfaced as P1-4 partial-exit work.
+- Final state: 16 of 18 open positions have full DB→broker OID linkage. The 2 remaining are tracked under P1-4.
+
+**Original severity:** Critical. **Actual outcome:** observability gap, not actual unprotected positions — the brackets existed at Alpaca all along.
+
+**Original evidence (pre-resolution):**
+
+**Evidence:**
+```
+status=open, count=18
+status=open AND (alpaca_order_id IS NULL OR ''), count=12
+```
+
+| Ticker | Entered | Stop | Target |
+|---|---|---|---|
+| BAC | 2026-05-08 | 49.01 | 54.17 |
+| BMY | 2026-05-08 | 53.44 | 59.06 |
+| DUK | 2026-05-08 | 118.41 | 130.87 |
+| COP | 2026-05-08 | 108.89 | 120.35 |
+| CVX | 2026-05-08 | 172.63 | 190.81 |
+| UNP | 2026-05-11 | 250.27 | 276.61 |
+| COST | 2026-05-11 | 951.93 | 1052.13 |
+| DIS | 2026-05-11 | 102.35 | 113.12 |
+| FDX | 2026-05-11 | 353.05 | 390.21 |
+| KO | 2026-05-11 | 74.26 | 82.08 |
+| JNJ | 2026-05-11 | 209.77 | 231.85 |
+| (one more) | | | |
+
+**Hypothesis:** These had bracket protection in PRE-WIPE PG (yesterday I queried `alpaca_order_id` populated for all 18 opens). After yesterday's wipe, the migrate restored from SQLite — but SQLite was stale relative to live PG when wipe occurred (the cutover routed writes to PG only, so the bracket order IDs added via OCO-attach work only existed in PG). The 12 unprotected-looking positions may actually have brackets at Alpaca but our DB lost the linkage.
+
+**Fix path:**
+1. Query Alpaca for currently-open orders per ticker
+2. Reconcile: any ticker with a matching bracket order → backfill `alpaca_order_id` and `exit_order_id` from Alpaca's IDs
+3. Any ticker WITHOUT a bracket → re-attach via `src/shadow_trading/bracket_attach.py` (the v0.36.4 tool)
+
+**Effort:** ~30 min, no new code
+
+**Status:** ⚠️ Highest priority. Address before any code work.
+
+---
+
+### P0-2. `executor.py:665` — SQLite-only `BEGIN IMMEDIATE` fails on PG, duplicate-check silently disabled
+
+**Severity:** High. The atomic duplicate-check that protects against race conditions between concurrent scan paths (pullback / MR / sentiment scanners opening the same ticker simultaneously) is silently bypassed on PG. Falls back to non-atomic check.
+
+**Evidence:**
+```
+src/shadow_trading/executor.py:665: _dup_conn.execute("BEGIN IMMEDIATE")
+[SHADOW] Atomic duplicate check failed for GILD: syntax error at or near "IMMEDIATE"
+```
+18 occurrences in logs since 2026-05-15.
+
+**Class:** PG dialect leak. Same family as v0.36.2 `date(text)`, v0.36.12 `INSERT OR REPLACE`. Sibling-search miss — the prior PG-dialect hotfixes didn't sweep transaction-isolation keywords.
+
+**Fix path:**
+- PG equivalent: `BEGIN; LOCK TABLE shadow_trades IN SHARE ROW EXCLUSIVE MODE;` or use `SELECT ... FOR UPDATE` on the dedup query
+- Engine-aware helper for transaction isolation in `src/utils/db.py`
+- Regression-lock test using fixture parametrized over sqlite/postgres
+- Sibling-search across `src/` for other SQLite-only `BEGIN`/`ROLLBACK`/`SAVEPOINT` keywords
+
+**Effort:** ~1 hour (small but needs careful test design for race condition coverage)
+
+---
+
+## P1 — Data integrity / observability gaps
+
+### P1-1. 14 trades with sentinel `duration_days=999`
+
+**Evidence:** PG query A3 — 11 unknown exit_reason + 3 manual exit_reason, all with `duration_days=999` (synthetic backfill from a prior session).
+
+**Fix path:** `scripts/backfill_v0.36.13_archaeology.py` (already exists, interactive). Operator runs.
+
+**Effort:** ~5 min for operator
+
+---
+
+### P1-2. 74 shadow_trades with NULL `recommendation_id` (orphan trades)
+
+**Evidence:** PG query A7 — 74 orphan trades. These cause the `data_collector.py` SELECT collision class (the underlying cause we fixed in v0.36.13 T1).
+
+**Fix path:**
+- Code-level: v0.36.13 T1 fix already handles them via UNMEASURED skip
+- Data-level: the 74 orphans are historical (MO/BK/etc manual cleanups + early Phase 1 trades). Best-effort backfill: try to match each orphan trade against a recommendation by `(ticker, scan_date, setup_type)` proximity. Lower priority — they don't actively cause issues post-v0.36.13.
+
+**Effort:** ~2 hours if doing the proximity-match backfill, or punt indefinitely
+
+---
+
+### P1-3. 53 quarantined trades (42 closed, 11 rejected)
+
+**Evidence:** PG query A9 — `COALESCE(quarantined, 0) != 0` count = 53.
+
+**Need to investigate:** what put these into quarantine? Schema registry mentions `scripts/migrate_shadow_trades_quarantined_not_null_2026_04_26.py`. May be a historical migration artifact, or active quarantine logic firing. Unclear.
+
+**Fix path:**
+- Investigate: what code paths SET `quarantined=1`?
+- Audit: review the 53 trades — are they genuinely bad data, or false-positive quarantine?
+- Either clean them or document why they stay quarantined
+
+**Effort:** ~1 hour investigation + cleanup TBD
+
+---
+
+### P1-4. 78% of closed trades have non-measurable exit reasons (75 of 96)
+
+**Evidence:** PG query A4:
+- reconciled_stale: 58
+- unknown: 14
+- stop_loss: 13
+- target_1: 8
+- timeout: 3
+
+Of the 75 non-measurable, 10 have negative pnl (A12) suggesting real losses that weren't recorded with `stop_loss` exit_reason. Reconciliation gap.
+
+**Fix path:**
+- For `reconciled_stale`: query Alpaca's `/v2/orders` for each ticker's exit fill timestamp + price → derive real exit_reason. Backfill `exit_reason`, `actual_exit_price`, `pnl_dollars` from broker truth.
+- For `unknown`: same approach, but lower confidence — broker history may not be retrievable for older trades.
+- The v0.36.13 audit-hardening already filters these from quadrant/calibration math, so the audit alerts shouldn't fire. But the underlying data is still dirty.
+
+**Effort:** ~3-4 hours (Alpaca API recon + backfill script + verification)
+
+---
+
+## P2 — Live-path bugs from yesterday's investigations
+
+### P2-1. `scan_service.py:405` — secondary regime bug from T6
+
+**Evidence:** v0.36.13 T6 followup audit doc at `docs/audits/2026-05-17-v0.36.13-training-page/regime_capture_followup.md`. The ternary `feat.get("regime") or feat.get("market_regime")` reads keys that DO NOT EXIST in the enriched feature dict — the enricher writes `feat["regime_label"]` and nested `feat["traffic_light"]["regime_label"]`.
+
+**Impact:** Telegram-side `regime_at_entry` payload has been NULL even on healthy enrichment runs since this code was written. Doesn't affect DB writes (the DB writer at `executor.py:1116` defensively defaults to `""`).
+
+**Fix path:** Replace ternary with `feat.get("traffic_light", {}).get("regime_label") or feat.get("regime_label")`.
+
+**Effort:** ~15 min including regression test
+
+---
+
+### P2-2. 12 of 18 open positions have NULL `regime_at_entry` (root cause unclear)
+
+**Evidence:** PG query A11. Companion to P0-1 — same 12 positions that show NULL `alpaca_order_id` also show NULL `regime_at_entry`. Strongly suggests the 12 were opened via a code path that doesn't populate either field (vs the 6 protected+regime'd opens that go through a different path).
+
+**Hypothesis:** There are TWO open-shadow-trade code paths:
+- Path A (6 positions, healthy): includes bracket attach + regime capture
+- Path B (12 positions, broken): missing both
+
+**Fix path:** Trace the 12 positions back via `created_at` in logs to find which scan path created them. Identify the divergence.
+
+**Effort:** ~1 hour investigation, then code fix TBD
+
+---
+
+### P2-3. `[BuildScore] model_quality error: list index out of range`
+
+**Evidence:** Fires daily ~16:45 ET. Investigation: `src/evaluation/build_score.py` `model_quality` computation indexing into an empty array.
+
+**Effort:** ~30 min trace + fix
+
+---
+
+## P3 — Audit truthfulness (mostly addressed in v0.36.13, verify)
+
+### P3-1. v0.36.13 audit hardening — verify tonight
+
+**What to confirm tomorrow morning:** the four daily audit alerts that fired through this week (75% good process, unknown regime, 336d hold, 0% calibration) should NOT fire tonight after v0.36.13 deploy. If any still fires, that's a real bug to chase.
+
+**Effort:** 5 min check tomorrow morning
+
+---
+
+### P3-2. Scorecard sibling-sweep — verify
+
+**What to confirm:** the weekly scorecard (when next generated) should NOT show `longest_hold=999`. The v0.36.13 T4 cycle-2 sweep routed scorecard through `_measurable_hold_durations`.
+
+**Effort:** Wait for next scorecard generation (Friday?), spot-check
+
+---
+
+## P4 — Test infrastructure hygiene (the v0.36.14 lesson)
+
+### P4-1. 24 test files mentioned in conftest as "broken fallback pattern"
+
+**Evidence:** conftest.py:31 docstring references 24 files using `os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL", "")`. Yesterday's grep found only 3 still matching the literal pattern — but the docstring count suggests there are more variants.
+
+**Fix path:**
+- Find all such files (need a more comprehensive grep)
+- Either fix them to skip cleanly when TEST_DATABASE_URL is unset, OR
+- Whitelist them as "needs explicit test PG" via pytest.mark.skipif
+
+**Effort:** ~2-3 hours (find + audit + patch each file)
+
+**Note:** The v0.36.14 second-line defense in pg_wrapper now catches this class. But proactive sweep prevents the warning noise during normal test runs.
+
+---
+
+### P4-2. Test PG on port 5434 (recommended infrastructure)
+
+**Not strictly an execution error, but enabling work for safer test cycles.** Operator memory could carry: "halcyon-pg-test on port 5434" as the canonical test PG. Sets up via docker-compose with empty schema, ready for test fixture writes.
+
+**Fix path:** Docker compose addition + setup doc
+
+**Effort:** ~1 hour
+
+---
+
+## P5 — Forward-observability (non-urgent)
+
+### P5-1. FED scrape — first real test tonight
+
+**Evidence:** `fed_communications` has 2 rows from 2026-04-28. v0.36.13 T2 fixed the link_filter pattern. Tonight's overnight cycle is the first real test.
+
+**Effort:** Check tomorrow morning — if `fed_communications` count increased, fix works. If still 2, follow-up.
+
+---
+
+### P5-2. FINRA short-volume — first real run tonight
+
+**Evidence:** `short_volume_daily` table is empty (created in v0.36.13 but never populated). Tonight's overnight cycle should run the new FINRA collector for first time.
+
+**Effort:** Check tomorrow morning
+
+---
+
+## Summary by priority
+
+| Priority | Count | Total effort | Notes |
+|---|---|---|---|
+| P0 | 2 | ~1.5 hours | Production risk — address Monday |
+| P1 | 4 | ~6-7 hours | Data quality — burn down Mon–Tue |
+| P2 | 3 | ~2 hours | Live bugs — Wed |
+| P3 | 2 | ~10 min checks | Tomorrow morning |
+| P4 | 2 | ~3-4 hours | Test infra hygiene — Thu |
+| P5 | 2 | ~10 min checks | Tomorrow morning |
+
+**Total estimated effort:** ~14-15 hours of focused work to clear the whole list. With the operator's preference for thoroughness, planning for the full week is realistic.
+
+---
+
+## Open questions for operator
+
+1. **P0-1 reconciliation approach:** prefer manual Alpaca dashboard check, or automated Alpaca API sweep via a script? The latter is more thorough but takes setup.
+2. **P1-3 quarantined trades:** do you remember setting these quarantine flags, or is it from an automated rule that's still firing?
+3. **P1-4 reconciled_stale backfill:** worth the effort to backfill broker truth, or accept the data loss as historical?
+4. **P4-2 test PG:** want me to set up halcyon-pg-test as part of this week's work, or is that a separate project?
+
+---
+
+## Tracking
+
+This document is the single source of truth for the week. As items close, mark them DONE inline with the commit SHA. PR-merge moments naturally update this file.
+
+**Next action:** operator reviews this inventory, confirms priorities (or adjusts), then we burn down starting with P0-1.
