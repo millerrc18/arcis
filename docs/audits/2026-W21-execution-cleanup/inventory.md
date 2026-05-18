@@ -125,6 +125,100 @@ src/shadow_trading/executor.py:665: _dup_conn.execute("BEGIN IMMEDIATE")
 
 ---
 
+### P1-NEW-1. Reconciler creates duplicate open shadow_trades on "premature exit revert" path
+
+**Severity:** High. Active execution bug discovered 2026-05-18 ~09:32 ET.
+
+**Evidence:** ETN has 2 open shadow_trades (`90f28c15...` with bracket OID, `465b63ed...` without) for a single 5-share broker position.
+
+**Reproduction trace (from logs):**
+- 09:02:17 — `[EXIT] Closed ETN — P&L $8.10 (0.4%)` — original `415531e1` timed out (held 11 days)
+- 09:07:14 — `[RECONCILE-PAPER] Cancelled 1 dangling orders for ETN before backfill`
+- 09:07:24 — `[RECONCILE-PAPER] Backfilled orphaned position: ETN (5.0000 shares @ $419.24)` — creates `90f28c15`
+- 09:07:27 — `[RECONCILE-PAPER] Auto-attached OCO for ETN (oid=b93cc89c..., qty=5)`
+- 09:31:12 — `[SHADOW] Placing paper SELL: 5 shares of ETN` — exit cycle (re)tried exit on `90f28c15`
+- 09:31:12 — `APIError: insufficient qty available — 5 held_for_orders by bracket b93cc89c`
+- 09:31:17 — `[EXIT] Broker exit failed for ETN — marking exit_failed (retry=1)`
+- 09:32:09 — `[RECONCILE-PAPER] Backfilled orphaned position: ETN` — **SECOND orphan-backfill creates `465b63ed`**
+- 09:32:11 — `[RECONCILE-PAPER] Bracket auto-attach for ETN skipped: stop $398.28 >= current $393.58`
+- 09:32:16 — `[RECONCILE-PAPER] Reverted premature exit to open: ETN` — restores `90f28c15` to status='open'
+
+**Root cause hypothesis:** The reconciler's "revert premature exit" and "orphan backfill" passes don't see each other's pending writes in the same scan cycle. When the 09:32 cycle ran:
+- Pass A (orphan-backfill): scans broker positions, sees ETN with no MATCHING open shadow_trade (because `90f28c15` was still `exit_failed`). Creates `465b63ed`.
+- Pass B (premature exit revert): scans `exit_failed` trades, finds `90f28c15`, restores to `open`.
+- Result: two open shadow_trades for the same broker position.
+
+**Why only ETN today:** the pattern requires `timeout-exit → orphan-backfill → premature-exit retry fails → revert + duplicate orphan`. Other tickers (AMD/AMZN/etc.) escaped because their timeouts cleanly closed and orphan-backfilled without the secondary exit retry.
+
+**Fix path:**
+- Inside reconciler: orphan-backfill should also check `exit_failed`/`exit_pending` shadow_trades for the ticker before creating a new row. Match a candidate trade for revival rather than create.
+- Order operations within a single reconcile cycle so "revert premature exit" runs FIRST, then orphan-backfill sees the revived row.
+- Regression test using sqlite memory fixture with the exact 4-trade lifecycle.
+
+**Immediate cleanup needed:** close the duplicate `465b63ed` (no bracket, no fills, planned but no shares attributed) with `exit_reason='duplicate_orphan_backfill'` or similar new vocabulary item. The remaining `90f28c15` is the canonical record with active OCO protection.
+
+**Effort:** 30 min cleanup + 1-2 hours code fix + tests
+
+---
+
+### P1-NEW-2. `coerce_exit_reason()` doesn't recognize `'position_already_closed'` → drops signal to `'unknown'`
+
+**Severity:** Medium. Signal loss — Alpaca explicitly says "position already closed at broker" and we silently coerce that to 'unknown', losing the cause.
+
+**Evidence:** 4 events in this morning's logs:
+```
+[EXECUTOR] CVX position already closed at broker (qty=0) — marking exit_pending:position_already_closed for reconcile
+[EXIT_REASON_INVALID] received='position_already_closed' ticker=CVX fallback=unknown
+```
+
+`coerce_exit_reason()` lives in `src/shadow_trading/exit_reason.py`. The controlled vocabulary doesn't include `'position_already_closed'`, so it falls back to `'unknown'`. This pollutes the exit-reason histogram and removes a useful broker-side signal.
+
+**Fix path:** add `'position_already_closed'` (or normalize to `'broker_already_closed'`) to `_VALID_EXIT_REASONS`. Update the schema description if it lists valid reasons. Adjust audit's `_UNMEASURABLE_EXIT_REASONS` filter if appropriate (probably yes — we couldn't measure the actual P&L).
+
+**Effort:** 15 min + regression test
+
+---
+
+### P1-NEW-3. `connect_db` cutover-gate warning fires on every call → 570 warnings/hour
+
+**Severity:** Low (noise, not correctness). Cleanup opportunity for operator log clarity.
+
+**Evidence:** WARN cluster cluster shows:
+- 465 occurrences of `[DB] connect_db(...) overridden by Phase 3 cutover gate; ARCIS_PG_CUTOVER_ENABLED=1 routes to PG. Unset to revert to SQLite path.`
+- 105 occurrences of the forward-slash variant of the same path
+- = 570 total in one hour
+
+The message is informational — it confirms the cutover gate is doing its job — but it's logged at WARNING level on every single connect_db() call. The log is otherwise clean during normal operation; this single message dominates volume.
+
+**Fix path:** change to `_warn_once` pattern (log once per process, suppress subsequent). Other Sprint 5 cutover gates use this pattern already.
+
+**Effort:** ~15 min + test
+
+---
+
+### P1-NEW-4. 5 stale-position WARN signals being detected on EVERY scan cycle
+
+**Severity:** Medium (operator-visible noise + reveals reconcile gap).
+
+**Evidence:** From this morning's logs:
+```
+[EXECUTOR] DIS not in Alpaca positions (trade_id=ef3b0126...) — will be caught by next reconciliation cycle
+[EXECUTOR] CVX not in Alpaca positions (trade_id=469e8933...) — will be caught by next reconciliation cycle
+[EXECUTOR] COP not in Alpaca positions (trade_id=e7478f4c...) — will be caught by next reconciliation cycle
+[EXECUTOR] BMY not in Alpaca positions (trade_id=876c6c51...) — will be caught by next reconciliation cycle
+[EXECUTOR] BK not in Alpaca positions (trade_id=a6c374ee...) — will be caught by next reconciliation cycle
+```
+
+These are the Cat B ghost positions from yesterday's PG-wipe inventory. The watch loop's exit cycle detects them every scan, log a warning, and notes they'll be caught by reconcile. But they're STILL OPEN in DB an hour later — reconcile hasn't actually closed them yet.
+
+**Hypothesis:** reconcile's 1-hour safety guard (operator memory `feedback_strict_rigor_no_handwave` and the comment in reconcile.py line 462-468) is preventing closure on these. They were "open" before today's restart, and the safety guard wants to wait for them to be "stable stale" before closing.
+
+**Fix path:** check whether these have now passed the 1-hour guard threshold. If yes, force-close. If no, wait.
+
+**Effort:** 10 min check + decision
+
+---
+
 ### P1-4. 78% of closed trades have non-measurable exit reasons (75 of 96)
 
 **Evidence:** PG query A4:
@@ -244,18 +338,27 @@ Of the 75 non-measurable, 10 have negative pnl (A12) suggesting real losses that
 
 ---
 
-## Summary by priority
+## Summary by priority (updated 2026-05-18 post-trading-hour scan)
 
 | Priority | Count | Total effort | Notes |
 |---|---|---|---|
-| P0 | 2 | ~1.5 hours | Production risk — address Monday |
-| P1 | 4 | ~6-7 hours | Data quality — burn down Mon–Tue |
-| P2 | 3 | ~2 hours | Live bugs — Wed |
+| P0 | 2 | ~1.5 hours | ✅ CLOSED v0.36.15 |
+| P1 (original) | 4 | ~6-7 hours | 1/4 closed (P1-1 v0.36.16) |
+| P1-NEW (live-trading scan) | 4 | ~3-4 hours | Discovered 2026-05-18 09:30 |
+| P2 | 3 | ~2 hours | Live bugs |
 | P3 | 2 | ~10 min checks | Tomorrow morning |
-| P4 | 2 | ~3-4 hours | Test infra hygiene — Thu |
+| P4 | 2 | ~3-4 hours | Test infra hygiene |
 | P5 | 2 | ~10 min checks | Tomorrow morning |
 
-**Total estimated effort:** ~14-15 hours of focused work to clear the whole list. With the operator's preference for thoroughness, planning for the full week is realistic.
+**Updated total effort:** ~17-18 hours of focused work to clear the whole list (originally 14-15, +3-4 hours of new findings).
+
+**Closed today (3 items via v0.36.14/15/16):** P0-1, P0-2, P1-1.
+
+**Newly discovered (4 items, all medium severity):**
+- P1-NEW-1: Reconciler creates duplicate orphan-backfill on "premature exit revert" path (active ETN duplicate)
+- P1-NEW-2: `coerce_exit_reason()` doesn't recognize `'position_already_closed'` → drops signal
+- P1-NEW-3: `connect_db` cutover-gate WARN noise (570/hour)
+- P1-NEW-4: 5 stale ghost positions (BMY/BK/COP/CVX/DIS) flagged every scan, reconcile guard preventing closure
 
 ---
 
