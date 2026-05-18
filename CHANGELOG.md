@@ -3,6 +3,69 @@
 ## [Unreleased]
 
 
+## [v0.36.20] — 2026-05-18 — W21 execution cleanup: FINRA short-volume pre-overnight fix
+
+W21 pre-overnight de-risk. Manual pre-flight of every overnight task before
+the 21:30 ET scheduled run caught two bugs in `collect_finra_short_volume()`
+(v0.36.13 stopgap) that would have failed at first invocation.
+
+### Fixed
+
+`src/data_collection/short_volume_finra.py` — two PG-runtime bugs:
+
+1. **TypeError on universe lookup.** Pre-fix called
+   `get_sp100_at(target_date)` passing a `date` object; `get_sp100_at()`
+   expects an ISO string (`date.fromisoformat()` internally). Would have
+   raised `TypeError: fromisoformat: argument must be str` at the first
+   overnight run.
+
+2. **UniverseDataMissing on T+1 anchor.** Even with the ISO-fix,
+   `get_sp100_at()` raised `UniverseDataMissing: as_of=2026-05-15 is
+   after latest covered date 2026-04-28` because the membership table
+   (`data/reference/sp100_history.json`) was 3 weeks stale and the
+   collector pulls T+1. PIT is for backtesting; daily collectors want
+   current-membership.
+
+Fix: switched the import + call site from `src.universe.pit.get_sp100_at`
+to `src.universe.sp100.get_sp100_universe`. Aligns with the T10 migration
+allowlist policy in `tests/test_pit_universe_discipline.py` (live-runtime
+sites use current membership; only backtest/sim/training-backfill use
+PIT). Added the file to the allowlist with rationale.
+
+Pre-flight result post-fix:
+```
+{'tickers_collected': 101, 'rows_inserted': 101,
+ 'target_date': '2026-05-15', 'source': 'finra'}
+```
+
+### Other pre-overnight de-risk verified (no code change)
+
+- **FED scraper** (`scripts/scrape_fed_speeches.py`) — manual pre-flight
+  succeeded, 4 speeches collected. v0.36.13 multi-strategy parser fix
+  validated in production.
+- **build_score manual trigger** — `model_quality=100.0`, no IndexError.
+  v0.36.18 array-bounds fix validated.
+- **Stuck-trade cleanup** — UPS `cdb246c7-…-3bb7babbf6c8` resolved as
+  partial-fill exit at $99.40 (24/39 shares filled, pnl=-$240.48 / -5.65%,
+  exit_reason `qty_mismatch_partial_fill` — already in
+  `_UNMEASURABLE_EXIT_REASONS` so excluded from outcome stats). ETN
+  `90f28c15` closed as overshoot exit ($381.27, pnl=-$118.80 / -5.67%).
+  `needs_manual_review` count: 1 → 0.
+
+### Tests
+
+- `tests/data_collection/test_short_volume_finra_universe_fix.py` (NEW,
+  2 tests) — regression-locks for both the bug class (active code call
+  site walks line-by-line skipping comments + docstrings) and the import
+  line.
+- `tests/data_collection/test_short_volume_finra.py` (5 mocks updated)
+  — `get_sp100_at` → `get_sp100_universe`, return type `set` → `list`
+  (matching `set(get_sp100_universe())` wrapping in source).
+- `tests/test_pit_universe_discipline.py` allowlist — added
+  `src/data_collection/short_volume_finra.py` with rationale.
+- `tests/test_version.py` — bumped to v0.36.20.
+
+
 ## [v0.36.19] — 2026-05-18 — W21 execution cleanup: P4-1 (test-file fallback sweep)
 
 W21 continuation. Closes P4-1 — proactive sweep of test files using the

@@ -85,7 +85,7 @@ def test_parser_pipe_delimited(tmp_path):
     mock_resp = _make_mock_response(CANNED_RESPONSE)
 
     with patch("src.data_collection.short_volume_finra.retry_with_backoff", return_value=mock_resp), \
-         patch("src.data_collection.short_volume_finra.get_sp100_at", return_value={"AAPL", "MSFT"}):
+         patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL", "MSFT"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         result = collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
 
@@ -111,7 +111,7 @@ def test_short_ratio_computed(tmp_path):
     mock_resp = _make_mock_response(CANNED_RESPONSE)
 
     with patch("src.data_collection.short_volume_finra.retry_with_backoff", return_value=mock_resp), \
-         patch("src.data_collection.short_volume_finra.get_sp100_at", return_value={"AAPL", "MSFT"}):
+         patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL", "MSFT"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
 
@@ -137,7 +137,7 @@ def test_zero_total_volume_no_division(tmp_path):
     mock_resp = _make_mock_response(CANNED_RESPONSE_WITH_ZERO_VOL)
 
     with patch("src.data_collection.short_volume_finra.retry_with_backoff", return_value=mock_resp), \
-         patch("src.data_collection.short_volume_finra.get_sp100_at", return_value={"AAPL", "MSFT"}):
+         patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL", "MSFT"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         result = collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
 
@@ -163,7 +163,7 @@ def test_db_upsert_idempotent(tmp_path):
     mock_resp = _make_mock_response(CANNED_RESPONSE)
 
     with patch("src.data_collection.short_volume_finra.retry_with_backoff", return_value=mock_resp), \
-         patch("src.data_collection.short_volume_finra.get_sp100_at", return_value={"AAPL", "MSFT"}):
+         patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL", "MSFT"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
         # Second run — must not raise IntegrityError
@@ -194,7 +194,7 @@ def test_http_404_raises_collector_error(tmp_path):
     # retry_with_backoff returns None on exhaustion — simulate None return which
     # the collector must treat as a permanent HTTP failure
     with patch("src.data_collection.short_volume_finra.retry_with_backoff", return_value=None), \
-         patch("src.data_collection.short_volume_finra.get_sp100_at", return_value={"AAPL"}):
+         patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         with pytest.raises(CollectorConfigError):
             collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
