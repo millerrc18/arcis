@@ -48,13 +48,34 @@ import os
 #   3. Unset DATABASE_URL before running pytest
 
 
+_PROD_SIGNATURES = ("localhost:5433", "127.0.0.1:5433", "halcyon_app:")
+
+
+def _is_prod_pg_url(url: str) -> bool:
+    """Return True when `url` matches any production-PG signature.
+
+    Used by both the P0 guard at pytest_configure (catches operator env
+    misconfiguration) and at fixture-entry time (catches autouse fixtures
+    that mutate env mid-session).
+    """
+    return bool(url) and any(sig in url for sig in _PROD_SIGNATURES)
+
+
 def pytest_configure(config):
-    """P0 GUARD: refuse pytest if DATABASE_URL points at prod PG and TEST_DATABASE_URL is unset.
+    """P0 GUARD: refuse pytest if DATABASE_URL or TEST_DATABASE_URL points at prod PG.
 
     Runs at the earliest pytest hook, before any test module is imported.
     Calls pytest.exit(returncode=2) with a loud explanatory message if the
     operator's environment would cause test fixtures to DROP TABLE against
     the production Postgres database.
+
+    v0.36.14: extended to also check TEST_DATABASE_URL. P0 incident
+    2026-05-17 21:28 UTC (#159) wiped ~80 prod tables when a coding-team
+    developer agent collected `tests/notifications/test_platform_events.py`
+    whose autouse fixture constructed a TEST_DATABASE_URL pointing at port
+    5433 (prod). The pg_wrapper fixture trusted that env var and DROPped
+    every sync-eligible table on teardown. The prior P0 guard only
+    inspected DATABASE_URL and missed this path entirely.
     """
     import pytest as _pytest
 
@@ -66,15 +87,44 @@ def pytest_configure(config):
         "yes",
     )
 
-    _PROD_SIGNATURES = ("localhost:5433", "127.0.0.1:5433", "halcyon_app:")
-    is_prod = any(sig in db_url for sig in _PROD_SIGNATURES)
+    db_url_is_prod = _is_prod_pg_url(db_url)
+    test_db_url_is_prod = _is_prod_pg_url(test_db_url)
 
-    if is_prod and not test_db_url and not allow_override:
+    if test_db_url_is_prod and not allow_override:
         _pytest.exit(
             "\n"
-            "=" * 70 + "\n"
+            + "=" * 70 + "\n"
+            "  P0 GUARD: REFUSING PYTEST — TEST_DATABASE_URL POINTS AT PRODUCTION PG\n"
+            + "=" * 70 + "\n"
+            "\n"
+            "  DANGER: TEST_DATABASE_URL in your environment resolves to the\n"
+            "  operator's production Postgres database (detected signatures:\n"
+            "  localhost:5433, 127.0.0.1:5433, or halcyon_app: in the URL).\n"
+            "\n"
+            "  Several fixtures in tests/conftest.py (pg_wrapper, pg_isolated_conn)\n"
+            "  read TEST_DATABASE_URL and run DROP TABLE IF EXISTS ... CASCADE on\n"
+            "  teardown. With this URL pointing at production, every sync-eligible\n"
+            "  table would be dropped — this happened on 2026-05-17 (P0 incident\n"
+            "  #159, ~80 prod tables wiped).\n"
+            "\n"
+            "  HOW TO FIX:\n"
+            "    set TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:5434/halcyon\n"
+            "  Or unset and let pg_wrapper skip:\n"
+            "    set TEST_DATABASE_URL=\n"
+            "\n"
+            "  Current TEST_DATABASE_URL (redacted after @): "
+            + (test_db_url.split("@")[0] + "@..." if "@" in test_db_url else test_db_url)
+            + "\n"
+            + "=" * 70 + "\n",
+            returncode=2,
+        )
+
+    if db_url_is_prod and not test_db_url and not allow_override:
+        _pytest.exit(
+            "\n"
+            + "=" * 70 + "\n"
             "  P0 GUARD: REFUSING PYTEST — DATABASE_URL POINTS AT PRODUCTION PG\n"
-            "=" * 70 + "\n"
+            + "=" * 70 + "\n"
             "\n"
             "  DANGER: DATABASE_URL in your environment resolves to the operator's\n"
             "  production Postgres database (detected signatures: localhost:5433,\n"
@@ -105,7 +155,7 @@ def pytest_configure(config):
             "  Current DATABASE_URL (redacted after @): "
             + (db_url.split("@")[0] + "@..." if "@" in db_url else db_url)
             + "\n"
-            "=" * 70 + "\n",
+            + "=" * 70 + "\n",
             returncode=2,
         )
 import shutil
@@ -369,6 +419,18 @@ def pg_wrapper():
     test_database_url = os.environ.get("TEST_DATABASE_URL")
     if not test_database_url:
         pytest.skip("TEST_DATABASE_URL not set; pg_wrapper fixture cannot run")
+
+    # v0.36.14 second-line defense: refuse prod URLs even if pytest_configure
+    # let them through (e.g., an autouse fixture mutated env after configure
+    # ran). This is the case that wiped ~80 prod tables on 2026-05-17 (#159).
+    if _is_prod_pg_url(test_database_url):
+        pytest.fail(
+            "pg_wrapper refused to connect: TEST_DATABASE_URL matches prod "
+            "signatures (localhost:5433 / 127.0.0.1:5433 / halcyon_app:). "
+            "An earlier fixture or test module likely mutated TEST_DATABASE_URL "
+            "to point at production. See tests/conftest.py pytest_configure "
+            "guard for the operator-facing fix-it message."
+        )
 
     raw_conn = psycopg2.connect(
         test_database_url, cursor_factory=psycopg2.extras.RealDictCursor

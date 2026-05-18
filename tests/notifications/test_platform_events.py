@@ -196,26 +196,37 @@ def _count_dedup_rows(conn):
 
 @pytest.fixture(autouse=True)
 def _load_test_database_url_from_env():
-    """Load TEST_DATABASE_URL from .env so the postgres parametrize variant runs.
+    """REMOVED v0.36.14 — DO NOT auto-construct TEST_DATABASE_URL pointing at
+    127.0.0.1:5433 (the operator's production halcyon-pg).
 
-    Sprint 5 phase 1 T1.7 — Docker-Postgres uses interpolated password
-    `postgresql://halcyon:$DOCKER_PG_PASSWORD@127.0.0.1:5433/halcyon` in the
-    dispatch brief; resolve via dotenv at import time, set TEST_DATABASE_URL
-    if absent and DOCKER_PG_PASSWORD is present. No-op when neither is set —
-    parametrized_conn(postgres) then skips cleanly.
+    Sprint 5 phase 1 T1.7 introduced an auto-construction block that read
+    `DOCKER_PG_PASSWORD` from `.env` and set
+    `TEST_DATABASE_URL=postgresql://halcyon:<pw>@127.0.0.1:5433/halcyon`. The
+    intent was "the operator's Docker PG is the local test instance," but in
+    practice the operator runs the PRODUCTION halcyon database on port 5433.
+
+    P0 incident 2026-05-17 21:28 UTC (#159): one of six dispatched coding-team
+    developer agents ran a pytest invocation that collected this file. The
+    autouse fixture set TEST_DATABASE_URL to the production URL. The
+    pg_wrapper fixture then connected to PROD halcyon, bootstrapped its
+    tables (CREATE TABLE IF NOT EXISTS — no-op since the tables existed),
+    ran the test, then on teardown ran DROP TABLE IF EXISTS {name} CASCADE
+    for every sync-eligible table — wiping ~80 production tables in ~3
+    seconds.
+
+    The P0 guard at conftest.py:51-110 was designed to catch DATABASE_URL
+    leakage to prod but didn't check TEST_DATABASE_URL because no test was
+    expected to SET that env var itself. Both layers of safety failed.
+
+    The right home for TEST_DATABASE_URL is the operator's environment
+    (e.g., a separate halcyon-pg-test container on port 5434), not a test
+    fixture. This fixture body now no-ops. If TEST_DATABASE_URL is not set,
+    pg_wrapper will skip cleanly; the postgres parametrize variant of any
+    test in this file will be reported as SKIPPED, not silently turned into
+    a prod-DROP.
     """
-    if os.environ.get("TEST_DATABASE_URL"):
-        return
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except Exception:
-        return
-    pw = os.environ.get("DOCKER_PG_PASSWORD")
-    if pw and not os.environ.get("TEST_DATABASE_URL"):
-        os.environ["TEST_DATABASE_URL"] = (
-            f"postgresql://halcyon:{pw}@127.0.0.1:5433/halcyon"
-        )
+    # Intentionally no-op. See docstring for incident details.
+    return
 
 
 def test_t1_7_first_insert_lands_row(parametrized_conn):

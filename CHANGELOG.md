@@ -3,6 +3,77 @@
 ## [Unreleased]
 
 
+## [v0.36.14] — 2026-05-18 — PG-wipe prevention (P0 incident #159)
+
+PATCH hotfix closing two layered safety defects that allowed
+`tests/notifications/test_platform_events.py` to silently DROP ~80 production
+tables on 2026-05-17 21:28:34 UTC.
+
+### Incident
+
+A coding-team developer agent dispatched yesterday during the v0.36.13
+sprint collected `tests/notifications/test_platform_events.py` as part of a
+broader pytest sweep. That file's `@pytest.fixture(autouse=True)` body
+auto-constructed `TEST_DATABASE_URL=postgresql://halcyon:$DOCKER_PG_PASSWORD@127.0.0.1:5433/halcyon`
+on the assumption that port 5433 hosts a Docker test PG. In this operator's
+deployment, port 5433 hosts the PRODUCTION halcyon database (per `.env`
+`DATABASE_URL=postgresql://halcyon_app:...@localhost:5433/halcyon`).
+
+The `pg_wrapper` fixture in `tests/conftest.py` then connected to the
+constructed URL, ran the test, and on teardown executed
+`DROP TABLE IF EXISTS {name} CASCADE` for every sync-eligible table in
+`src/schema/registry.py` — wiping ~80 tables across ~3 seconds. The
+`pytest_configure` P0 guard caught DATABASE_URL leakage to prod but did
+not check TEST_DATABASE_URL because no test was expected to *set* that env
+var itself.
+
+The watch loop ran into a void for ~14.5 hours (2026-05-17 17:28 ET →
+2026-05-18 08:00 ET restart and beyond) before the operator noticed via
+the dashboard.
+
+### Fixed
+
+- **`tests/notifications/test_platform_events.py`** — the `autouse`
+  fixture `_load_test_database_url_from_env` no longer constructs a
+  TEST_DATABASE_URL. The fixture body is now a no-op with a long
+  docstring documenting the incident. The right home for
+  TEST_DATABASE_URL is operator environment, not test fixtures.
+- **`tests/conftest.py` P0 guard (`pytest_configure`)** — extended to
+  ALSO check `TEST_DATABASE_URL` against the prod signatures
+  (`localhost:5433`, `127.0.0.1:5433`, `halcyon_app:`). Refuses pytest
+  with a loud, operator-friendly explanation if either env var matches
+  prod. The `_PROD_SIGNATURES` constant and `_is_prod_pg_url()` helper
+  are now module-level for reuse.
+- **`tests/conftest.py` pg_wrapper fixture** — added a second-line
+  defense: if `TEST_DATABASE_URL` matches prod signatures at
+  fixture-entry time (catches autouse fixtures or test modules that
+  mutate env AFTER pytest_configure ran), the fixture calls
+  `pytest.fail()` with a clear message instead of connecting.
+
+### Sibling-search receipt
+
+- `tests/monitoring/test_alert_silence.py` — has the fallback pattern
+  `os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL", "")`
+  but it is gated behind `pytest.mark.skipif` requiring `TEST_DATABASE_URL`
+  explicitly. The new pytest_configure guard now catches the prod-URL
+  case BEFORE that fallback would fire.
+- `tests/test_conftest_pg_guard.py` — the guard's own regression-lock
+  test. Updated to cover the TEST_DATABASE_URL extension. (See test
+  diff for the new assertions.)
+- No other test file was found to construct a TEST_DATABASE_URL pointing
+  at port 5433. The grep `grep -rn "DOCKER_PG_PASSWORD.*5433" tests/`
+  matched only the one fixture this commit removes.
+
+### Operator follow-up (RECOVERY — out of this PR's code scope)
+
+PG halcyon database currently has 3 tables (analyst_estimates,
+build_score_history, sync_state). 77 missing. SQLite at
+`C:\arcis\data\ai_research_desk.sqlite3` is intact (588 trades, 18 open
+positions, 75 training_examples, 3,969 notifications). Recovery steps
+documented in `docs/audits/2026-05-18-pg-wipe-incident-159/recovery.md`
+(forthcoming).
+
+
 ## [v0.36.13] — 2026-05-17 — Training Page + Audit Hardening
 
 Six-track PATCH bundle resolving training-page blank charts, FED scraper
