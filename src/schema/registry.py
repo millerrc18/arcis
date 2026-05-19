@@ -1205,7 +1205,13 @@ _register(TableDef(
     primary_key="id",
     indexes=[
         IndexDef("idx_macro_snapshots_date", ["collected_date"]),
-        IndexDef("idx_macro_snapshots_series", ["series_id", "collected_date"]),
+        # unique=True: backs the upsert's ON CONFLICT (series_id, collected_date)
+        # target. Pre-v0.36.23 this was non-unique, which made PG raise
+        # "no unique or exclusion constraint matching the ON CONFLICT
+        # specification" for every macro indicator. The bare INSERT fallback
+        # accumulated 233 duplicate rows between 2026-05-05 and 2026-05-19
+        # before the regression was caught.
+        IndexDef("idx_macro_snapshots_series", ["series_id", "collected_date"], unique=True),
     ],
     sync_to_postgres=True,
     # Preserve full historical macro series in Postgres. Re-runs on the same
