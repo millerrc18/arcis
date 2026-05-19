@@ -181,8 +181,19 @@ class VRAMManager:
     def _get_gpu_processes(self) -> list[dict]:
         """Return list of processes currently using GPU compute.
 
-        Each entry: {"pid": int, "name": str, "used_mb": int}.
+        Each entry: {"pid": int, "name": str, "used_mb": int | None}.
+        `used_mb` is None when nvidia-smi reports the memory column as
+        `[N/A]` — common on Windows for processes whose per-process VRAM
+        accounting isn't surfaced via WDDM (Ollama's `ollama.exe` is a known
+        case on RTX 30-series systems).
+
         Returns [] if nvidia-smi is unavailable, hangs, or finds nothing.
+
+        v0.36.29 fix: pre-fix this method skipped rows where `int(used_memory)`
+        raised ValueError, which dropped Ollama from results on the operator's
+        RTX 3090+3060 system. The PID-based kill path then never fired and the
+        2-night VRAM cascade returned. Lesson: identification doesn't require
+        the memory column — only the PID and process name do.
         """
         if not self._nvidia_smi:
             return []
@@ -202,14 +213,21 @@ class VRAMManager:
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) < 3:
                     continue
+                # PID must be a real int — drops header rows + truly malformed lines.
                 try:
-                    procs.append({
-                        "pid": int(parts[0]),
-                        "name": parts[1],
-                        "used_mb": int(parts[2]),
-                    })
+                    pid = int(parts[0])
                 except ValueError:
                     continue
+                # Memory column may be "[N/A]" — treat as unknown rather than skip.
+                try:
+                    used_mb: int | None = int(parts[2])
+                except ValueError:
+                    used_mb = None
+                procs.append({
+                    "pid": pid,
+                    "name": parts[1],
+                    "used_mb": used_mb,
+                })
             return procs
         except (subprocess.TimeoutExpired, OSError) as e:
             logger.warning("[VRAM] nvidia-smi --query-compute-apps failed: %s", e)
@@ -303,23 +321,36 @@ class VRAMManager:
                 time.sleep(5)
                 return
 
-            # Strategy A: PID-based kill of GPU-holding Ollama processes
+            # Strategy A: PID-based kill of GPU-holding Ollama processes.
+            # v0.36.29: dedupe by PID — multi-GPU systems (e.g. operator's
+            # RTX 3090 + RTX 3060) list the same Ollama process once per GPU.
             gpu_procs = self._get_gpu_processes()
             ollama_procs = [p for p in gpu_procs if "ollama" in p["name"].lower()]
-            if ollama_procs:
-                for proc in ollama_procs:
-                    logger.info("[VRAM] Killing Ollama PID %d (%s, %dMB)",
-                                proc["pid"], proc["name"], proc["used_mb"])
+            seen_pids: set[int] = set()
+            unique_ollama = []
+            for p in ollama_procs:
+                if p["pid"] not in seen_pids:
+                    seen_pids.add(p["pid"])
+                    unique_ollama.append(p)
+            if unique_ollama:
+                for proc in unique_ollama:
+                    mem_str = (
+                        f"{proc['used_mb']}MB" if proc["used_mb"] is not None
+                        else "memory=[N/A]"
+                    )
+                    logger.info("[VRAM] Killing Ollama PID %d (%s, %s)",
+                                proc["pid"], proc["name"], mem_str)
                     self._kill_pid(proc["pid"])
                 time.sleep(3)
 
                 # Verify: if no ollama-named PID still holds VRAM, we're done.
                 # Otherwise, fall through to /im-based kill as belt-and-suspenders.
-                still_holding = [
-                    p for p in self._get_gpu_processes()
-                    if "ollama" in p["name"].lower()
-                ]
-                if not still_holding:
+                # Dedupe again — same multi-GPU consideration.
+                _still = self._get_gpu_processes()
+                still_holding_pids = {
+                    p["pid"] for p in _still if "ollama" in p["name"].lower()
+                }
+                if not still_holding_pids:
                     return
                 logger.warning(
                     "[VRAM] Ollama still holding VRAM after PID-based kill — "
