@@ -3,6 +3,80 @@
 ## [Unreleased]
 
 
+## [v0.36.23] — 2026-05-19 — W21 execution cleanup: macro_snapshots UNIQUE index + dedupe
+
+W21 continuation. Morning health check on 2026-05-19 surfaced 31+ consecutive
+`[MACRO] DB error on <series>: there is no unique or exclusion constraint
+matching the ON CONFLICT specification` WARNs in the watch loop (UNRATE,
+T10Y2Y, VIXCLS, WALCL, M2SL, PCE, JTSJOL, ICSA, etc.). `macro_snapshots` was
+stale 7 days (last 2026-05-12).
+
+### Root cause — registry / PG index uniqueness mismatch
+
+`macro_snapshots.sync_conflict_col` is set to `'series_id, collected_date'`
+in the registry, so `engine_aware_upsert(action='ignore')` generates
+`INSERT ... ON CONFLICT (series_id, collected_date) DO NOTHING` on PG.
+PostgreSQL requires the ON CONFLICT target to be backed by a UNIQUE
+constraint or PRIMARY KEY.
+
+The registry's `idx_macro_snapshots_series` IndexDef was declared
+**non-unique** (`unique=False`, the dataclass default). So:
+
+- PG actual index: non-unique → every macro upsert hit
+  `IntegrityError: no unique or exclusion constraint matching the ON CONFLICT
+  specification`.
+- SQLite actual index: non-unique → same logical bug, but SQLite is
+  permissive enough that the bare INSERT path didn't error — instead, it
+  **silently accumulated 233 duplicate rows** across 214 (series_id, collected_date)
+  groups from 2026-05-05 onward.
+
+Pre-cutover this was masked because everything ran on SQLite (silent dups).
+Post-cutover the PG-strict behavior surfaced it as visible WARNs, but the
+collector had been silently broken on PG since the cutover.
+
+### Fixed
+
+1. **Registry update** — `src/schema/registry.py:1208` IndexDef now
+   `unique=True` with an inline comment documenting the incident.
+2. **PG migration** — atomic transaction in `validate-schema --fix` path:
+   ```
+   DELETE duplicates keeping max(id) per (series_id, collected_date)
+   DROP INDEX idx_macro_snapshots_series  -- non-unique
+   CREATE UNIQUE INDEX idx_macro_snapshots_series ON macro_snapshots (series_id, collected_date)
+   ```
+   - Before: 728 rows, 214 duplicate groups
+   - Deleted: 233 rows
+   - After: 495 rows, 0 duplicate groups
+3. **SQLite migration** — same dedupe applied to
+   `C:/arcis/data/ai_research_desk.sqlite3`. `validate-schema --fix`
+   recreated the index as UNIQUE.
+4. **Post-fix verification** — manual `collect_macro_snapshots()` run
+   succeeded: 31 series collected, 5 notable changes detected
+   (T10Y2Y +14.9%, RRPONTSYD +534.9%, WTI -7.5%, ICSA +5.5%, BBB OAS -5.1%).
+
+### Tests
+
+NEW `tests/schema/test_macro_snapshots_unique_index.py` (2 tests):
+
+- `test_macro_snapshots_upsert_index_is_unique` — asserts the IndexDef
+  has `unique=True`, with detailed failure message tying the bug to its
+  PG manifestation.
+- `test_macro_snapshots_sync_conflict_matches_unique_index` — generalizes
+  the contract: every table with a multi-column `sync_conflict_col` must
+  have a matching UNIQUE index. Catches the same bug class if it
+  reappears for any other table.
+
+Both green. Broader sweep: schema + data_collection = 110 passed / 9 skipped.
+
+### Operator action (already done in-session)
+
+- `nssm restart ArcisWatchLoop` is NOT strictly required — the runtime
+  upsert path reads `sync_conflict_col` from the registry and the PG
+  schema now backs it correctly; in-flight macro collector calls will
+  succeed on next overnight. Restart recommended at next natural window
+  to align the in-process VERSION with disk.
+
+
 ## [v0.36.22] — 2026-05-18 — W21 execution cleanup: drawdown audit sample-size guard
 
 W21 continuation. Operator received a Telegram CRITICAL alert from the
