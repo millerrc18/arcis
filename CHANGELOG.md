@@ -3,6 +3,83 @@
 ## [Unreleased]
 
 
+## [v0.36.29] — 2026-05-19 — W21 execution cleanup: nvidia-smi `[N/A]` memory parse (v0.36.24 follow-up)
+
+v0.36.24 introduced PID-based Ollama-killing via
+`nvidia-smi --query-compute-apps=pid,process_name,used_memory` to fix the
+2-night VRAM-handoff cascade. Two nights later (2026-05-19 18:50 ET handoff)
+the fix **failed to fire** on the operator's RTX 3090+3060 system.
+
+### Root cause
+
+`_get_gpu_processes()` parsed the third column as `int(parts[2])`, with a
+`ValueError` fallthrough that `continue`-d on the row. On the operator's
+hardware, Ollama's `ollama.exe` shows up TWICE (once per GPU) with **`[N/A]`**
+literal for the memory column (the documented `MiB` value isn't surfaced via
+WDDM for some Windows processes — Ollama's runner is a known case).
+
+```
+2195136, C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe, [N/A]
+2195136, C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe, [N/A]
+```
+
+`int("[N/A]")` raised ValueError → both rows skipped → ollama-filter empty →
+fallthrough to legacy `taskkill /f /im ollama.exe` (which is the broken path
+v0.36.24 was supposed to replace). Net effect: v0.36.24 was a no-op on this
+hardware. Training missed another night.
+
+### Fixed
+
+`src/scheduler/vram_manager.py::_get_gpu_processes`:
+
+- Treat non-integer `used_memory` as `None` (don't skip the row). Process
+  identification doesn't require the memory column — only PID and name do.
+- Updated return-type docs: `used_mb: int | None`.
+
+`src/scheduler/vram_manager.py::_kill_ollama_processes`:
+
+- Dedupe Ollama PIDs before killing. Multi-GPU systems list the same process
+  once per GPU.
+- Log line accommodates `None` memory (`memory=[N/A]` instead of `NoneMB`).
+- Verification pass also dedupes by PID.
+
+### Tests
+
+NEW `tests/test_vram_manager_na_memory.py` (4 tests):
+
+- `test_get_gpu_processes_handles_na_memory` — pins the contract using the
+  ACTUAL nvidia-smi output captured from the live system on 2026-05-19. The
+  v0.36.24 test mocked an `int` memory value, which is how the `[N/A]` case
+  slipped through review. TDD lesson encoded: pin the real output format,
+  not the documented one.
+- `test_get_gpu_processes_preserves_int_memory_when_present` — backward-compat
+  for the `int` case.
+- `test_kill_ollama_processes_finds_ollama_when_memory_is_na` — end-to-end:
+  feeds real nvidia-smi output, asserts `taskkill /f /t /pid 2195136` fires.
+- `test_kill_ollama_processes_dedupes_pids` — duplicated Ollama rows kill
+  the PID only once.
+
+All 4 green. Existing `tests/test_vram_manager_pid_kill.py` (v0.36.24, 11
+tests) and `tests/test_vram_manager.py` (21 tests) still pass. **Total 36/36.**
+
+### Operator action
+
+`nssm restart ArcisWatchLoop` to pick up the fix. Per memory
+`feedback_no_restart_during_overnight_window`, restart any time except
+21:30–22:30 ET. Tonight's 18:50 ET training handoff already missed; next
+opportunity is 2026-05-20 18:50 ET (Wed).
+
+### Open follow-up (NOT in this PR)
+
+`subprocess.Popen(["ollama", "serve"])` at `vram_manager.py:266,340` fails with
+`[WinError 2]` because `ollama` is not on the LocalSystem PATH the NSSM
+service inherits. Pre-existing; surfaced again in the 5-19 18:54 log as
+"Failed to restart Ollama". Workaround already exists (the Ollama tray app at
+PID 27336 auto-respawns the daemon). Proper fix: use absolute path
+`C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe` in the Popen call,
+or add to LocalSystem PATH via NSSM. Tracked for post-freeze.
+
+
 ## [v0.36.28] — 2026-05-19 — W21 execution cleanup: phantom-close bug in bracket-exit detection (HIGHEST-IMPACT W21 FIX)
 
 Discovered while chasing today's audit-finding false alarm to its root.
