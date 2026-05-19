@@ -3,6 +3,76 @@
 ## [Unreleased]
 
 
+## [v0.36.26] — 2026-05-19 — W21 execution cleanup: silent-success → CollectorPartialFailureError
+
+W21 continuation. Closes the bug-hiding pattern that masked v0.36.25's
+two broken Finnhub collectors for 6 days. CLAUDE.md's "Surface mass
+failures" rule was already on the books; this PR enforces it for the
+plan-gated batch collectors.
+
+### Root cause — bug-hiding by construction
+
+Pre-v0.36.26 each plan-gated wrapper in `src/scheduler/overnight.py`
+(institutional_ownership / filings_sentiment / press_releases at lines
+~750-794) counted `tickers_with_data = N` after a per-ticker loop.
+When N=0 the result `{"tickers_with_data": 0}` looked indistinguishable
+from a healthy run to `_is_collector_error`, so the scheduler reported
+`[COLLECT] X: success` even when every API call had silently failed.
+
+This is how PRs #1082 and #1083 endpoint regressions ran undetected for
+6 days: `/stock/institutional-ownership` returned 302→404, every per-
+ticker call swallowed the JSON parse error and returned None, the loop
+counted 0 successes, and `_is_collector_error({"tickers_with_data": 0})`
+returned False.
+
+### Fixed
+
+NEW helper `_run_plan_gated_collector(...)` in `src/scheduler/overnight.py`:
+
+1. Checks `finnhub_plan_supports(capability, config)` **before** the loop.
+   - Gate closed → returns the literal string `"skipped: plan-gated"`,
+     caught by the existing logging branch which emits
+     `[COLLECT] X: skipped`. **No per-ticker API calls are made when the
+     plan doesn't support the capability** (eliminates the wasted-ratelimit
+     case where 100 Nones at the gate consumed quota for nothing).
+   - Gate open → runs the loop counting both `tickers_with_data` and
+     `tickers_attempted`.
+
+2. After the loop, if `tickers_attempted >= 10` and `tickers_with_data == 0`,
+   raises `CollectorPartialFailureError`. The wrapping try/except stores
+   `{"error": ...}`, `_is_collector_error` then classifies it correctly, and
+   the scheduler logs `[COLLECT] X: FAILED`.
+
+Design notes:
+
+- **Threshold is `== 0`, not CLAUDE.md's `<50%`.** The collectors targeted
+  here (filings, press_releases) are sparse-data — many SP100 tickers
+  legitimately have no new data on a given night. 50/100 is a normal
+  press_releases night. `0/100` is unambiguous mass failure regardless of
+  expected density.
+
+- **`>= 10` floor** prevents false-positives on small test universes.
+  SP100 (~100 tickers) always satisfies this.
+
+- **Wired into all three plan-gated wrappers** (lines 750-794 of
+  `run_data_collection`). press_releases is included even though it's
+  currently working — it had the same silent-success construction.
+
+### Tests
+
+NEW `tests/scheduler/test_overnight_plan_gated_mass_failure.py` (8 tests):
+
+- gate-closed: result is `"skipped: plan-gated"` string, collector not called
+- gate-open + 0/100 → raises CollectorPartialFailureError
+- gate-open + 30/100 → returns dict, no raise
+- small universe (3 tickers) → no raise even on 0 (test fixture size)
+- gate-open + 1/100 → no raise (1 success counts as not-mass-failure)
+- `_is_collector_error` correctly handles new result shapes: `"skipped: ..."`,
+  `{"tickers_with_data": N, ...}`, `{"error": ...}` (3 tests)
+
+All 8 green. Wider sweep: `tests/scheduler/` = 114 pass.
+
+
 ## [v0.36.25] — 2026-05-19 — W21 execution cleanup: Finnhub collectors silently broken since cutover
 
 W21 continuation. Agent-B investigation of the morning health-check's
