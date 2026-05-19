@@ -23,6 +23,7 @@ VRAM release -- the OS reclaims all CUDA memory when the process exits.
 
 import logging
 import os
+import platform
 import subprocess
 import sys
 import time
@@ -177,18 +178,160 @@ class VRAMManager:
                        timeout_seconds, used)
         return False
 
-    def _kill_ollama_processes(self) -> None:
-        """Force-kill all Ollama processes to reclaim VRAM."""
+    def _get_gpu_processes(self) -> list[dict]:
+        """Return list of processes currently using GPU compute.
+
+        Each entry: {"pid": int, "name": str, "used_mb": int}.
+        Returns [] if nvidia-smi is unavailable, hangs, or finds nothing.
+        """
+        if not self._nvidia_smi:
+            return []
         try:
-            import platform
-            if platform.system() == "Windows":
-                subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
-                               capture_output=True, timeout=10)
-                subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
-                               capture_output=True, timeout=10)
-            else:
+            result = subprocess.run(
+                [self._nvidia_smi,
+                 "--query-compute-apps=pid,process_name,used_memory",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return []
+            procs: list[dict] = []
+            for line in result.stdout.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 3:
+                    continue
+                try:
+                    procs.append({
+                        "pid": int(parts[0]),
+                        "name": parts[1],
+                        "used_mb": int(parts[2]),
+                    })
+                except ValueError:
+                    continue
+            return procs
+        except (subprocess.TimeoutExpired, OSError) as e:
+            logger.warning("[VRAM] nvidia-smi --query-compute-apps failed: %s", e)
+            return []
+
+    def _kill_pid(self, pid: int) -> bool:
+        """Aggressively kill a process by PID via escalating fallbacks.
+
+        Windows escalation order:
+          1. taskkill /f /t /pid <PID>  -- kills process tree
+          2. PowerShell Stop-Process -Id <PID> -Force
+          3. wmic process where ProcessId=<PID> delete
+
+        Each step has a 10s timeout. Returns True on the first success.
+
+        Linux fallback: kill -9 <PID>.
+
+        Pre-v0.36.24 the code used `taskkill /f /im <name>` which hangs when
+        an Ollama runner is wedged in a CUDA syscall. PID-based killing
+        with escalation through multiple Windows tools survives that case.
+        """
+        if platform.system() != "Windows":
+            try:
+                subprocess.run(["kill", "-9", str(pid)],
+                               capture_output=True, timeout=5)
+                return True
+            except (subprocess.TimeoutExpired, OSError):
+                return False
+
+        # Strategy 1: taskkill /f /t /pid
+        try:
+            result = subprocess.run(
+                ["taskkill", "/f", "/t", "/pid", str(pid)],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode == 0:
+                logger.info("[VRAM] Killed PID %d via taskkill", pid)
+                return True
+            logger.info("[VRAM] taskkill /pid %d returned %d, escalating to PowerShell",
+                        pid, result.returncode)
+        except subprocess.TimeoutExpired:
+            logger.warning("[VRAM] taskkill /pid %d timed out, escalating to PowerShell", pid)
+
+        # Strategy 2: PowerShell Stop-Process -Force
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"Stop-Process -Id {pid} -Force -ErrorAction Stop"],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode == 0:
+                logger.info("[VRAM] Killed PID %d via Stop-Process", pid)
+                return True
+            logger.info("[VRAM] Stop-Process %d returned %d, escalating to wmic",
+                        pid, result.returncode)
+        except subprocess.TimeoutExpired:
+            logger.warning("[VRAM] Stop-Process %d timed out, escalating to wmic", pid)
+
+        # Strategy 3: wmic delete
+        try:
+            result = subprocess.run(
+                ["wmic", "process", "where", f"ProcessId={pid}", "delete"],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode == 0:
+                logger.info("[VRAM] Killed PID %d via wmic", pid)
+                return True
+            logger.warning("[VRAM] All kill methods failed for PID %d", pid)
+        except subprocess.TimeoutExpired:
+            logger.warning("[VRAM] wmic kill PID %d timed out — all methods exhausted", pid)
+
+        return False
+
+    def _kill_ollama_processes(self) -> None:
+        """Force-kill all Ollama processes to reclaim VRAM.
+
+        v0.36.24: prefers PID-based discovery via nvidia-smi --query-compute-apps
+        so we hit the actual VRAM-holding process. The legacy `/im`-based kill
+        fails when an Ollama runner is wedged in a CUDA syscall (observed
+        2026-05-18 evening + 2026-05-19 morning handoffs; both timed out the
+        taskkill /im at 10s and left VRAM held).
+
+        Falls back to the `/im`-based path when no Ollama-named process owns
+        GPU memory (covers nvidia-smi missing / no GPU apps / Ollama crashed
+        without freeing the runner).
+        """
+        try:
+            if platform.system() != "Windows":
                 subprocess.run(["pkill", "-f", "ollama"],
                                capture_output=True, timeout=10)
+                time.sleep(5)
+                return
+
+            # Strategy A: PID-based kill of GPU-holding Ollama processes
+            gpu_procs = self._get_gpu_processes()
+            ollama_procs = [p for p in gpu_procs if "ollama" in p["name"].lower()]
+            if ollama_procs:
+                for proc in ollama_procs:
+                    logger.info("[VRAM] Killing Ollama PID %d (%s, %dMB)",
+                                proc["pid"], proc["name"], proc["used_mb"])
+                    self._kill_pid(proc["pid"])
+                time.sleep(3)
+
+                # Verify: if no ollama-named PID still holds VRAM, we're done.
+                # Otherwise, fall through to /im-based kill as belt-and-suspenders.
+                still_holding = [
+                    p for p in self._get_gpu_processes()
+                    if "ollama" in p["name"].lower()
+                ]
+                if not still_holding:
+                    return
+                logger.warning(
+                    "[VRAM] Ollama still holding VRAM after PID-based kill — "
+                    "falling back to /im"
+                )
+
+            # Strategy B (fallback): legacy /im kill — covers nvidia-smi missing
+            # or a hung Ollama process not reflected in --query-compute-apps.
+            subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
+                           capture_output=True, timeout=10)
+            subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
+                           capture_output=True, timeout=10)
             time.sleep(5)
         except Exception as kill_err:
             logger.warning("[VRAM] Failed to kill Ollama: %s", kill_err)
