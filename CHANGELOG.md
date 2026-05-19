@@ -3,6 +3,75 @@
 ## [Unreleased]
 
 
+## [v0.36.27] — 2026-05-19 — W21 execution cleanup: LLM auditor sample-size guard
+
+W21 continuation. Operator received the second false-positive CRITICAL audit
+Telegram in 24 hours, this time *"100% of trades executed with scores below 70,
+all resulting in immediate stop losses, indicating complete failure of the
+scoring/selection..."* off **N=3 closes today**.
+
+Investigation: today's 3 closes (KO +$217.52 reconciled_stale, C -$25.50 stop,
+AMZN -$167.43 stop) all had `recommendation_id = None` because they came from
+the pullback-strategy path that doesn't write the rec_id back into shadow_trades
+(separate bug, queued as v0.36.28). With NULL rec_ids, the CTO report's
+`_compute_by_score_band` defaulted `score = 0` (line 374), so all 3 sorted into
+the `below_70` bucket. The LLM saw "100% in below_70 band" and panicked.
+
+Actual P&L today: **+$24.59** (1W / 2L), not catastrophic. Normal day-by-day variance.
+
+This is the SECOND day in a row the LLM auditor extrapolated catastrophe from
+a tiny sample:
+
+  - 2026-05-18: "0% win rate vs 57% for base model, negative expectancy" off
+    N=2 trades attributed to arcis:v1.0.0 — real 10-trade window: 4W/6L (40%).
+  - 2026-05-19: "100% below 70 score" off N=3 trades with NULL rec_id.
+
+### Fixed
+
+NEW `_LLM_AUDIT_MIN_SAMPLE = 10` constant + guard in `run_daily_audit` at
+`src/evaluation/auditor.py:120-148`. When `trade_summary.trades_closed < 10`,
+the `generate_training_example(AUDITOR_SYSTEM_PROMPT, ...)` LLM call is
+skipped and replaced with a deterministic low-volume summary:
+
+```
+"Low-volume day (N closes, threshold 10). LLM narrative suppressed to
+ avoid small-sample extrapolation. Deterministic checks below."
+```
+
+Critical design decision: the **deterministic prechecks still run** —
+`_append_deterministic_prechecks` is called unconditionally below the LLM
+gate. Those checks have their own per-check sample guards (v0.36.22's
+drawdown ceiling guard, etc.). This way the deterministic surface stays
+sharp while the LLM commentary stops manufacturing false alarms.
+
+10 is a conservative floor — catches the worst cases (N≤3) without
+suppressing the LLM on normal trading days (SP100 swing typically 5-20
+closes/day). A per-model-subgroup sample guard (yesterday's case) is
+queued for post-freeze.
+
+### Tests
+
+NEW `tests/evaluation/test_auditor_llm_sample_size_guard.py` (5 tests):
+
+- `test_low_sample_skips_llm_narrative` — N=3 → LLM not called, prechecks
+  still run, summary mentions "low/sample/small"
+- `test_zero_sample_skips_llm_narrative` — N=0 → safe, no crash, prechecks
+  run
+- `test_sufficient_sample_invokes_llm_narrative` — N=15 → LLM called
+- `test_exact_threshold_invokes_llm_narrative` — N=10 (exactly threshold) → LLM called
+- `test_one_below_threshold_skips_llm_narrative` — N=9 → LLM not called
+
+All 5 green. Existing auditor tests (drawdown sample-size guard + bootcamp
+flag): 9/9 still pass. **Total 14/14.**
+
+### Operator action
+
+The fix takes effect on next `nssm restart ArcisWatchLoop`. v0.36.28
+(pullback rec_id backfill) lands immediately after — bundle both restarts
+into one. Per `feedback_no_restart_during_overnight_window`, restart before
+21:25 ET (overnight cycle begins 21:30 ET).
+
+
 ## [v0.36.26] — 2026-05-19 — W21 execution cleanup: silent-success → CollectorPartialFailureError
 
 W21 continuation. Closes the bug-hiding pattern that masked v0.36.25's
