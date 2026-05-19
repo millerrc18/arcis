@@ -24,6 +24,76 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
+def _run_plan_gated_collector(
+    *,
+    name: str,
+    capability: str,
+    collector_fn,
+    universe,
+    config: dict | None = None,
+):
+    """Run a per-ticker plan-gated collector across the universe with explicit
+    mass-failure detection.
+
+    v0.36.26: pre-fix the three plan-gated batch wrappers (institutional_ownership,
+    filings_sentiment, press_releases) counted `tickers_with_data = N` after a loop.
+    When N=0 the result `{"tickers_with_data": 0}` didn't trigger `_is_collector_error`,
+    so the scheduler reported `[COLLECT] X: success` even when every API call had
+    silently failed. PRs #1082 and #1083 endpoint regressions ran undetected for 6
+    days behind this pattern.
+
+    Behavior:
+
+    - Checks `finnhub_plan_supports(capability, config)` BEFORE the loop. If the
+      gate is closed, returns the literal string `"skipped: plan-gated"` (caught by
+      the existing logging branch which emits `[COLLECT] X: skipped`). No per-ticker
+      calls are made.
+
+    - If the gate is open, calls `collector_fn(ticker)` for each ticker in the
+      universe, counting both successes (non-None returns) and total attempts.
+
+    - After the loop, if `tickers_attempted >= 10` and `tickers_with_data == 0`,
+      raises `CollectorPartialFailureError`. The wrapping try/except in
+      `run_data_collection` stores it as `{"error": ...}` so `_is_collector_error`
+      classifies it correctly and the scheduler logs `[COLLECT] X: FAILED`.
+
+    The `>= 10` floor prevents false-positives on small test universes; the
+    `== 0` threshold (rather than CLAUDE.md's `<50%`) suits sparse-data collectors
+    where many tickers legitimately have no new data on a given night. `0/100` for
+    a paid plan-gated capability is unambiguous mass failure regardless of expected
+    density.
+
+    Returns: str ("skipped: plan-gated") or dict ({"tickers_with_data": N,
+    "tickers_attempted": M}). Raises CollectorPartialFailureError on mass failure.
+    """
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+    if not finnhub_plan_supports(capability, config):
+        return "skipped: plan-gated"
+
+    tickers_with_data = 0
+    tickers_attempted = 0
+    for ticker in universe:
+        tickers_attempted += 1
+        if collector_fn(ticker) is not None:
+            tickers_with_data += 1
+
+    result = {
+        "tickers_with_data": tickers_with_data,
+        "tickers_attempted": tickers_attempted,
+    }
+
+    if tickers_attempted >= 10 and tickers_with_data == 0:
+        from src.data_collection.errors import CollectorPartialFailureError
+        raise CollectorPartialFailureError(
+            f"{name}: 0/{tickers_attempted} tickers landed data "
+            "(plan-gate open but no rows returned — endpoint may be broken)",
+            errors=tickers_attempted,
+            total=tickers_attempted,
+        )
+
+    return result
+
+
 def _is_collector_error(result) -> bool:
     """Classify a collector return value as success or failure.
 
@@ -746,49 +816,55 @@ def run_data_collection(db_path: str = DB_PATH,
         results["fed"] = {"error": str(e)}
 
     # 11b. Institutional ownership (plan-gated; Sprint 5 Wave C7b.1 / T21).
-    # No-op when finnhub_plan != fundamental-1; collector returns None at gate.
+    # v0.36.26: _run_plan_gated_collector raises CollectorPartialFailureError
+    # when 0/N tickers land data — surfaces silent endpoint failures that
+    # ran undetected behind "[COLLECT] success" for 6 days pre-v0.36.25.
     print("[WATCH]   [11b] Institutional ownership (plan-gated)...")
     try:
         from src.data_collection.institutional_ownership_collector import (
             collect_institutional_ownership,
         )
-        inst_rows = 0
-        for _t in universe:
-            if collect_institutional_ownership(_t) is not None:
-                inst_rows += 1
-        results["institutional_ownership"] = {"tickers_with_data": inst_rows}
+        results["institutional_ownership"] = _run_plan_gated_collector(
+            name="institutional_ownership",
+            capability="institutional_ownership",
+            collector_fn=collect_institutional_ownership,
+            universe=universe,
+        )
     except Exception as e:
         logger.warning("[WATCH] Institutional ownership collection failed: %s", e)
         results["institutional_ownership"] = {"error": str(e)}
 
     # 11c. Filings sentiment (plan-gated; Sprint 5 Wave C7b.2 / T22).
-    # No-op when finnhub_plan != fundamental-1; collector returns None at gate.
+    # v0.36.25 plan-gated this OFF — endpoint returns {} until Finnhub
+    # support confirms a working URL. v0.36.26 wrapper now logs "skipped"
+    # on gate-closed, "FAILED" on 0/N-when-open.
     print("[WATCH]   [11c] Filings sentiment (plan-gated)...")
     try:
         from src.data_collection.filings_sentiment_collector import (
             collect_filings_sentiment,
         )
-        fs_rows = 0
-        for _t in universe:
-            if collect_filings_sentiment(_t) is not None:
-                fs_rows += 1
-        results["filings_sentiment"] = {"tickers_with_data": fs_rows}
+        results["filings_sentiment"] = _run_plan_gated_collector(
+            name="filings_sentiment",
+            capability="filings_sentiment",
+            collector_fn=collect_filings_sentiment,
+            universe=universe,
+        )
     except Exception as e:
         logger.warning("[WATCH] Filings sentiment collection failed: %s", e)
         results["filings_sentiment"] = {"error": str(e)}
 
     # 11d. Press releases (plan-gated; Sprint 5 Wave C7b.3 / T23).
-    # No-op when finnhub_plan != fundamental-1; collector returns None at gate.
     print("[WATCH]   [11d] Press releases (plan-gated)...")
     try:
         from src.data_collection.press_releases_collector import (
             collect_press_releases,
         )
-        pr_rows = 0
-        for _t in universe:
-            if collect_press_releases(_t) is not None:
-                pr_rows += 1
-        results["press_releases"] = {"tickers_with_data": pr_rows}
+        results["press_releases"] = _run_plan_gated_collector(
+            name="press_releases",
+            capability="press_releases",
+            collector_fn=collect_press_releases,
+            universe=universe,
+        )
     except Exception as e:
         logger.warning("[WATCH] Press releases collection failed: %s", e)
         results["press_releases"] = {"error": str(e)}
