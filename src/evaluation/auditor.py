@@ -33,6 +33,37 @@ _NEVER_DOWNGRADE = frozenset({
     "emergency_halt_bypass",
 })
 
+_LLM_AUDIT_MIN_SAMPLE = 10
+"""Minimum closed-trade count below which the LLM-narrative audit is suppressed.
+
+Rationale (W21, v0.36.27): the LLM auditor was generating CRITICAL-system-
+malfunction Telegrams on small samples:
+
+  - 2026-05-18 (N=2 trades attributed to arcis:v1.0.0 model version):
+    "0% win rate vs 57% for base model, negative expectancy"
+    Real picture across the full 10-trade window: 4 wins / 6 losses (40%).
+
+  - 2026-05-19 (N=3 closes, all with recommendation_id=None):
+    "100% of trades executed with scores below 70, all resulting in
+    immediate stop losses, indicating complete failure of the scoring/
+    selection..." Real picture: 2 stop-outs + 1 stale-reconcile cleanup,
+    net P&L +$24.59. The 3 trades all defaulted to score=0 in the band
+    logic because they were pullback-strategy trades with broken
+    recommendation_id linkage (a real bug, but not 'system malfunction').
+
+Below this threshold, the LLM call is skipped and replaced with a
+deterministic low-volume summary. Deterministic precheck flags
+(`_append_deterministic_prechecks`) still run — they have their own
+per-check sample guards from v0.36.22 (drawdown ceiling, etc.). This way
+the deterministic surface stays sharp while the LLM commentary stops
+manufacturing false alarms on tiny samples.
+
+10 is a conservative floor: catches the worst small-sample cases (N≤3)
+that motivated this fix while still allowing the LLM to speak on normal
+trading days (typically 5-20 closes for SP100 swing strategy). The
+follow-up to handle per-model-subgroup small samples (which is what
+yesterday's audit tripped on) is queued for post-freeze."""
+
 AUDITOR_SYSTEM_PROMPT = """You are a risk management auditor for an autonomous equity trading system. Your job is to review the day's trading activity and identify any patterns, anomalies, or risks that need human attention.
 
 You will receive a structured JSON report of today's trading activity. Analyze it and produce a brief, actionable assessment.
@@ -116,32 +147,56 @@ def run_daily_audit(db_path: str = DB_PATH) -> dict:
     except Exception:
         pass
 
-    # Send to Claude for analysis
-    audit_input = json.dumps(cto_data, indent=2, default=str)
-    response = generate_training_example(AUDITOR_SYSTEM_PROMPT, audit_input, purpose="audit")
+    # v0.36.27: small-sample guard. Skip LLM narrative when trades_closed
+    # falls below _LLM_AUDIT_MIN_SAMPLE — the LLM is unreliable on tiny
+    # samples and was generating CRITICAL Telegrams on N=2 and N=3. The
+    # deterministic prechecks below still run (they have their own
+    # per-check sample guards from v0.36.22).
+    trade_summary = cto_data.get("trade_summary") or {}
+    try:
+        trades_closed = int(trade_summary.get("trades_closed") or 0)
+    except (TypeError, ValueError):
+        trades_closed = 0
 
-    if not response:
-        # Return a minimal green audit if Claude is unavailable
+    if trades_closed < _LLM_AUDIT_MIN_SAMPLE:
         result = {
             "overall_assessment": "green",
-            "summary": "Audit unavailable — Claude API not reachable.",
+            "summary": (
+                f"Low-volume day ({trades_closed} closes, threshold "
+                f"{_LLM_AUDIT_MIN_SAMPLE}). LLM narrative suppressed to avoid "
+                "small-sample extrapolation. Deterministic checks below."
+            ),
             "flags": [],
             "metrics_to_watch": [],
             "model_health": "unknown",
         }
     else:
-        # Parse JSON from response
-        try:
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
+        # Send to Claude for analysis
+        audit_input = json.dumps(cto_data, indent=2, default=str)
+        response = generate_training_example(AUDITOR_SYSTEM_PROMPT, audit_input, purpose="audit")
+
+        if not response:
+            # Return a minimal green audit if Claude is unavailable
+            result = {
+                "overall_assessment": "green",
+                "summary": "Audit unavailable — Claude API not reachable.",
+                "flags": [],
+                "metrics_to_watch": [],
+                "model_health": "unknown",
+            }
+        else:
+            # Parse JSON from response
+            try:
+                import re
+                json_match = re.search(r'\{[\s\S]*\}', response)
+                if json_match:
+                    result = json.loads(json_match.group())
+                else:
+                    result = {"overall_assessment": "yellow", "summary": response[:500],
+                              "flags": [], "metrics_to_watch": [], "model_health": "unknown"}
+            except (json.JSONDecodeError, AttributeError):
                 result = {"overall_assessment": "yellow", "summary": response[:500],
                           "flags": [], "metrics_to_watch": [], "model_health": "unknown"}
-        except (json.JSONDecodeError, AttributeError):
-            result = {"overall_assessment": "yellow", "summary": response[:500],
-                      "flags": [], "metrics_to_watch": [], "model_health": "unknown"}
 
     _append_deterministic_prechecks(result, cto_data, db_path)
 
