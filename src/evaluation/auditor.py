@@ -404,11 +404,31 @@ def _check_reconciled_stale_volume(flags: list[dict], db_path: str) -> None:
     ))
 
 
+_DRAWDOWN_MIN_SAMPLE = 50
+"""Minimum closed-trade sample size below which the drawdown check is suppressed.
+
+Rationale (W21, v0.36.22): max_drawdown_pct is computed as peak-to-trough on
+the cumulative P&L path over the audit window (default days=1). On small
+samples a single outsized loser at the right moment in the trade ordering
+trivially trips the 25% ceiling — the metric becomes order-dependent and
+no longer measures strategy risk. Empirical trigger: 2026-05-18 daily audit
+flagged 32.6% off a 16-trade window with profit factor 3.0, win rate 50%,
+Sharpe 2.35 — a strong day where NEE's single -$207 stop dominated the path.
+
+50 is a conservative floor — by ~50 closes the cumulative path is robust to
+single-trade outliers. The proper long-term fix (queued for post-freeze) is
+to switch the drawdown check to a fixed 30-day rolling window instead of
+the variable audit window."""
+
+
 def _check_drawdown(flags: list[dict], cto_data: dict) -> None:
     trade_summary = cto_data.get("trade_summary") or {}
     try:
         drawdown = abs(float(trade_summary.get("max_drawdown_pct") or 0))
     except (TypeError, ValueError):
+        return
+    trades_closed = int(trade_summary.get("trades_closed") or 0)
+    if trades_closed < _DRAWDOWN_MIN_SAMPLE:
         return
     if drawdown < 25:
         return

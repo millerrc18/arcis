@@ -3,6 +3,76 @@
 ## [Unreleased]
 
 
+## [v0.36.22] — 2026-05-18 — W21 execution cleanup: drawdown audit sample-size guard
+
+W21 continuation. Operator received a Telegram CRITICAL alert from the
+auditor: *"Max drawdown is 32.6%, above the deterministic audit ceiling."*
+
+### Root cause — sample-size sensitivity
+
+`_check_drawdown` in `src/evaluation/auditor.py:407-423` flags CRITICAL when
+`max_drawdown_pct >= 25` with no sample-size consideration. The drawdown
+metric in `cto_report._compute_trade_summary` (`cto_report.py:290-302`) is
+peak-to-trough on the cumulative-P&L path over the audit window
+(default `days=1`).
+
+On small samples, a single outsized loser hitting after the cumulative peak
+trivially trips the ceiling — the metric becomes **order-dependent** and
+stops measuring strategy risk. Today's trigger:
+
+- 16 closed trades (`days=1`)
+- NEE single stop-loss: **-$206.97**
+- Cumulative P&L path peaked at ~$635 before NEE, recovered to $605.66 by EOD
+- `max_drawdown_dollars = $206.97`, `max_drawdown_pct = 32.6%`
+
+Today's actual strategy stats: win rate **50%**, Sharpe **2.35**, expectancy
+**+$30.43/trade**, profit factor **~3.0**. A strong day flagged CRITICAL
+because of a single bad trade in a small window.
+
+### Fixed
+
+`src/evaluation/auditor.py` — added `_DRAWDOWN_MIN_SAMPLE = 50` constant
+and a sample-size guard. When `trade_summary["trades_closed"] < 50`, the
+drawdown check returns without flagging regardless of value:
+
+```python
+if trades_closed < _DRAWDOWN_MIN_SAMPLE:
+    return
+if drawdown < 25:
+    return
+```
+
+50 is a conservative floor — by ~50 closes the cumulative path is robust
+to single-trade outliers.
+
+### Queued for post-W21-freeze
+
+The proper long-term fix is switching the drawdown check to a fixed
+30-day rolling window (rather than the variable audit window). This is the
+conventional usage of max-drawdown — peak-to-trough on a multi-period
+equity curve, not a single trading session. Tracked in tasks for
+post-freeze cleanup.
+
+### Tests
+
+NEW `tests/evaluation/test_auditor_drawdown_sample_size.py` (7 tests):
+
+- `test_drawdown_suppressed_below_sample_threshold` — empirical 16-trade /
+  32.6% case is suppressed.
+- `test_drawdown_suppressed_below_sample_threshold_extreme_value` — even
+  99% DD on 20 trades is suppressed.
+- `test_drawdown_fires_above_sample_threshold` — 60 trades + 30% DD fires.
+- `test_drawdown_below_ceiling_above_sample_threshold` — 60 trades + 20% DD
+  is below ceiling (no flag).
+- `test_drawdown_at_exact_threshold_boundary` — at exactly 50 trades the
+  check still applies.
+- `test_drawdown_one_below_threshold_suppressed` — at 49 trades it doesn't.
+- `test_drawdown_missing_data_no_crash` — missing trade_summary fields
+  return safely.
+
+All 7 pass locally.
+
+
 ## [v0.36.21] — 2026-05-18 — W21 execution cleanup: SPA fallback handler 500-vs-401 regression
 
 W21 continuation. Operator reported "the dashboard might be having an issue
