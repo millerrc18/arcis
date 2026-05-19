@@ -3,6 +3,82 @@
 ## [Unreleased]
 
 
+## [v0.36.25] — 2026-05-19 — W21 execution cleanup: Finnhub collectors silently broken since cutover
+
+W21 continuation. Agent-B investigation of the morning health-check's
+"4 empty collector tables" finding exposed two collectors that had been
+silently returning None for every S&P 100 ticker since they landed
+2026-05-13 (PRs #1082, #1083). The scheduler reported `[COLLECT] X: success`
+each night because the inner collectors swallowed the error and returned
+None, and the outer wrapper treats None as "skipped, not failed."
+
+### institutional_ownership_collector — wrong endpoint URL
+
+`/stock/institutional-ownership` returns HTTP 302 → 404 (HTML body).
+`resp.json()` then died parsing `<` with `Expecting value: line 1
+column 1`. The except clause logged a warning and returned None.
+
+Live probe with the production API key confirmed: **`/stock/ownership`**
+is the correct endpoint, returns
+`{"ownership": [{"name": ..., "share": ..., "filingDate": ..., "change": ...}, ...], "symbol": ...}`
+with ~8000 holders per ticker. The existing `_aggregate_holders` parser
+uses exactly these field names — **no JSON re-mapping needed**.
+
+Fix: one-line URL change in `_fetch_finnhub_ownership` at
+`src/data_collection/institutional_ownership_collector.py:43`.
+
+### filings_sentiment_collector — endpoint returns `{}`
+
+Live probes:
+- `/stock/filings-sentiment` returns body `{}` (broken or deprecated)
+- `/stock/sentiment` returns 404
+- `/news-sentiment` returns news sentiment (different concept, not filings)
+
+No working alternative endpoint found. Until a working URL/params combo
+is confirmed with Finnhub support, plan-gate the collector off via
+`_FEATURE_MATRIX` to stop wasted API quota (100% of S&P 100 nightly
+calls were wasted since 2026-05-13).
+
+Fix: removed `filings_sentiment` from the `fundamental-1` set in
+`src/data_enrichment/finnhub_plan.py`. The collector now returns None
+without making the HTTP request.
+
+### Tests
+
+- NEW `tests/data_collection/test_finnhub_endpoint_fix.py` (3 tests):
+  - active code in `institutional_ownership_collector` must reference
+    `/stock/ownership` (with comment/docstring allowlisting)
+  - the deprecated `/stock/institutional-ownership` URL must not appear
+    as active code
+  - `filings_sentiment` must NOT be in `_FEATURE_MATRIX["fundamental-1"]`
+  - `institutional_ownership` MUST remain in the matrix (URL bug, not plan-gate bug)
+
+- UPDATED `tests/data_collection/test_filings_sentiment_collector.py`:
+  `test_plan_fundamental_1_makes_api_call_and_writes_row` →
+  `test_plan_fundamental_1_is_gated_off_after_v0_36_25`. The previous
+  test expected the paid plan to enable the collector; the new test pins
+  the intentional gated-off state and asserts no HTTP call is made.
+
+Sweep: 55 pass + 2 skip across `tests/data_collection/`, related
+filings/institutional, and `tests/data_enrichment/`.
+
+### Operator action
+
+No runtime restart required for v0.36.25 — the collectors only run
+during the overnight cycle, and the watch loop reads the plan-gate
+each call. Effective on next overnight cycle.
+
+### Open follow-ups
+
+- Re-probe Finnhub for a working filings-sentiment endpoint (their
+  docs may have updated paths; their support can confirm). When found,
+  fix `_fetch_finnhub_filings_sentiment` URL and re-add to
+  `_FEATURE_MATRIX["fundamental-1"]`.
+- Adjust the morning health-check probe to stop flagging
+  `filings_sentiment` as "empty unexpectedly" until the endpoint is
+  restored.
+
+
 ## [v0.36.24] — 2026-05-19 — W21 execution cleanup: VRAM handoff PID-based Ollama kill
 
 W21 continuation. Morning health check on 2026-05-19 surfaced the VRAM

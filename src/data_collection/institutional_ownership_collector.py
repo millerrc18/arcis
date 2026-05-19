@@ -8,7 +8,16 @@ Tests: tests/data_collection/test_institutional_ownership_collector.py
 
 Sprint 5 Wave C7b.1 / T21.
 
-API: Finnhub /stock/institutional-ownership (paid fundamental-1 endpoint)
+API: Finnhub /stock/ownership (paid fundamental-1 endpoint).
+   v0.36.25 (2026-05-19): URL was previously /stock/institutional-ownership
+   which returns HTTP 302→404 with HTML body. The collector had been silently
+   failing since 2026-05-13 — `resp.json()` died parsing `<` with
+   `Expecting value: line 1 column 1`. The wrapper swallowed it via
+   warning+return-None, and the scheduler reported "success" because no
+   exception escaped. Fixed by switching to /stock/ownership, which returns
+   the same JSON shape (`{"ownership":[...]}` with `share`, `filingDate`,
+   `name`, `change` fields) the existing parser was already expecting.
+
 Table: institutional_holdings (UPSERT on (ticker, as_of_date))
 Schedule: Nightly tick from run_data_collection in overnight.py.
 
@@ -40,7 +49,7 @@ def _fetch_finnhub_ownership(ticker: str, api_key: str) -> list[dict] | None:
     try:
         resp = retry_with_backoff(
             lambda: requests.get(
-                f"{FINNHUB_BASE}/stock/institutional-ownership",
+                f"{FINNHUB_BASE}/stock/ownership",
                 params={"symbol": ticker},
                 headers={"X-Finnhub-Token": api_key},
                 timeout=15,
