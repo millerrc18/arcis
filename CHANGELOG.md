@@ -3,6 +3,124 @@
 ## [Unreleased]
 
 
+## [v0.36.28] — 2026-05-19 — W21 execution cleanup: phantom-close bug in bracket-exit detection (HIGHEST-IMPACT W21 FIX)
+
+Discovered while chasing today's audit-finding false alarm to its root.
+Operator session expanded into a full lifecycle trace via Alpaca's order
+history API. Design team reviewed the proposed fix before implementation.
+
+### Root cause
+
+Three converging code paths in `src/shadow_trading/executor.py` interpreted
+the bracket-PARENT order's `status='filled'` as an exit signal. For Alpaca
+OCO bracket orders, the "parent" IS the BUY entry order — `parent_status=
+'filled'` is the NORMAL state of every open bracket position, not an exit
+signal.
+
+The shared helper `_close_from_broker_fill` (line 1361) writes the order's
+`filled_avg_price` as `actual_exit_price` — when called with a BUY's fill,
+it writes the **entry** fill as the **exit** price.
+
+The three sites that mis-routed:
+
+1. **Primary site** at `executor.py:1865-1869`: `if parent_status in
+   FILLED_ORDER_STATUSES: ... bracket_exit=True`. When `days_open >=
+   timeout_days`, the timeout-exit path gated by `if not bracket_exit:`
+   then skipped the SELL submission entirely. shadow_trade marked closed,
+   Alpaca position stayed open, reconciler later discovered it as an
+   "orphan" and created a duplicate row.
+
+2. **Sibling site** at `executor.py:1430-1434` (`_retry_exit` pre-check):
+   `pending_order_id = exit_order_id or alpaca_order_id`. When exit_order_id
+   is None, fell back to the BUY parent.
+
+3. **Sibling site** at `executor.py:2007-2009` (pre-exit cancel-race): same
+   fallback chain via `_pending_oid`.
+
+### Smoking gun
+
+AMD trade `dcd090be` (rec=b166279f, order_type='bracket'):
+- shadow_trades: `actual_entry_price=$439.80, actual_exit_price=$440.72,
+  pnl=$1.84` (closed 2026-05-18 09:04 ET, exit_reason='timeout')
+- Alpaca order history (queried live via REST API): BUY filled 2026-05-08
+  16:10 UTC @ $440.72. **No SELL of AMD between 5-08 entry and 5-18
+  14:03 stop-fill** ($418.50, the eventual close of the orphan-backfilled
+  AMD #4 with pnl=-$44.44).
+
+The recorded exit price ($440.72) is exactly the BUY's filled_avg_price.
+
+### Population audit (run before fix)
+
+8 bracket+timeout closes since 2026-04-13 (bug ship date, commit
+`baa8466d`):
+- 7 confirmed phantoms (paired orphan-backfill within 24h)
+- 1 possibly-legit (MO -$17.85, no orphan pair)
+- Phantom-pnl distortion in audit: +$1.82 total (clusters near break-even
+  by definition)
+- Hidden real losses on orphan cousins (not attributed to recommendations):
+  AMD -$44.44, C -$25.50, AMZN -$167.43, ETN -$118.80 — total -$356.17
+- 3 still-open positions traceable to phantom cascade: UNP, FDX, AVGO —
+  all have correct OCO protection from their orphan-backfills; no
+  "shadow_closed but Alpaca open" mismatch to recover
+
+### Fix (defense-in-depth, covers all 3 sites)
+
+**Architectural — side guard in shared helper** (`executor.py:1361`):
+
+```python
+side = str(filled_order.get("side") or "").lower()
+if "sell" not in side:
+    logger.error(...)  # critical
+    return
+```
+
+Refuses to close-from-fill when the order is a BUY. Catches all three
+call sites in one line. Future call sites that mis-route are visible via
+the critical log.
+
+**Direct removal** (`executor.py:1865-1869`): deleted the parent-status
+branch. The legs check immediately below correctly handles real exits
+(stop or target SELL leg actually firing). Replaced with a comment block
+documenting the incident for future readers.
+
+### Recovery (NOT in this PR)
+
+- Historical pnl-distortion is minimal (+$1.82) — leave alone.
+- The 3 still-open orphans (UNP/FDX/AVGO) have correct OCO protection.
+  No still-open mismatches require manual action.
+- Tomorrow's overnight cycle continues to use orphan-backfill for any
+  positions that already exist on Alpaca without shadow_trade rows —
+  same recovery mechanism, just no more new phantoms entering the queue.
+
+### Tests
+
+NEW `tests/test_phantom_close_v0_36_28.py` (7 tests):
+
+- `_close_from_broker_fill` refuses BUY orders (the guard)
+- `_close_from_broker_fill` processes SELL orders correctly
+- `_close_from_broker_fill` refuses missing side (fail-safe)
+- `_close_from_broker_fill` accepts SELL/Sell/sell case variants
+- Source-code lock: `parent_status in FILLED_ORDER_STATUSES` must not
+  appear in active code (regression-proof against re-introduction)
+- Source-code lock: `_close_from_broker_fill` must contain a side-check
+- Source-code lock: legs check (`legs = order_status.get("legs", [])`)
+  must remain intact
+
+All 7 green. Broader sweep: `tests/shadow_trading/` + `tests/test_exit_overshoot_bundle.py` + `tests/test_bracket_orders.py` = **250 passed**, 7 skipped, 2 pre-existing failures unrelated to this change.
+
+### Design-team review (artifacts in `docs/design/v0.36.28/`)
+
+- Codebase-analyst confirmed the sibling-bug count (2 additional sites
+  beyond my initial diagnosis) and verified the Alpaca legs contract.
+- Devils-advocate verdict: PROCEED WITH MODIFICATIONS. Specific modifications adopted: (1) defense-in-depth via the helper guard, (2) population audit before fix, (3) explicit recovery-plan separation. Edge-case concerns (empty-legs race, partial-fill legs) were flagged but determined non-blocking — these are pre-existing behaviors not introduced by the fix.
+
+### Operator action
+
+The fix takes effect on next `nssm restart ArcisWatchLoop`. Per
+`feedback_no_restart_during_overnight_window`, the 21:30–22:30 ET window
+should be avoided. Restart before 21:25 ET or after 22:30 ET.
+
+
 ## [v0.36.27] — 2026-05-19 — W21 execution cleanup: LLM auditor sample-size guard
 
 W21 continuation. Operator received the second false-positive CRITICAL audit

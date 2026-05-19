@@ -1366,7 +1366,28 @@ def _close_from_broker_fill(trade: dict, filled_order: dict, db_path: str) -> No
     state at the broker (either via pre-check or by the cancel race). Without
     this path, _retry_exit would blindly re-submit a SELL and extend a short
     position — the 2026-04-14 NVDA/GOOGL feedback loop.
+
+    v0.36.28 SAFETY GUARD: refuse to close-from-fill when the supplied order is
+    a BUY. The BUY's filled_avg_price is the ENTRY price, not an exit. Writing
+    it as exit_price creates the phantom-close pattern (commit baa8466d,
+    2026-04-13 → fixed 2026-05-19). Callers that fall back to the bracket-
+    parent order id when `exit_order_id` is None (sites at lines 1430-1434
+    and 2007-2009 elsewhere in this file) would otherwise hand us the BUY
+    entry order — this guard catches them.
     """
+    side = str(filled_order.get("side") or "").lower()
+    if "sell" not in side:
+        logger.error(
+            "[CLOSE_FROM_FILL] Refused: order side=%r is not SELL (order_id=%s, ticker=%s). "
+            "Writing a BUY-fill price as exit_price would create the v0.36.28 phantom-close "
+            "pattern. Caller passed the wrong order — likely fell back to alpaca_order_id "
+            "(the bracket parent BUY) when exit_order_id was None.",
+            side or "<missing>",
+            filled_order.get("order_id"),
+            trade.get("ticker"),
+        )
+        return
+
     fill_price = float(filled_order.get("filled_avg_price") or 0)
     entry_price = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
     shares = int(float(trade.get("planned_shares") or trade.get("shares") or 0))
@@ -1861,12 +1882,18 @@ def check_and_manage_open_trades(
                     order_status = get_order_status(trade["alpaca_order_id"])
 
                 if not bracket_exit:
-                    parent_status = order_status.get("status", "")
-                    if parent_status in FILLED_ORDER_STATUSES:
-                        exit_price = order_status.get("filled_avg_price")
-                        if exit_price:
-                            current_price = exit_price
-                            bracket_exit = True
+                    # v0.36.28: the parent-status-filled branch was removed here.
+                    # For an Alpaca OCO bracket, the "parent" IS the BUY entry
+                    # order — its `filled` status is the NORMAL state of every
+                    # open bracket position, not an exit signal. Pre-fix the
+                    # code treated this as bracket_exit=True with
+                    # current_price=entry_fill_price, gating out the timeout-
+                    # exit SELL submission below at line 1954 (`if not
+                    # bracket_exit:`). Result: shadow_trade marked closed with
+                    # phantom pnl, Alpaca position stayed open, reconciler
+                    # later discovered it as an orphan. The legs check below
+                    # correctly detects real exits (stop/target SELL legs
+                    # actually firing).
                     legs = order_status.get("legs", [])
                     for leg in legs:
                         leg_status = leg.get("status", "")
