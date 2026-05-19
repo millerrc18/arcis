@@ -3,6 +3,85 @@
 ## [Unreleased]
 
 
+## [v0.36.24] — 2026-05-19 — W21 execution cleanup: VRAM handoff PID-based Ollama kill
+
+W21 continuation. Morning health check on 2026-05-19 surfaced the VRAM
+handoff bug that has been blocking the training pipeline since at least
+2026-05-18. Training has not run since 2026-05-15 (last successful handoff);
+the model `arcis:v1.0.0` has been serving inference off ~5-day-old weights.
+
+### Root cause — taskkill /im fails on wedged Ollama runner
+
+`_kill_ollama_processes` in `src/scheduler/vram_manager.py` used
+`taskkill /f /im ollama.exe` + `taskkill /f /im ollama_llama_server.exe`,
+each with a 10s timeout. When an Ollama runner is wedged in a CUDA syscall,
+the process is unresponsive to `/im` signals, the kill command times out at
+10s, the function returns, and VRAM stays held.
+
+Observed failures (`logs/arcis.log`):
+
+| Date | Phase | Failure |
+|---|---|---|
+| 2026-05-18 18:50 ET | handoff to training | VRAM stuck at 4686MB after `Unloaded model` returned 200 OK; taskkill timed out; 3 retries exhausted; **training did not run that night**. |
+| 2026-05-19 05:18 ET | handoff to inference | VRAM stuck at 2673MB (same hung Ollama from night before); taskkill timed out; recovered accidentally via `_reload_ollama` in `overnight.py:987`. |
+
+The handoff-to-training path has no equivalent accidental-recovery fallback,
+so every evening handoff that hits this state silently skips training.
+
+### Fixed
+
+`src/scheduler/vram_manager.py`:
+
+1. **`_get_gpu_processes()` (NEW)** — parses
+   `nvidia-smi --query-compute-apps=pid,process_name,used_memory`
+   to find the actual VRAM-holding PIDs. Returns `[{pid, name, used_mb}, ...]`.
+   Safe under nvidia-smi absence (returns `[]`) and timeouts.
+
+2. **`_kill_pid(pid)` (NEW)** — Windows kill escalation:
+   1. `taskkill /f /t /pid <PID>` (kills process tree, not just the named binary)
+   2. PowerShell `Stop-Process -Id <PID> -Force`
+   3. `wmic process where ProcessId=<PID> delete`
+   Each step has a 10s timeout. Returns True on first success.
+   Linux path: `kill -9 <PID>`.
+
+3. **`_kill_ollama_processes()` (REWRITTEN)** — now:
+   - Strategy A: `_get_gpu_processes()` → filter to ollama-named PIDs → `_kill_pid` each. Verify with second nvidia-smi poll. Returns if clean.
+   - Strategy B (fallback): legacy `/im`-based kill (for nvidia-smi missing / no GPU apps / runner crashed without freeing VRAM).
+   - Explicit safety: a `python.exe` PID holding GPU memory (e.g. training subprocess) is **never** killed — only processes whose name contains "ollama".
+
+### Tests
+
+NEW `tests/test_vram_manager_pid_kill.py` (11 tests):
+
+- `_get_gpu_processes` CSV parsing, empty, no-nvidia-smi, timeout (4 tests)
+- `_kill_pid` escalation through all three Windows tools (4 tests)
+- `_kill_ollama_processes`: uses PID when GPU apps present, falls back to /im when not, ignores non-ollama processes (3 tests)
+
+All 11 green. Existing `tests/test_vram_manager.py` 21 tests also still pass — total 32/32.
+
+### Operator action
+
+The fix takes effect on next `nssm restart ArcisWatchLoop`. Per
+`feedback_no_restart_during_overnight_window`, avoid restarting between
+21:30–22:30 ET (overnight kickoff window). Recommended timing: any time
+before 21:25 ET tonight so the new code is in place for the 18:50 ET
+training handoff... wait, training handoff already passed before this
+fix was written. **Tonight's training handoff is at 18:50 ET 2026-05-19.**
+Restart before then.
+
+### Open follow-ups (deferred per operator)
+
+- `_get_gpu_processes` could log per-PID VRAM attribution on every poll
+  to make future debugging easier (currently only the running totals are logged).
+- The dual-GPU (RTX 3090 + RTX 3060) question is unresolved. `nvidia-smi`
+  shows both devices, but `project_gpu_upgrade.md` describes only the 3090.
+  Confirm intent post-freeze.
+- The `train.py` `UnicodeDecodeError` on `gptoss.jinja` (the original
+  surface symptom Agent A flagged) is **already fixed** by `PYTHONUTF8=1`
+  in `_training_subprocess_env()` since commit `df92c454` (2026-05-16).
+  No code change needed there; the VRAM bug above is the actual blocker.
+
+
 ## [v0.36.23] — 2026-05-19 — W21 execution cleanup: macro_snapshots UNIQUE index + dedupe
 
 W21 continuation. Morning health check on 2026-05-19 surfaced 31+ consecutive
