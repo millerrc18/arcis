@@ -37,7 +37,11 @@ _FEATURE_MATRIX: dict[str, set[str]] = {
         "company_news",
         "company_executive",
         "filings",
-        "filings_sentiment",
+        # filings_sentiment removed in v0.36.25 — Finnhub /stock/filings-sentiment
+        # returns body `{}` for all symbols (endpoint appears to be deprecated
+        # or moved). Plan-gating it off here prevents wasted API quota; the
+        # collector returns None when this capability is missing. Re-add after
+        # confirming a working endpoint URL + params with Finnhub support.
         "fund_ownership",
         "insider_transactions",
         "institutional_ownership",

@@ -47,29 +47,20 @@ def sqlite_db():
 # ---------------------------------------------------------------------------
 
 
-def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch):
-    """plan=fundamental-1: gate is open, API is called, row lands in
-    filings_sentiment, and a repeat call upserts (no duplicate rows)."""
+def test_plan_fundamental_1_is_gated_off_after_v0_36_25(sqlite_db, monkeypatch):
+    """v0.36.25 (2026-05-19): filings_sentiment was removed from
+    `_FEATURE_MATRIX["fundamental-1"]` because the Finnhub
+    `/stock/filings-sentiment` endpoint returns body `{}` (no data) for
+    every ticker. Until a working endpoint is confirmed with Finnhub
+    support, plan-gating it off stops wasted API quota.
+
+    This test pins the gated-off behavior: even on the paid plan, the
+    collector returns None without making an API call.
+    """
     monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
     from src.data_collection.filings_sentiment_collector import (
         collect_filings_sentiment,
     )
-
-    mock_payload = {
-        "sentiment": [
-            {
-                "type": "10-K",
-                "filedDate": "2026-05-01 10:00:00",
-                "sentiment": {"score": 0.42},
-            },
-            {
-                "type": "10-Q",
-                "filedDate": "2026-04-15 10:00:00",
-                "sentiment": {"score": -0.1},
-            },
-        ],
-        "symbol": "AAPL",
-    }
 
     config = {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
 
@@ -79,32 +70,17 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
     ), patch(
         "src.data_collection.filings_sentiment_collector.requests.get"
     ) as mock_get:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_payload
-        mock_resp.raise_for_status.return_value = None
-        mock_get.return_value = mock_resp
-
-        # First call: API hit + rows written.
-        result1 = collect_filings_sentiment("AAPL", config=config, db_path=sqlite_db)
-        assert result1 is not None
-        assert mock_get.called, "Expected Finnhub API call when plan=fundamental-1"
-
-        # Second call: same (ticker, filing_type, filed_at) -> UPSERT idempotent.
-        result2 = collect_filings_sentiment("AAPL", config=config, db_path=sqlite_db)
-        assert result2 is not None
-
-    with sqlite3.connect(sqlite_db) as verify:
-        verify.row_factory = sqlite3.Row
-        rows = verify.execute(
-            "SELECT ticker, filing_type, sentiment_score FROM filings_sentiment "
-            "WHERE ticker = ?",
-            ("AAPL",),
-        ).fetchall()
-    assert len(rows) == 2, (
-        f"Expected exactly 2 rows after two collect calls (UPSERT); got {len(rows)}"
-    )
-    types = sorted(r["filing_type"] for r in rows)
-    assert types == ["10-K", "10-Q"]
+        result = collect_filings_sentiment("AAPL", config=config, db_path=sqlite_db)
+        assert result is None, (
+            "filings_sentiment must return None — it is plan-gated off after "
+            "v0.36.25 because /stock/filings-sentiment returns empty `{}`."
+        )
+        assert not mock_get.called, (
+            "filings_sentiment must NOT call Finnhub — the plan-gate filter "
+            "should short-circuit before any HTTP request is attempted. "
+            "If this test fails, check `_FEATURE_MATRIX['fundamental-1']` "
+            "in src/data_enrichment/finnhub_plan.py."
+        )
 
 
 # ---------------------------------------------------------------------------
