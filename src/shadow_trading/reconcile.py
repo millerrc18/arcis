@@ -176,6 +176,18 @@ def _estimate_exit_pnl(ticker, entry_px, shares):
     (the position may have been closed on Alpaca during an outage), so
     we use the last available close price as a best-effort estimate.
     This P&L is approximate and may not match the actual fill price.
+
+    Returns ``(exit_price, pnl_dollars, pnl_pct)`` on success, or
+    ``(None, None, None)`` when the price is unknown (fetch failed / empty
+    data).
+
+    v0.36.30 (F-1): pre-fix this returned ``(0.0, 0.0, 0.0)`` on failure —
+    the same phantom-state pattern v0.36.28 fixed for the executor. A $0
+    exit is indistinguishable from a genuine flat close and silently
+    corrupts the dashboard + daily-audit aggregates. NULL (None) correctly
+    signals "unmeasured" — `close_shadow_trade` writes NULL pnl, and the
+    audit's unmeasured-exit-reason allowlist excludes it from outcome stats.
+    Mirrors the sibling `_resolve_stuck_pnl` which already returns None.
     """
     try:
         from src.data_ingestion.market_data import fetch_ohlcv
@@ -187,7 +199,7 @@ def _estimate_exit_pnl(ticker, entry_px, shares):
             return exit_price, pnl, pct
     except Exception as exc:
         logger.warning("[RECONCILE] Failed to estimate exit PnL for %s: %s", ticker, exc)
-    return 0.0, 0.0, 0.0
+    return None, None, None
 
 
 def reconcile_live_trades(
@@ -334,7 +346,9 @@ def reconcile_live_trades(
             if not live_fetch_ok:
                 continue
             trade_id = tracked_tickers[ticker]
-            exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
+            # v0.36.30 (F-1): None = unknown price → NULL pnl in DB. NOT 0.0
+            # (a $0 exit is a phantom close that corrupts audit aggregates).
+            exit_price, pnl_dollars, pnl_pct = None, None, None
             try:
                 with connect_db(db_path) as conn:
                     row = conn.execute(
@@ -349,6 +363,12 @@ def reconcile_live_trades(
                         exit_price, pnl_dollars, pnl_pct = _estimate_exit_pnl(ticker, ep, sh)
             except Exception as exc:
                 logger.warning("[RECONCILE] Failed to compute PnL for stale trade %s: %s", trade_id, exc)
+            if pnl_dollars is None:
+                logger.warning(
+                    "[RECONCILE] Stale close for %s (trade_id=%s) has UNKNOWN exit price "
+                    "— writing NULL pnl. Position price unavailable at reconcile time.",
+                    ticker, trade_id,
+                )
 
             # Task 7: Cancel IB/broker orders before closing stale live trades.
             # Without this, GTC bracket orders remain live on the IB side after
@@ -401,7 +421,7 @@ def reconcile_live_trades(
             logger.info(
                 "[RECONCILE] Marked stale record as closed: %s (trade_id=%s, pnl=%s)",
                 ticker, trade_id,
-                f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
+                f"${pnl_dollars:.2f}" if pnl_dollars is not None else "UNKNOWN",
                 extra={"ctx": {"event": "stale_close", "ticker": ticker}},
             )
             # Telegram notification for reconciled close
@@ -420,9 +440,13 @@ def reconcile_live_trades(
                     except (ValueError, TypeError):
                         pass
                     notify_trade_closed(TradeClosedPayload(
+                        # v0.36.30 (F-1): pnl may be None (unknown price). The
+                        # DB row keeps NULL; the notification coerces to 0.0 for
+                        # display since the exit_reason makes the reconcile-close
+                        # context clear.
                         ticker=ticker,
-                        pnl_dollars=pnl_dollars,
-                        pnl_pct=pnl_pct,
+                        pnl_dollars=pnl_dollars if pnl_dollars is not None else 0.0,
+                        pnl_pct=pnl_pct if pnl_pct is not None else 0.0,
                         exit_reason="reconciled_stale",
                         days_held=_days,
                     ))
@@ -855,12 +879,19 @@ def reconcile_paper_trades(
                 logger.warning("[RECONCILE-PAPER] Could not cancel orders for %s: %s",
                                ticker, cancel_err)
 
-            exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
+            # v0.36.30 (F-1): None = unknown price → NULL pnl in DB. NOT 0.0.
+            exit_price, pnl_dollars, pnl_pct = None, None, None
             if trade_row:
                 ep = float(trade_row["actual_entry_price"] or trade_row["entry_price"] or 0)
                 sh = float(trade_row["planned_shares"] or 1)
                 if ep > 0:
                     exit_price, pnl_dollars, pnl_pct = _estimate_exit_pnl(ticker, ep, sh)
+            if pnl_dollars is None:
+                logger.warning(
+                    "[RECONCILE-PAPER] Stale close for %s (trade_id=%s) has UNKNOWN exit "
+                    "price — writing NULL pnl. Position price unavailable at reconcile time.",
+                    ticker, trade_id,
+                )
 
             close_shadow_trade(
                 trade_id=trade_id,
@@ -875,7 +906,7 @@ def reconcile_paper_trades(
             logger.info(
                 "[RECONCILE-PAPER] Auto-closed stale paper trade: %s (trade_id=%s, pnl=%s)",
                 ticker, trade_id,
-                f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
+                f"${pnl_dollars:.2f}" if pnl_dollars is not None else "UNKNOWN",
             )
             # Telegram notification for reconciled close
             try:
@@ -889,9 +920,13 @@ def reconcile_paper_trades(
                         except (ValueError, TypeError):
                             pass
                     notify_trade_closed(TradeClosedPayload(
+                        # v0.36.30 (F-1): pnl may be None (unknown price). The
+                        # DB row keeps NULL; the notification coerces to 0.0 for
+                        # display since the exit_reason makes the reconcile-close
+                        # context clear.
                         ticker=ticker,
-                        pnl_dollars=pnl_dollars,
-                        pnl_pct=pnl_pct,
+                        pnl_dollars=pnl_dollars if pnl_dollars is not None else 0.0,
+                        pnl_pct=pnl_pct if pnl_pct is not None else 0.0,
                         exit_reason="reconciled_stale",
                         days_held=_days,
                     ))

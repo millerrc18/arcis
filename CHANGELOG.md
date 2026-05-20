@@ -3,6 +3,65 @@
 ## [Unreleased]
 
 
+## [v0.36.30] — 2026-05-19 — W21 audit F-1: reconcile phantom-$0 stale close
+
+First of three hotfixes closing CRITICAL findings from the W21 lifecycle
+audit (`docs/design/2026-W21-lifecycle-audit/`). F-1 is a sibling of the
+v0.36.28 phantom-close pattern, alive in the reconciler's stale-close path.
+
+### Root cause
+
+`src/shadow_trading/reconcile.py::_estimate_exit_pnl` returned the literal
+`(0.0, 0.0, 0.0)` on ANY exception (yfinance rate limit, delisting,
+network). The stale-close paths at `reconcile.py:349` (live) and
+`reconcile.py:863` (paper) then wrote `exit_price=$0, pnl=$0, pnl_pct=0`
+to closed shadow_trades.
+
+Same phantom-state class as v0.36.28:
+- v0.36.28 phantom: $440.72 entry → $440.72 exit (entry-fill-as-exit)
+- F-1 phantom:      $440.72 entry → $0.00 exit  (zero-as-exit)
+
+The sibling helper `_resolve_stuck_pnl` (reconcile.py:108-155) already
+returns `None` on unknown price — F-1 mirrors that correct pattern.
+
+### Impact
+
+`reconciled_stale` IS in the audit's `_UNMEASURABLE_EXIT_REASONS` allowlist,
+so today this doesn't corrupt the training corpus. But it corrupts the live
+dashboard, daily audit aggregates, and any KPI that doesn't read the
+unmeasured-allowlist. Risk escalates to corpus poisoning if a future PR
+forgets to allowlist a new exit-reason.
+
+### Fixed
+
+- `_estimate_exit_pnl` returns `(None, None, None)` on failure.
+- Both stale-close call sites init `exit_price, pnl_dollars, pnl_pct = None,
+  None, None` (was `0.0, 0.0, 0.0`), and emit a WARN when the close is
+  UNKNOWN so the operator sees it.
+- `close_shadow_trade` receives None → writes NULL pnl (= "unmeasured").
+- Log lines changed `if pnl_dollars != 0.0` → `if pnl_dollars is not None`.
+- Telegram `notify_trade_closed` payloads coerce None → 0.0 for display
+  only (DB keeps NULL); the `reconciled_stale` exit-reason makes context clear.
+
+### Tests
+
+NEW `tests/test_reconcile_phantom_pnl_v0_36_30.py` (4 tests):
+- fetch failure → `(None, None, None)`
+- empty data → `(None, None, None)`
+- success path → real pnl preserved (regression-proof)
+- explicit anti-pattern lock: failure must NOT return `(0.0, 0.0, 0.0)`
+
+All 4 green. Reconcile sweep (`tests/shadow_trading/` + exit_overshoot) =
+245 passed, 2 pre-existing failures (test_reconcile_dispatch_db_path mock
+signature, unrelated).
+
+### Audit cross-ref
+
+Finding F-1 in `docs/design/2026-W21-lifecycle-audit/audit-findings.md`.
+Sibling phantom-state surfaces F-4, F-5, F-14 remain (Wave 1 of priority
+roadmap). This hotfix closes F-1 only.
+
+
 ## [v0.36.29] — 2026-05-19 — W21 execution cleanup: nvidia-smi `[N/A]` memory parse (v0.36.24 follow-up)
 
 v0.36.24 introduced PID-based Ollama-killing via
