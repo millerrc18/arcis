@@ -90,7 +90,7 @@ COLLECTOR_TABLES = {
     "analyst_estimates": "collected_at",
     "fed_communications": "collected_at",
     "edgar_filings": "collected_at",
-    "research_docs": "created_at",
+    "research_docs": "updated_at",
 }
 
 
@@ -114,6 +114,13 @@ def _safe_query(conn, sql, params=()) -> list | None:
         return conn.execute(sql, params).fetchall()
     except Exception as e:
         logger.debug("Query failed: %s — %s", sql[:80], e)
+        # v0.36.39: roll back so a failed query (e.g. a missing table/column on
+        # PG) doesn't leave the transaction aborted and cascade "not accessible"
+        # false-failures onto every subsequent check on this connection.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return None
 
 
@@ -240,7 +247,7 @@ def _check_database(db_path: str) -> list[dict]:
                 if row and row[0]:
                     last = row[0]
                     checks.append(_check(f"db_{table}_freshness", "pass",
-                                          f"Last write: {last[:19]}"))
+                                          f"Last write: {str(last)[:19]}"))
                 else:
                     checks.append(_check(f"db_{table}_freshness", "warn",
                                           f"No data in {table}"))
@@ -445,10 +452,15 @@ def _check_training(db_path: str, config: dict) -> list[dict]:
                                   "Could not query quality scores"))
 
         # Curriculum distribution
+        # v0.36.39: column is `curriculum_stage`, not `stage`. The wrong name
+        # raised UndefinedColumn on PG which — with no rollback — aborted the
+        # transaction and cascaded "not accessible" false-warnings onto every
+        # subsequent check on this connection (model_version/last_retrain/
+        # canary/quality_drift), even though those tables exist with data.
         try:
             rows = conn.execute(
-                "SELECT stage, COUNT(*) FROM training_examples "
-                "WHERE stage IS NOT NULL GROUP BY stage"
+                "SELECT curriculum_stage, COUNT(*) FROM training_examples "
+                "WHERE curriculum_stage IS NOT NULL GROUP BY curriculum_stage"
             ).fetchall()
             if rows:
                 dist = {row[0]: row[1] for row in rows}
@@ -484,7 +496,7 @@ def _check_training(db_path: str, config: dict) -> list[dict]:
             ).fetchone()
             if row and row[0]:
                 checks.append(_check("training_last_retrain", "pass",
-                                      f"Last retrain: {row[0][:19]}"))
+                                      f"Last retrain: {str(row[0])[:19]}"))
             else:
                 checks.append(_check("training_last_retrain", "warn",
                                       "No released model found"))
@@ -500,7 +512,7 @@ def _check_training(db_path: str, config: dict) -> list[dict]:
             ).fetchone()
             if row:
                 checks.append(_check("training_canary", "pass" if row[0] == "pass" else "warn",
-                                      f"Last canary: {row[0]} at {row[1][:19]}"))
+                                      f"Last canary: {row[0]} at {str(row[1])[:19]}"))
             else:
                 checks.append(_check("training_canary", "warn",
                                       "No canary evaluations found"))
@@ -557,32 +569,12 @@ def _check_api(config: dict) -> list[dict]:
         checks.append(_check("api_frontend_build", "warn",
                               "No frontend build found (run npm run build)"))
 
-    # Render config
-    render_cfg = config.get("render", {})
-    if render_cfg.get("enabled", False):
-        db_url = render_cfg.get("database_url") or os.environ.get("DATABASE_URL", "")
-        if db_url:
-            checks.append(_check("api_render_config", "pass",
-                                  "Render Postgres URL configured"))
-            # Try connecting
-            try:
-                import psycopg2
-                conn = psycopg2.connect(db_url, connect_timeout=5)
-                conn.close()
-                checks.append(_check("api_render_connection", "pass",
-                                      "Render Postgres reachable"))
-            except ImportError:
-                checks.append(_check("api_render_connection", "warn",
-                                      "psycopg2 not installed (cloud dependency)"))
-            except Exception as e:
-                checks.append(_check("api_render_connection", "fail",
-                                      f"Cannot connect to Render Postgres: {_sanitize_error(e)}"))
-        else:
-            checks.append(_check("api_render_config", "warn",
-                                  "Render enabled but DATABASE_URL not set"))
-    else:
-        checks.append(_check("api_render_config", "pass",
-                              "Render sync not enabled (local mode)"))
+    # v0.36.39: Render hosting is fully deprecated post one-DB cutover (2026-05-18)
+    # — Render Postgres, the onrender.com cloud API, and the Render frontend are
+    # all intentionally offline. Their checks produced a permanent false CRITICAL
+    # (api_render_connection FAIL) + noise. Removed. NOTE: this guts RENDER-HOSTING
+    # checks only; the PostgreSQL ENGINE (now the local Docker runtime DB) is
+    # unaffected — it's validated by _check_database, not here.
 
     # Check local API availability
     try:
@@ -598,20 +590,9 @@ def _check_api(config: dict) -> list[dict]:
         checks.append(_check("api_local_server", "warn",
                               "Local API not running (expected if using cloud)"))
 
-    # Cloud API healthz
-    try:
-        import requests
-        render_url = os.environ.get("RENDER_API_URL", "https://halcyon-lab-api.onrender.com")
-        resp = requests.get(f"{render_url}/healthz", timeout=5)
-        if resp.status_code == 200:
-            checks.append(_check("api_cloud_healthz", "pass",
-                                  "Cloud API /healthz OK"))
-        else:
-            checks.append(_check("api_cloud_healthz", "warn",
-                                  f"Cloud API returned {resp.status_code}"))
-    except Exception:
-        checks.append(_check("api_cloud_healthz", "warn",
-                              "Cloud API not reachable (may be cold-starting)"))
+    # v0.36.39: Cloud API healthz check removed — it hit the deprecated
+    # Render-hosted onrender.com API (offline post-cutover), producing a
+    # permanent false warning. Local API health is covered by api_local_server.
 
     return checks
 
@@ -777,10 +758,10 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
                 )).total_seconds() / 3600
                 if age_hours > 24:
                     checks.append(_check("scheduler_last_scan", "warn",
-                                          f"Last scan: {last_scan[:19]} ({age_hours:.0f}h ago)"))
+                                          f"Last scan: {str(last_scan)[:19]} ({age_hours:.0f}h ago)"))
                 else:
                     checks.append(_check("scheduler_last_scan", "pass",
-                                          f"Last scan: {last_scan[:19]} ({age_hours:.1f}h ago)"))
+                                          f"Last scan: {str(last_scan)[:19]} ({age_hours:.1f}h ago)"))
             else:
                 checks.append(_check("scheduler_last_scan", "warn",
                                       "No scans recorded yet"))
@@ -836,7 +817,7 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
             ).fetchone()
             if row and row[0]:
                 checks.append(_check("scheduler_activity", "pass",
-                                      f"Last activity: {row[0][:19]}"))
+                                      f"Last activity: {str(row[0])[:19]}"))
             else:
                 checks.append(_check("scheduler_activity", "warn",
                                       "No activity log entries"))
@@ -851,7 +832,7 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
             ).fetchone()
             if row and row[0]:
                 checks.append(_check("scheduler_council", "pass",
-                                      f"Last council session: {row[0][:19]}"))
+                                      f"Last council session: {str(row[0])[:19]}"))
             else:
                 checks.append(_check("scheduler_council", "warn",
                                       "No council sessions recorded"))
