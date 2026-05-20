@@ -459,6 +459,16 @@ def _check_reconciled_stale_volume(flags: list[dict], db_path: str) -> None:
     ))
 
 
+_MODEL_WIN_RATE_MIN_SAMPLE = 10
+"""Minimum closed-trade count for a model version before a 0%-win-rate
+CRITICAL flag fires (W21 audit F-2). Mirrors `_LLM_AUDIT_MIN_SAMPLE`.
+
+Pre-v0.36.31 the floor was `trades < 2`, so a 2-loss day for any model
+version fired CRITICAL → entry suppression. Same small-sample class as
+the v0.36.22 drawdown guard and the v0.36.27 LLM-narrative guard. The
+deterministic prechecks run unconditionally (not gated by the v0.36.27
+narrative guard), so this site needed its own floor."""
+
 _DRAWDOWN_MIN_SAMPLE = 50
 """Minimum closed-trade sample size below which the drawdown check is suppressed.
 
@@ -499,14 +509,19 @@ def _check_drawdown(flags: list[dict], cto_data: dict) -> None:
 
 
 def _check_model_win_rate(flags: list[dict], cto_data: dict) -> None:
-    by_model = cto_data.get("by_model_version") or {}
-    for model_name, metrics in by_model.items():
+    for model_name, metrics in (cto_data.get("by_model_version") or {}).items():
         try:
             trades = int(metrics.get("trades") or 0)
             win_rate = float(metrics.get("win_rate") or 0)
         except (AttributeError, TypeError, ValueError):
             continue
-        if trades < 2 or win_rate > 0:
+        # v0.36.31 (F-2): require _MODEL_WIN_RATE_MIN_SAMPLE trades before
+        # flagging 0% win rate. Pre-fix the floor was `trades < 2`, which
+        # fired CRITICAL on a 2-loss day (arcis:v1.0.0 hit this 2026-05-18)
+        # → entry suppression + false-CRITICAL Telegram. This is the
+        # deterministic-precheck twin of v0.36.27's LLM-narrative guard;
+        # the precheck path runs unconditionally so v0.36.27 didn't gate it.
+        if trades < _MODEL_WIN_RATE_MIN_SAMPLE or win_rate > 0:
             continue
         flags.append(_deterministic_flag(
             severity="critical",
