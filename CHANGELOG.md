@@ -3,6 +3,53 @@
 ## [Unreleased]
 
 
+## [v0.36.39] — 2026-05-20 — system_validator: gut Render + fix PG-cutover false warnings
+
+Today's 16:30 EOD validation returned CRITICAL (41P / **15W / 1F**). Investigation
+found the noise was almost entirely validator bugs from the one-DB cutover, not
+real system problems.
+
+### Gutted (Render hosting deprecated post-cutover 2026-05-18)
+
+- `src/evaluation/system_validator.py` — removed `api_render_config`,
+  `api_render_connection` (the 1 FAIL → permanent false CRITICAL), and
+  `api_cloud_healthz` (hit the deprecated onrender.com cloud API). NOTE: this
+  guts RENDER-HOSTING checks only — the PostgreSQL ENGINE (now the local Docker
+  runtime DB) is validated by `_check_database` and is unaffected.
+
+### Fixed — PG-cutover false "not accessible" warnings
+
+- **Transaction-abort cascade:** the curriculum query used column `stage` but the
+  real column is `curriculum_stage` → `UndefinedColumn` on PG → aborted the
+  transaction with no rollback → `model_versions` / `last_retrain` / `canary` /
+  `quality_drift` all then false-failed as "not accessible" (they exist with
+  data). Fixed the column + added `conn.rollback()` in `_safe_query`.
+- **Datetime slice:** `row[0][:19]` sliced a PG `datetime` (PG returns datetime
+  objects for `MAX(created_at)`, not strings) → TypeError → `activity_log` /
+  `council_sessions` false "not accessible". Wrapped all 7 timestamp slices in
+  `str()` (sibling-search across the file).
+- **research_docs:** collector date-column map used `created_at`; the column is
+  `updated_at`.
+
+Verified live against the Docker PG: `training_model_version`,
+`scheduler_activity`, `scheduler_council`, `collector_research_docs` all flip
+from false-warn to PASS.
+
+### Not touched (genuine signals, not validator bugs)
+
+Thin training corpus (90 examples), no quality scores / canary / released model,
+**560 shadow_trades with invalid/NULL recommendation_id** (orphan class, audit
+F-8/F-9), 5 zombie trades past the 8-day timeout, short_interest empty. These are
+real and remain visible.
+
+### Tests
+
+- `tests/test_system_validator_cutover_v0_36_39.py` (5): render/cloud checks gone;
+  `_safe_query` rolls back on failure; curriculum uses `curriculum_stage`; no bare
+  timestamp slice on fetched values; research_docs uses `updated_at`. Existing
+  validator suite (54) green.
+
+
 ## [v0.36.38] — 2026-05-20 — wire 3 dead-weight Finnhub collectors
 
 W21 collector-wiring deliverable. We pay for `company_executive`,
