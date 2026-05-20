@@ -140,9 +140,9 @@ class TestReconcileRoutesThroughCoerce:
                 call_count[0] += 1
                 if call_count[0] == 1:
                     return []
-                # Wave 5 orphan guard: stale-rows query for re-backfill prevention
-                # (inserted before stuck-trades processing). Returns [] — no recent
-                # reconciled_stale rows for GOOG, so the orphan proceeds to backfill.
+                # v0.36.40 detection-step _has_recent_close() query for GOOG (occupies
+                # the call slot the old Wave 5 backfill guard used). Returns [] — GOOG
+                # has no recent close, so it's a genuine orphan and detection proceeds.
                 if call_count[0] == 2:
                     return []
                 if call_count[0] == 3:
@@ -193,9 +193,9 @@ class TestReconcileRoutesThroughCoerce:
                 call_count[0] += 1
                 if call_count[0] == 1:
                     return []
-                # Wave 5 orphan guard: stale-rows query for re-backfill prevention
-                # (inserted before stuck-trades processing). Returns [] — no recent
-                # reconciled_stale rows for MSFT, so the orphan proceeds to backfill.
+                # v0.36.40 detection-step _has_recent_close() query for MSFT (occupies
+                # the call slot the old Wave 5 backfill guard used). Returns [] — MSFT
+                # has no recent close, so it's a genuine orphan and detection proceeds.
                 if call_count[0] == 2:
                     return []
                 if call_count[0] == 3:

@@ -67,6 +67,52 @@ _ib_cold_storage_warned_dates: set[str] = set()
 # with a broker returning empty — far more likely a transient API issue.
 _TRANSIENT_EMPTY_FETCH_THRESHOLD = 3
 
+# v0.36.40 — orphan-source residual fix (docs/audits/2026-W21-orphan-source).
+# A live Alpaca position whose shadow_trade was closed within this window is a
+# "close-didn't-clear" lingering position (phantom-close / reconciled_stale $0
+# close / sticky paper position), NOT a fresh orphan. Backfilling it creates a
+# duplicate NULL-rec_id row → the orphan cycle that starves the training corpus
+# and consumes buying power. 24h (not the old Wave-5 6h) so the next-morning
+# 09:01 reconcile catches a prior-evening close; ANY exit_reason (not just
+# 'reconciled_stale') so phantom 'timeout'-style closes are covered. Alpaca
+# position dicts carry no order-id, so recent-close TIME is the discriminator.
+_RECENT_CLOSE_WINDOW_HOURS = 24
+
+
+def _has_recent_close(db_path, ticker, now, window_hours, desk):
+    """True if `ticker` has a paper/alpaca shadow_trade closed within `window_hours`.
+
+    Distinguishes a lingering "close-didn't-clear" position (recent close → not a
+    fresh orphan) from a genuine orphan (no recent close → backfill). Generalizes
+    the Wave 5 guard (reconciled_stale-only / 6h) to ANY exit_reason over a wider
+    window. Alpaca-paper-scoped, mirroring the Wave 5 guard's broker/source filter.
+    """
+    with connect_db(db_path) as conn:
+        # STATUS-NARROW: this is the literal terminal state 'closed' (not the active
+        # set) — we are looking for a RECENTLY-CLOSED row, so active_in_clause() /
+        # terminal_in_clause() do not apply. A closed row with a fresh actual_exit_time
+        # is exactly the "close-didn't-clear" signal we want.
+        rows = conn.execute(
+            "SELECT actual_exit_time FROM shadow_trades "
+            "WHERE ticker = ? AND status = 'closed' "
+            "AND COALESCE(source, 'paper') = 'paper' "
+            "AND COALESCE(broker, 'alpaca') = 'alpaca' "
+            "AND desk = ? AND actual_exit_time IS NOT NULL",
+            (ticker, desk),
+        ).fetchall()
+    cutoff_s = window_hours * 3600.0
+    for row in rows:
+        raw = row["actual_exit_time"]
+        try:
+            exit_t = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+            if (now - exit_t).total_seconds() < cutoff_s:
+                return True
+        except (ValueError, TypeError):
+            # Unparseable or tz-naive/aware mismatch — treat as not-recent
+            # (fail toward backfilling so a genuine orphan is still recovered).
+            continue
+    return False
+
 
 def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
     """Build a trade_data dict for backfilling an orphaned position.
@@ -628,6 +674,21 @@ def reconcile_paper_trades(
     # which can happen from partial fills or manual position adjustments.
     for ticker, pos in alpaca_tickers.items():
         if ticker not in tracked_map:
+            # v0.36.40 — don't flag a lingering "close-didn't-clear" position as a
+            # fresh orphan. If this ticker was closed within the recent-close window,
+            # the Alpaca position still showing is a close that didn't clear (phantom /
+            # reconciled_stale / sticky paper account), NOT a new untracked position.
+            # Backfilling it would create a duplicate NULL-rec_id row → the orphan cycle
+            # (docs/audits/2026-W21-orphan-source). Surface it as a discrepancy instead.
+            if _has_recent_close(db_path, ticker, now, _RECENT_CLOSE_WINDOW_HOURS, desk):
+                logger.warning(
+                    "[RECONCILE-PAPER] %s has a live Alpaca position but was closed in "
+                    "DB within %dh — close-didn't-clear, NOT backfilling an orphan "
+                    "(position may need a manual clear). See 2026-W21-orphan-source.",
+                    ticker, _RECENT_CLOSE_WINDOW_HOURS,
+                )
+                skipped.append(ticker)
+                continue
             orphaned.append({
                 "ticker": ticker,
                 "qty": float(pos.get("qty", 0)),
@@ -726,47 +787,11 @@ def reconcile_paper_trades(
         from src.journal.store import insert_shadow_trade, close_shadow_trade
 
         for orph in orphaned:
-            # Wave 5 anti-re-backfill guard (closes phantom-position cycle bug, task #18).
-            # Don't re-backfill an orphan that was marked reconciled_stale within the last
-            # 6 hours — almost certainly an Alpaca paper account phantom position.
-            #
-            # Scope: Alpaca paper only. The query filters on broker='alpaca' AND source='paper'
-            # so the guard does NOT fire for IB-reconciled orphans (per Wave 5 brief: "DO NOT
-            # add a similar guard for IB orphans without operator authorization — they may have
-            # different semantics"). IB cold-storage handling at lines ~562-583 is a separate
-            # mechanism with its own broker-fetch-failure guards.
-            with connect_db(db_path) as conn:
-                stale_rows = conn.execute(
-                    """
-                    SELECT actual_exit_time FROM shadow_trades
-                    WHERE ticker = ?
-                      AND order_type = 'reconciled'
-                      AND exit_reason = 'reconciled_stale'
-                      AND COALESCE(broker, 'alpaca') = 'alpaca'
-                      AND COALESCE(source, 'paper') = 'paper'
-                      AND actual_exit_time IS NOT NULL
-                    """,
-                    (orph["ticker"],),
-                ).fetchall()
-            recent_stale = False
-            for _row in stale_rows:
-                try:
-                    _exit_t = datetime.fromisoformat(_row["actual_exit_time"])
-                    if (now - _exit_t).total_seconds() < 6 * 3600:
-                        recent_stale = True
-                        break
-                except (ValueError, TypeError):
-                    pass
-            if recent_stale:
-                logger.warning(
-                    "[RECONCILE-PAPER] Phantom orphan skipped — %s was reconciled_stale "
-                    "within last 6 hours (likely Alpaca paper account stuck position; "
-                    "operator should clear orders manually). See Wave 5 / #18.",
-                    orph["ticker"],
-                )
-                skipped.append(orph["ticker"])
-                continue
-
+            # v0.36.40 — the recent-close ("close-didn't-clear") exclusion that
+            # replaces the Wave 5 reconciled_stale-only / 6h guard (task #18) now
+            # lives at the DETECTION step above: `orphaned` is populated at exactly
+            # one site, and only after `_has_recent_close()` returns False, so every
+            # orph here is a genuinely un-tracked position. No second guard needed.
             trade_data = _backfill_trade_data(
                 orph["ticker"], orph["avg_price"], orph["qty"],
                 orph["qty"] * orph["avg_price"], "paper", now,
