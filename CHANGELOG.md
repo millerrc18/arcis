@@ -3,6 +3,70 @@
 ## [Unreleased]
 
 
+## [v0.36.34] — 2026-05-20 — guard initialize_database backfill against startup crash
+
+Found during a 10:49 ET health check. The watch-loop restart at 10:55:55
+logged a fatal startup error before recovering on an NSSM retry:
+
+    psycopg2.errors.UndefinedTable: relation "shadow_trades" does not exist
+    File "src/main.py", line 337, in main → initialize_database()
+    File "src/journal/store.py", line 99 → UPDATE shadow_trades ...
+
+### Root cause
+
+`main.py:337` calls `initialize_database()` UNCONDITIONALLY, before the
+subcommand dispatch (`args.func(args)` at line 339). So every
+`python -m src.main <cmd>` — including the `startup` that NSSM runs for the
+watch loop — executes the journal init first.
+
+`initialize_database` ensures the schema with the SQLite-specific helpers
+(`src.schema.sqlite.create_all_tables` / `ensure_columns`), then runs a
+best-effort data migration:
+
+    UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at)
+    WHERE status = 'closed' AND actual_exit_time IS NULL
+
+Under the cutover gate (`ARCIS_PG_CUTOVER_ENABLED=1`) `connect_db` reroutes
+that UPDATE to Postgres — a backend whose schema this function never ensured
+(it ensured SQLite). The PG schema IS ensured, but by the `startup` handler
+that runs AFTER line 337. So any moment PG transiently lacks the table or the
+connection hiccups (e.g. the simultaneous double-launch on a restart), the
+UNGUARDED UPDATE raises and crashes the entire watch-loop launch. The 10:55:55
+attempt only survived because NSSM's retry happened to succeed; a restart
+without a lucky retry would have stayed down.
+
+### Fixed
+
+- `src/journal/store.py` — wrapped the `UPDATE shadow_trades` backfill in a
+  `try/except DBError`, logging a WARNING and continuing. The backfill is
+  optional (dashboard visibility only); making startup depend on it succeeding
+  was the bug. It now retries on the next startup once the schema exists.
+- `src/journal/store.py` — import `DBError` (`= (sqlite3.Error, psycopg2.Error)`)
+  from `src.utils.db` so both SQLite- and Postgres-class failures are caught.
+
+### Scope / sibling-search
+
+The four sibling `init_*` functions (`init_council_tables`,
+`init_value_tables`, `init_training_tables`, `init_quality_drift_tables`) were
+checked: none run a post-create data migration — their DML lives in separate,
+lazily-called functions. `initialize_database` is the only one with a
+post-create migration AND the only function `main.py` calls before dispatch.
+Fix is correctly scoped to it.
+
+### Tests
+
+`tests/test_initialize_database_backfill_guard_v0_36_34.py` (5): backfill
+failure (sqlite + psycopg2 UndefinedTable) does not propagate, emits a
+WARNING, still runs + commits on the happy path, and an AST source-lock that
+the UPDATE stays inside a try/except.
+
+### Deploy note
+
+Two-layer staleness applies (see v0.36.31 incident): this fix is loaded only
+after the watch loop is restarted onto the v0.36.34 tree. The running loop is
+unaffected until then; the guard matters for the NEXT restart.
+
+
 ## [v0.36.33] — 2026-05-19 — institutional_holdings.total_shares BIGINT (v0.36.25 follow-up)
 
 Surfaced during tonight's overnight cycle: the institutional_ownership
