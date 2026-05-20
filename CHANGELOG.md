@@ -3,6 +3,74 @@
 ## [Unreleased]
 
 
+## [v0.36.32] — 2026-05-19 — W21 audit F-3: phantom-close drift anomaly alarm
+
+Third of three hotfixes from the W21 lifecycle audit. F-3 adds the alarm
+that would have caught v0.36.28 in week 1 instead of week 36.
+
+### Root cause
+
+`src/shadow_trading/exit_reconciliation.py::_check_trade` checked timeout
+exits only for `duration_days < timeout_days`. A phantom-close (v0.36.28,
+where exit_price was set to the entry-order fill) passes that check silently
+— the position exits at ~entry price on a multi-day hold and looks like a
+normal flat day. The reconciliation pass is the natural detection point but
+had no drift check.
+
+### Fixed
+
+NEW `_is_phantom_drift_anomaly(row)` flags price-based exits
+(timeout/target_1/target_2/stop_loss) where `duration_days >= 1` AND the
+exit/entry price drift is below `_PHANTOM_DRIFT_TOLERANCE`. Wired into
+`_check_trade` as a first-class anomaly condition (returns True regardless
+of the per-reason check). Added `actual_entry_price, entry_price` to the
+reconciliation SELECT.
+
+### Threshold calibration — NOT the audit's recommended 5 bps
+
+The W21 audit recommended a 5 bps drift threshold. **Verification against
+the real data showed 5 bps would have MISSED the canonical bug:** the AMD
+`dcd090be` phantom had entry=$439.80, exit=$440.72 → drift = 0.92/439.80 =
+**21 bps**, above the 5 bps floor. We use **50 bps (0.5%)** instead:
+
+- Catches AMD (21 bps) with margin.
+- Genuine multi-day (>= 1 trading day) holds essentially never move < 0.5%.
+- A flag is an anomaly-LOG entry (not a halt), so modest false-positive
+  tolerance is acceptable.
+
+This is the kind of "verify the recommendation against the actual data"
+rigor that the audit's own lens-11 (mock-divergence) advocates — the spec
+was directionally right but its specific number wouldn't have worked.
+
+### Tests
+
+NEW `tests/test_exit_reconciliation_zero_drift_v0_36_32.py` (8 tests):
+- AMD phantom (21 bps, 10-day) → flagged
+- genuine 5% multi-day move → not flagged
+- exact zero-drift multi-day → flagged
+- intraday (duration < 1) flat → not flagged
+- NULL exit price → not flagged (fail-safe)
+- non-price exit reason (reconciled_stale) → not flagged
+- stop_loss phantom (2.5 bps) → flagged
+- `_check_trade` end-to-end: phantom timeout flagged even though it passes
+  the legacy `duration < timeout` check
+
+UPDATED `tests/scheduler/test_exit_reconciliation.py` (3 fixtures): the
+pre-F-3 fixtures used `exit_price == entry_price == 100.0` on multi-day
+holds — the exact phantom signature. Updated to realistic exit prices
+(108.0). This both fixes the tests AND proves F-3 doesn't false-positive
+on realistic data.
+
+All 34 green (8 new + 26 existing exit_reconciliation).
+
+### Audit cross-ref
+
+Finding F-3 (CRITICAL) in `docs/design/2026-W21-lifecycle-audit/audit-findings.md`.
+This completes the 3 top-CRITICAL W21-audit hotfixes (F-1 v0.36.30, F-2
+v0.36.31, F-3 v0.36.32). Remaining CRITICAL findings F-4 through F-9 are
+Wave 1 of the post-freeze priority roadmap.
+
+
 ## [v0.36.31] — 2026-05-19 — W21 audit F-2: model-win-rate precheck small-sample guard
 
 Second of three hotfixes from the W21 lifecycle audit. F-2 is the

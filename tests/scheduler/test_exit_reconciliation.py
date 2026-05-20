@@ -164,7 +164,12 @@ def test_stop_loss_anomaly():
 
 def test_timeout_clean():
     conn = _create_db()
-    _insert(conn, "to", exit_reason="timeout", duration_days=8, timeout_days=8)
+    # v0.36.32 (F-3): realistic exit price (8% move over 8 days). Pre-F-3 this
+    # used the default exit=entry=100, which the new phantom-drift check now
+    # (correctly) flags — a multi-day hold exiting at exactly entry is the
+    # phantom-close signature. A clean timeout has a real price move.
+    _insert(conn, "to", exit_reason="timeout", duration_days=8, timeout_days=8,
+            actual_exit_price=108.0)
     result = _run(conn)
     assert "to" not in result["flagged_trade_ids"]
     assert result["by_reason"]["timeout"]["anomalies"] == 0
@@ -190,7 +195,7 @@ def test_timeout_null_duration_uses_fallback():
          duration_days, timeout_days, direction, quarantined)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, ["tofb", "AAPL", "closed", "timeout",
-          _now_iso(1), 100.0,
+          _now_iso(1), 108.0,  # v0.36.32 (F-3): realistic exit ≠ entry
           _now_iso(24 * 20), 100.0, 100.0, 95.0, 110.0, 120.0,
           None, 15, "long", 0])
     conn.commit()
@@ -226,7 +231,7 @@ def test_null_bracket_skipped(caplog):
          duration_days, timeout_days, direction, quarantined)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, ["tnull", "AAPL", "closed", "target_1",
-          _now_iso(1), 100.0,
+          _now_iso(1), 108.0,  # v0.36.32 (F-3): realistic exit ≠ entry
           _now_iso(25), 100.0, 100.0, 95.0,
           None, 0.0,   # target_1=NULL
           1, 15, "long", 0])

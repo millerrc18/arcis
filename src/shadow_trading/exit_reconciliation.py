@@ -30,6 +30,20 @@ _RECONCILE_LOG_DIR = Path(DB_PATH).parent / "reconciliation_log"
 # fill noise. PR-690 review item O3.
 _STOP_LOSS_SLIPPAGE_TOLERANCE = 0.01
 
+# v0.36.32 (F-3): a multi-day hold (>= 1 trading day) that exits at ~entry
+# price is the phantom-close signature (v0.36.28 wrote entry-fill-as-exit).
+# 50 bps (0.5%) — NOT the 5 bps the W21 audit recommended: the canonical AMD
+# phantom (dcd090be) drifted 21 bps (entry $439.80 → exit $440.72), so 5 bps
+# would have MISSED the very bug this alarm is named for. 50 bps catches it
+# with margin; genuine multi-day holds essentially never move < 0.5%. This is
+# an anomaly LOG (not a halt), so modest false-positive tolerance is fine.
+_PHANTOM_DRIFT_TOLERANCE = 0.005
+
+# Exit reasons that imply a real price-based fill — the only ones for which
+# a near-zero multi-day drift is anomalous. `reconciled_stale`/`unknown`/etc.
+# are non-price closes and are exempt.
+_PRICE_BASED_EXIT_REASONS = frozenset({"timeout", "target_1", "target_2", "stop_loss"})
+
 
 def _build_query() -> tuple[str, tuple[str, ...]]:
     """Build the per-call reconcile SQL + bind params.
@@ -49,7 +63,8 @@ def _build_query() -> tuple[str, tuple[str, ...]]:
     cutoff_iso = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     sql = (
         "SELECT trade_id, ticker, exit_reason, "
-        "actual_exit_price, stop_price, target_1, target_2, "
+        "actual_exit_price, actual_entry_price, entry_price, "
+        "stop_price, target_1, target_2, "
         "duration_days, timeout_days, "
         "actual_entry_time, direction "
         "FROM shadow_trades "
@@ -125,8 +140,61 @@ def _check_direction_target(
     return False
 
 
+def _is_phantom_drift_anomaly(row) -> bool:
+    """v0.36.32 (F-3): detect the phantom-close signature.
+
+    A price-based exit (timeout/target/stop) on a hold of >= 1 trading day
+    where the exit price is within `_PHANTOM_DRIFT_TOLERANCE` of the entry
+    price is anomalous — real market drift over a multi-day hold is
+    essentially never that small. This is the natural detection point for
+    the v0.36.28 phantom-close class (a position marked closed with the
+    entry-order fill written as the exit price, no real SELL submitted).
+
+    Returns False (non-anomalous) on any missing/uncomputable input —
+    fail-safe, since a false negative here just means the legacy per-reason
+    check still applies.
+    """
+    reason = _row_get(row, "exit_reason", None) or "unknown"
+    if reason not in _PRICE_BASED_EXIT_REASONS:
+        return False
+
+    dd = _row_get(row, "duration_days", None)
+    if dd is None:
+        dd = _computed_days(_row_get(row, "actual_entry_time", None))
+    if dd is None or dd < 1:
+        return False
+
+    exit_price = _row_get(row, "actual_exit_price", None)
+    entry_price = _row_get(row, "actual_entry_price", None) or _row_get(row, "entry_price", None)
+    try:
+        exit_price = float(exit_price)
+        entry_price = float(entry_price)
+    except (TypeError, ValueError):
+        return False
+    if entry_price <= 0 or exit_price <= 0:
+        return False
+
+    drift = abs(exit_price - entry_price) / entry_price
+    if drift < _PHANTOM_DRIFT_TOLERANCE:
+        logger.warning(
+            "[EXIT_RECON_PHANTOM_DRIFT] trade_id=%s ticker=%s reason=%s "
+            "duration_days=%s entry=%.4f exit=%.4f drift=%.1fbps < %.0fbps — "
+            "possible phantom close (v0.36.28 class); exit price too close to "
+            "entry for a multi-day hold.",
+            _row_get(row, "trade_id", "?"), _row_get(row, "ticker", "?"),
+            reason, dd, entry_price, exit_price,
+            drift * 10000, _PHANTOM_DRIFT_TOLERANCE * 10000,
+        )
+        return True
+    return False
+
+
 def _check_trade(row: sqlite3.Row) -> bool:
     """Return True if the row is anomalous, False if clean or skipped.
+
+    v0.36.32 (F-3): a phantom-drift anomaly (price-based exit at ~entry price
+    on a multi-day hold) is flagged regardless of the per-reason check below —
+    it's the detection point for the v0.36.28 phantom-close class.
 
     Direction-aware (PR-690 O2): delegates stop-loss direction checks to
     _check_long_stop_loss / _check_short_stop_loss and target checks to
@@ -135,6 +203,12 @@ def _check_trade(row: sqlite3.Row) -> bool:
     reason = row["exit_reason"] or "unknown"
     exit_price = row["actual_exit_price"]
     direction = str(_row_get(row, "direction", "long") or "long").lower()
+
+    # v0.36.32 (F-3): phantom-close drift check runs first — a price-based
+    # exit at ~entry price on a multi-day hold is anomalous regardless of
+    # whether the per-reason predicate below passes.
+    if _is_phantom_drift_anomaly(row):
+        return True
 
     if reason == "target_1":
         t1 = row["target_1"]
