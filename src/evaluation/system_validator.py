@@ -220,12 +220,21 @@ def _check_database(db_path: str) -> list[dict]:
 
         # Check for orphaned shadow_trades FK
         if "shadow_trades" in existing and "recommendations" in existing:
+            # v0.36.41 — exclude rejected_* records. A 'rejected_buying_power' trade
+            # (executor.py _check_paper_buying_power) is recorded for dashboard
+            # visibility with the scan's recommendation_id, but the recommendation row
+            # is only persisted for TAKEN trades — so every rejected record has a
+            # dangling FK by design. They are NOT orphaned positions. Before this
+            # filter, 461/461 of the warning count was rejected_* records, masking the
+            # genuine (zero, post-v0.36.40) dangling-FK signal. See
+            # docs/audits/2026-W21-orphan-source (phenomenon 3).
             orphans = _safe_query(conn, """
                 SELECT COUNT(*) FROM shadow_trades st
                 LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id
                 WHERE st.recommendation_id IS NOT NULL
                 AND r.recommendation_id IS NULL
                 AND COALESCE(st.quarantined, 0) = 0
+                AND COALESCE(st.order_type, '') NOT LIKE 'rejected%'
             """)
             if orphans and orphans[0][0] > 0:
                 checks.append(_check("db_orphaned_fk", "warn",

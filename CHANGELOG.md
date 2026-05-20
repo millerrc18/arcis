@@ -3,6 +3,29 @@
 ## [Unreleased]
 
 
+## [v0.36.41] — 2026-05-20 — system_validator: db_orphaned_fk excludes rejected_* records
+
+The `db_orphaned_fk` check counted shadow_trades whose (non-NULL) `recommendation_id`
+doesn't resolve to a `recommendations` row. On the live DB that was **461/461
+`rejected_buying_power` records** — trades rejected for buying power, recorded for
+dashboard visibility (`executor.py` `_check_paper_buying_power`) with the scan's
+recommendation_id, but the recommendation row is only persisted for **taken** trades.
+So every rejected record has a dangling FK *by design*; they are not orphaned
+positions. The warning was 100% false signal, masking the genuine count (zero, after
+v0.36.40).
+
+### Fixed
+
+- `src/evaluation/system_validator.py` — the `db_orphaned_fk` query now adds
+  `AND COALESCE(st.order_type, '') NOT LIKE 'rejected%'`. Live count drops 461 → 0
+  (no genuine dangling-FK orphans remain). Note: the corpus-starving reconciler
+  orphans are a *different* population (NULL rec_id) that this check never measured;
+  they are addressed by v0.36.40.
+
+TDD: `tests/evaluation/test_system_validator_orphan_fk_exclude_rejected_v0_36_41.py`
+(behavioral: rejected→pass, genuine non-rejected→warn, mixed→pass, + content-lock).
+
+
 ## [v0.36.40] — 2026-05-20 — reconciler: recent-close window kills the orphan-backfill cycle
 
 Exhaustive orphan-source investigation (`docs/audits/2026-W21-orphan-source`) found
