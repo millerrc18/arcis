@@ -3,6 +3,44 @@
 ## [Unreleased]
 
 
+## [v0.36.40] — 2026-05-20 — reconciler: recent-close window kills the orphan-backfill cycle
+
+Exhaustive orphan-source investigation (`docs/audits/2026-W21-orphan-source`) found
+the true orphan source is **closes that don't clear the Alpaca position** (phantom-
+close / `reconciled_stale` $0 close / sticky paper position): the position lingers,
+the next 09:01 reconcile re-discovers it as an "orphan" (ticker-only / status-narrow
+matching), and backfills a duplicate NULL-rec_id row — which then `reconciled_stale`-
+closes and repeats. These featureless/synthetic rows are correctly skipped by the
+training pipeline, so the cycle **starved the training corpus**; lingering positions
+also **consume Alpaca buying power** (→ the 474 `rejected_buying_power` records).
+
+The cycle peaked at 30/day (05-04/05) and the v0.36.28 phantom-close fix + Wave 5
+guard tapered it to ~1/day — but a residual leaked because the Wave 5 guard only
+skipped re-backfill for `reconciled_stale` closes within **6 hours**.
+
+### Fixed
+
+- `src/shadow_trading/reconcile.py` — new `_has_recent_close(...)` helper +
+  `_RECENT_CLOSE_WINDOW_HOURS = 24`. A ticker with a paper/alpaca shadow_trade
+  closed within 24h (ANY exit_reason) is treated as a lingering "close-didn't-clear"
+  position, **not** a fresh orphan:
+  - **Detection step:** excluded from `orphaned[]` before backfill + a
+    `[RECONCILE-PAPER] … close-didn't-clear` WARNING surfaces the real underlying
+    issue (a close that isn't clearing the Alpaca position).
+  - **Backfill step:** the narrow Wave 5 guard (`reconciled_stale`-only / `6 * 3600`)
+    is replaced by the same helper — generalized to any exit_reason over 24h, kept
+    as defense-in-depth. Alpaca-paper-scoped; IB orphans unaffected.
+
+Why 24h and not order-id matching: Alpaca **position** dicts carry no order-id (only
+symbol/qty/avg_entry_price/market_value/P&L), so a recent-close TIME window is the
+available discriminator. 24h covers the next-morning 09:01 re-discovery the 6h guard
+missed while still surfacing genuinely-old positions for backfill.
+
+TDD: `tests/shadow_trading/test_reconcile_recent_close_window_v0_36_40.py` (9 tests —
+window boundary, any-exit-reason, >6h re-discovery, genuine-orphan preserved, desk
+scoping, + wiring locks).
+
+
 ## [v0.36.39] — 2026-05-20 — system_validator: gut Render + fix PG-cutover false warnings
 
 Today's 16:30 EOD validation returned CRITICAL (41P / **15W / 1F**). Investigation
