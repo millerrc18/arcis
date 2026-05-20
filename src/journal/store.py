@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from src.config import DB_PATH
 from src.models import TradePacket
 from src.schema.registry import TABLES
-from src.utils.db import connect_db
+from src.utils.db import connect_db, DBError
 
 _logger = logging.getLogger(__name__)
 
@@ -93,14 +93,24 @@ def initialize_database(db_path: str = DB_PATH) -> None:
     create_all_tables(db_path)
     ensure_columns(db_path)
 
-    # Data migration: backfill actual_exit_time for trades closed by reconciliation
-    # that were missing this field (causes them to be invisible to dashboard)
-    with connect_db(db_path) as conn:
-        conn.execute(
-            "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) "
-            "WHERE status = 'closed' AND actual_exit_time IS NULL"
+    # Best-effort backfill (dashboard visibility only). main.py runs this on the
+    # unconditional startup path BEFORE the PG schema is ensured, so under the
+    # cutover gate the routed UPDATE can hit a not-yet-created shadow_trades (or a
+    # transient connection failure). Guard it so an optional migration can never
+    # crash the watch-loop launch — it retries on the next startup (v0.36.34).
+    try:
+        with connect_db(db_path) as conn:
+            conn.execute(
+                "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) "
+                "WHERE status = 'closed' AND actual_exit_time IS NULL"
+            )
+            conn.commit()
+    except DBError as exc:
+        _logger.warning(
+            "[JOURNAL] actual_exit_time backfill on shadow_trades skipped "
+            "(non-fatal, retries next startup): %s",
+            exc,
         )
-        conn.commit()
     _TABLES_INITIALIZED.add(db_path)
 
 
