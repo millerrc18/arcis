@@ -3,6 +3,54 @@
 ## [Unreleased]
 
 
+## [v0.36.31] — 2026-05-19 — W21 audit F-2: model-win-rate precheck small-sample guard
+
+Second of three hotfixes from the W21 lifecycle audit. F-2 is the
+deterministic-precheck twin of the v0.36.27 small-sample bug.
+
+### Root cause
+
+`src/evaluation/auditor.py::_check_model_win_rate` line 509:
+`if trades < 2 or win_rate > 0: continue`. So when a model version had
+`trades >= 2 AND win_rate == 0`, a CRITICAL flag fired ("Block promotion
+and new entry exposure for this model").
+
+v0.36.27 added `_LLM_AUDIT_MIN_SAMPLE=10` to gate the LLM *narrative*, but
+the deterministic prechecks (`_append_deterministic_prechecks`) run
+unconditionally — so this precheck was never gated. A 2-loss day for any
+model version (arcis:v1.0.0 hit exactly this on 2026-05-18, see the v0.36.22
+CHANGELOG note) fires CRITICAL → `audit_entry_suppression` reads the audit
+output and suppresses all new entries → trading desk dark on noise →
+false-CRITICAL Telegram. The exact issue v0.36.27 chased, in a sibling path.
+
+Same small-sample-extrapolation class as v0.36.22 (drawdown, guarded at 50)
+and v0.36.27 (LLM narrative, guarded at 10).
+
+### Fixed
+
+- NEW `_MODEL_WIN_RATE_MIN_SAMPLE = 10` (mirrors `_LLM_AUDIT_MIN_SAMPLE`).
+- Gate changed: `if trades < _MODEL_WIN_RATE_MIN_SAMPLE or win_rate > 0`.
+- Sibling-search confirmed: the only ungated precheck. `_check_drawdown`
+  already guards at `_DRAWDOWN_MIN_SAMPLE=50` (v0.36.22); the LLM narrative
+  at `_LLM_AUDIT_MIN_SAMPLE=10` (v0.36.27). No other `trades < N` thresholds.
+
+### Tests
+
+NEW `tests/test_auditor_model_winrate_sample_v0_36_31.py` (5 tests):
+- trades=2, win_rate=0 → no flag (the 2026-05-18 false-positive case)
+- trades=9 → no flag (one below threshold)
+- trades=10, win_rate=0 → flag (real broken-model signal at threshold)
+- trades=20, win_rate=0.3 → no flag (non-zero win rate)
+- consistency: `_MODEL_WIN_RATE_MIN_SAMPLE == _LLM_AUDIT_MIN_SAMPLE == 10`
+
+All 5 green. Auditor sample-guard suite (LLM + drawdown + bootcamp + this)
+= 19 passed.
+
+### Audit cross-ref
+
+Finding F-2 (CRITICAL) in `docs/design/2026-W21-lifecycle-audit/audit-findings.md`.
+
+
 ## [v0.36.30] — 2026-05-19 — W21 audit F-1: reconcile phantom-$0 stale close
 
 First of three hotfixes closing CRITICAL findings from the W21 lifecycle
