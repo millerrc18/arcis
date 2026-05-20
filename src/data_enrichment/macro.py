@@ -97,7 +97,9 @@ def _fetch_series(
         exceptions=(requests.RequestException, ConnectionError, OSError),
     )
     if resp is None:
-        logger.debug("Failed to fetch FRED series %s after retries", series_id)
+        # v0.36.37 (F-20): WARNING, not debug — a FRED outage must be visible in
+        # production logs (INFO/WARNING) so silent macro degradation is caught.
+        logger.warning("[MACRO] Failed to fetch FRED series %s after retries", series_id)
         return None
     try:
         resp.raise_for_status()
@@ -108,7 +110,7 @@ def _fetch_series(
             if val != ".":
                 return float(val)
     except Exception as e:
-        logger.debug("Failed to fetch FRED series %s: %s", series_id, e)
+        logger.warning("[MACRO] Failed to fetch FRED series %s: %s", series_id, e)
     return None
 
 
@@ -134,7 +136,7 @@ def _fetch_cpi_yoy(api_key: str, as_of: str | None = None) -> float | None:
         exceptions=(requests.RequestException, ConnectionError, OSError),
     )
     if resp is None:
-        logger.debug("Failed to compute CPI YoY after retries")
+        logger.warning("[MACRO] Failed to compute CPI YoY after retries")
         return None
     try:
         resp.raise_for_status()
@@ -152,7 +154,7 @@ def _fetch_cpi_yoy(api_key: str, as_of: str | None = None) -> float | None:
             if year_ago > 0:
                 return round((current - year_ago) / year_ago * 100, 1)
     except Exception as e:
-        logger.debug("Failed to compute CPI YoY: %s", e)
+        logger.warning("[MACRO] Failed to compute CPI YoY: %s", e)
     return None
 
 

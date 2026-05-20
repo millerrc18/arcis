@@ -3,6 +3,34 @@
 ## [Unreleased]
 
 
+## [v0.36.37] — 2026-05-20 — F-20: FRED/macro failures visible (debug → warning)
+
+W21 audit F-20 (HIGH), collector series. `macro.py` logged every FRED
+fetch/parse failure at `logger.debug` (lines 100, 111, 137, 155). Production
+runs at INFO/WARNING, so a FRED outage produced **zero** operator-visible
+signal — macro enrichment silently returned None, LLM packets degraded, nobody
+knew (12-hour silent-degradation class; sibling of the v0.36.23 macro outage).
+
+### Fixed
+
+- `src/data_enrichment/macro.py` — promoted all four FRED error paths
+  (`_fetch_series` retry-exhausted + parse-error; `_fetch_cpi_yoy`
+  retry-exhausted + parse-error) from `debug` to `warning`, with a `[MACRO]`
+  prefix. No remaining `logger.debug` error paths in the module.
+
+### Tests
+
+- `tests/data_collection/test_macro_fred_logging_v0_36_37.py` (4): each error
+  path asserts a WARNING is emitted (retry-exhausted + parse-error, for both
+  `_fetch_series` and `_fetch_cpi_yoy`).
+
+### Deferred
+
+The audit also suggested a per-task `last_success_at` staleness tracker
+(WARNING when >24h stale regardless of per-call log level) — larger
+cross-collector enhancement, folded into the F-24 collector-contract work.
+
+
 ## [v0.36.36] — 2026-05-20 — F-7: FINRA short-volume surfaces mass failure
 
 W21 lifecycle-audit finding F-7 (CRITICAL), first of the collector hotfix
