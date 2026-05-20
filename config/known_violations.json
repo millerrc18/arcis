@@ -119,7 +119,7 @@
     {
       "file": "src/platform/rigor/walkforward_runner.py",
       "lines": 435,
-      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 435 lines via VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, derived_from_backtest_id plumb (review fix), evidence field on WalkForwardRunResult, and SP-WF-010 corpus binding gate (delegates to canonical FS-based src.evaluation.walkforward._gate_corpus_or_raise per cutover-impact.md:24 — corpora are filesystem-based, not DB-backed). Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
+      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 435 lines via VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, derived_from_backtest_id plumb (review fix), evidence field on WalkForwardRunResult, and SP-WF-010 corpus binding gate (delegates to canonical FS-based src.evaluation.walkforward._gate_corpus_or_raise per cutover-impact.md:24 \u00e2\u20ac\u201d corpora are filesystem-based, not DB-backed). Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
     },
     {
       "file": "src/platform/promotion.py",
@@ -142,12 +142,7 @@
     {
       "file": "src/scheduler/overnight.py",
       "lines": 1327,
-      "rationale": "v0.36.38 T1 (foundation): added 3 plan-gated collector blocks (company_executives/stock_financials/price_targets) inside run_data_collection, each ~16 lines. Pre-v0.36.38 baseline was 1163. Growth is required scaffolding for the dead-weight collector sprint; splitting run_data_collection into sub-functions is a structural refactor deferred to post-v0.36.38."
-    },
-    {
-      "file": "src/scheduler/vram_manager.py",
-      "lines": 653,
-      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit during v0.36.38 T1 worktree run. vram_manager.py grew past 400 lines before v0.36.38. The file manages VRAM handoff state machine; splitting is a structural refactor deferred to post-Sprint-6 cleanup track per #65."
+      "rationale": " v0.36.38 T1: +3 plan-gated collector wiring blocks (company_executives/stock_financials/price_targets)."
     },
     {
       "file": "src/scheduler/reports.py",
@@ -161,8 +156,8 @@
     },
     {
       "file": "src/schema/registry.py",
-      "lines": 2883,
-      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. T11 Wave D D2: grew to 2623 with notifications_digest_queue TableDef (+37L). v0.36.38 T1: grew to 2883 with company_executives/stock_financials/price_targets TableDefs (+260L). Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
+      "lines": 2623,
+      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. T11 Wave D D2: grew to 2623 with notifications_digest_queue TableDef (+37L). Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
     },
     {
       "file": "src/services/scan_service.py",
@@ -210,8 +205,8 @@
     },
     {
       "file": "src/training/trainer.py",
-      "lines": 1328,
-      "rationale": "T3 Sprint 2: _resolve_returns_for_gate refactored to return 3-tuple (returns, dates, directions) + SQL filter for actual_entry_time; run_promotion_gate_for_version gained backward-compat unpack branch. +16 lines from prior 1176. v0.36.38 T1 discovery: grew to 1328 lines. Pre-existing growth before this sprint; real split deferred to post-Sprint-6 cleanup track."
+      "lines": 1192,
+      "rationale": "T3 Sprint 2: _resolve_returns_for_gate refactored to return 3-tuple (returns, dates, directions) + SQL filter for actual_entry_time; run_promotion_gate_for_version gained backward-compat unpack branch. +16 lines from prior 1176."
     },
     {
       "file": "src/training/versioning.py",
@@ -868,19 +863,19 @@
       "file": "src/platform/promotion.py",
       "function": "_evaluate_walkforward_gate",
       "lines": 73,
-      "rationale": "Sprint 6 Wave B T1: grew to 73 lines via WALKFORWARD_GATE_ENABLED sentinel short-circuit block (PR #1090). Function owns the three-state walkforward outcome evaluation path; splitting would require passing WalkForwardResult partial state across helper boundaries. Disclosed by T4 (PR #1092) per #731 after PR #1090 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6 once walkforward v2 wiring is stable."
+      "rationale": "Sprint 6 Wave B T1: grew to 73 lines via WALKFORWARD_GATE_ENABLED sentinel short-circuit block (PR #1090). Function owns the three-state walkforward outcome evaluation path; splitting would require passing WalkForwardResult partial state across helper boundaries. Disclosed by T4 (PR #1092) per #731 after PR #1090 shipped without disclosure \u00e2\u20ac\u201d sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6 once walkforward v2 wiring is stable."
     },
     {
       "file": "src/platform/promotion.py",
       "function": "_evaluate_production_gate",
       "lines": 104,
-      "rationale": "Sprint 6 Wave B T14 (SP-WF-014): new function implementing production-gate walkforward composition. 104 lines = sentinel guard (WALKFORWARD_GATE_ENABLED) + _evaluate_walkforward_gate call + strict no-row policy (production invariant: no row → False) + DA-1 freshness cap (sha-match + 30-day SQLite date check with separate DB reads for walkforward_results.code_git_sha and backtest_results.code_git_sha) + DSR AND walkforward AND methodology composition. DA-1 is CRITICAL per DA review and must not be hand-waved. Splitting the staleness block into a _check_walkforward_freshness helper is a single-use abstraction unjustified by the scope. Refactor candidate post-Sprint-6 if T15 adds a second staleness-check call site."
+      "rationale": "Sprint 6 Wave B T14 (SP-WF-014): new function implementing production-gate walkforward composition. 104 lines = sentinel guard (WALKFORWARD_GATE_ENABLED) + _evaluate_walkforward_gate call + strict no-row policy (production invariant: no row \u00e2\u2020\u2019 False) + DA-1 freshness cap (sha-match + 30-day SQLite date check with separate DB reads for walkforward_results.code_git_sha and backtest_results.code_git_sha) + DSR AND walkforward AND methodology composition. DA-1 is CRITICAL per DA review and must not be hand-waved. Splitting the staleness block into a _check_walkforward_freshness helper is a single-use abstraction unjustified by the scope. Refactor candidate post-Sprint-6 if T15 adds a second staleness-check call site."
     },
     {
       "file": "src/platform/rigor/walkforward_metrics.py",
       "function": "compute_window_metrics",
       "lines": 68,
-      "rationale": "Sprint 6 Wave B T3: grew to 68 lines via excess_sharpe_min gate (PR #1091, SP-WF-004). Function owns the per-window Sharpe/MDE/bootstrap/VIX aggregation pipeline; splitting at 68 lines (8 over limit) would fragment tightly coupled metric dependencies. Disclosed by T4 (PR #1092) per #731 after PR #1091 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6."
+      "rationale": "Sprint 6 Wave B T3: grew to 68 lines via excess_sharpe_min gate (PR #1091, SP-WF-004). Function owns the per-window Sharpe/MDE/bootstrap/VIX aggregation pipeline; splitting at 68 lines (8 over limit) would fragment tightly coupled metric dependencies. Disclosed by T4 (PR #1092) per #731 after PR #1091 shipped without disclosure \u00e2\u20ac\u201d sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6."
     },
     {
       "file": "src/platform/rigor/walkforward_runner.py",
@@ -920,39 +915,9 @@
     },
     {
       "file": "src/scheduler/overnight.py",
-      "function": "_run_plan_gated_collector",
-      "lines": 68,
-      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit during v0.36.38 T1 worktree run. _run_plan_gated_collector is a plan-gate wrapper with an extensive docstring explaining the mass-failure detection logic (v0.36.26). The docstring block accounts for most of the size; trimming it would violate the explain-your-reasoning discipline for safety-critical collectors. Refactor candidate post-Sprint-6."
-    },
-    {
-      "file": "src/scheduler/vram_manager.py",
-      "function": "_kill_pid",
-      "lines": 67,
-      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit during v0.36.38 T1 worktree run. _kill_pid handles VRAM handoff process termination with platform-specific logic (Windows/Unix). Splitting would scatter tightly-coupled kill/wait logic. Deferred to post-Sprint-6 cleanup track per #65."
-    },
-    {
-      "file": "src/scheduler/vram_manager.py",
-      "function": "_kill_ollama_processes",
-      "lines": 65,
-      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit during v0.36.38 T1 worktree run. _kill_ollama_processes enumerates processes and terminates Ollama with retry logic. Tightly coupled with _kill_pid. Deferred to post-Sprint-6 cleanup track per #65."
-    },
-    {
-      "file": "src/shadow_trading/bracket_attach.py",
-      "function": "attach_brackets_for_unprotected_positions",
-      "lines": 152,
-      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit during v0.36.38 T1 worktree run. Function manages bracket order attachment for unprotected positions across Alpaca and IB. Splitting into sub-helpers is a structural refactor deferred to post-Sprint-6 cleanup track per #65."
-    },
-    {
-      "file": "src/utils/codemod.py",
-      "function": "apply_codemod",
-      "lines": 71,
-      "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit during v0.36.38 T1 worktree run. apply_codemod handles AST-based code transformation. Deferred to post-Sprint-6 cleanup track per #65."
-    },
-    {
-      "file": "src/scheduler/overnight.py",
       "function": "run_data_collection",
-      "lines": 345,
-      "rationale": "v0.36.38 T1: added 3 plan-gated collector blocks (company_executives/stock_financials/price_targets), each ~16 lines. Pre-v0.36.38 baseline was 247. These blocks are mandatory scaffolding for the dead-weight collector sprint; splitting into a sub-function per collector block is a structural refactor out of scope for this foundation task."
+      "lines": 343,
+      "rationale": " v0.36.38 T1: +3 plan-gated collector blocks."
     },
     {
       "file": "src/scheduler/overnight.py",
@@ -1181,14 +1146,13 @@
     {
       "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_live_trades",
-      "lines": 265,
-      "rationale": "Pre-existing growth from 203 to 265 lines before v0.36.38 T1. reconcile_live_trades handles IB live position matching; growth is pre-existing. Splitting deferred to post-Sprint-6 cleanup track per #65."
+      "lines": 203
     },
     {
       "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_paper_trades",
-      "lines": 669,
-      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). v0.36.38 T1 discovery: grew to 669 lines pre-existing. Real refactor deferred to post-Sprint-6 cleanup track per #65."
+      "lines": 581,
+      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). Real refactor of this 581-line function is deferred \u2014 splitting the stale/orphan/stuck-exit logic into helpers is a structural change out of scope for this hotfix."
     },
     {
       "file": "src/simulation/engine.py",
@@ -1366,14 +1330,12 @@
     {
       "file": "src/training/trainer.py",
       "function": "export_training_data",
-      "lines": 244,
-      "rationale": "Pre-existing violation. export_training_data manages the full training data export pipeline. Growth is pre-existing. Real refactor deferred to post-Sprint-6 cleanup track per #65."
+      "lines": 247
     },
     {
       "file": "src/training/trainer.py",
       "function": "run_fine_tune",
-      "lines": 288,
-      "rationale": "Pre-existing growth from 223 to 288 lines before v0.36.38 T1. run_fine_tune orchestrates the full fine-tuning pipeline. Growth is pre-existing. Real refactor deferred to post-Sprint-6 cleanup track per #65."
+      "lines": 223
     },
     {
       "file": "src/training/trainer.py",
@@ -1406,6 +1368,12 @@
       "function": "collect_filings_sentiment",
       "lines": 61,
       "rationale": "Pre-existing function (not introduced by Sprint 6 Wave A). 61 lines surfaced during PR #1088 review 2026-05-13 alongside fetch_insider_activity grandfather. Function bundles: plan-gate, key resolution, API call, response parsing, batched upsert, exception handling. Refactor candidate: extract _fetch_and_persist_filings (per-ticker inner loop, ~25 lines) so collect_filings_sentiment becomes the plan-gate + driver. Deferred to post-Sprint-6 cleanup track."
+    },
+    {
+      "file": "src/scheduler/overnight.py",
+      "function": "_run_plan_gated_collector",
+      "lines": 67,
+      "rationale": "Pre-existing (v0.36.26); surfaced during v0.36.38 T1 which touched overnight.py. Real split deferred."
     }
   ],
   "missing_docstring_headers": [
