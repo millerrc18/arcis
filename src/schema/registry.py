@@ -2769,3 +2769,115 @@ _register(TableDef(
     sync_pk="id",
     sync_conflict_col="ticker, headline, released_at",
 ))
+
+# company_executives: Plan-gated executive roster from Finnhub.
+# Written by: src/data_collection/company_executive_collector.py (v0.36.38 T2).
+# Read by: enricher (executive_* feature dict) + FUNDAMENTAL CONTEXT packet section.
+# Populator is gated on finnhub_plan_supports('company_executive'); table exists
+# regardless of plan. BIGINT compensation: exec pay can exceed int32's 2.1B ceiling.
+_register(TableDef(
+    name="company_executives",
+    description="Executive roster from Finnhub "
+                "(plan-gated populator; table exists regardless of plan).",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("name", "TEXT", nullable=False),
+        ColumnDef("position", "TEXT", nullable=True),
+        ColumnDef("age", "INTEGER", nullable=True),
+        ColumnDef("since", "TEXT", nullable=True),
+        ColumnDef("compensation", "BIGINT", nullable=True),
+        ColumnDef("currency", "TEXT", nullable=True),
+        ColumnDef("retrieved_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+        ColumnDef("source", "TEXT", nullable=False, default="finnhub"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_company_exec_ticker", ["ticker"]),
+        IndexDef("idx_company_exec_unique", ["ticker", "name", "position"], unique=True),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="retrieved_at",
+    sync_pk="id",
+    sync_conflict_col="ticker, name, position",
+))
+
+# stock_financials: Plan-gated fundamental metrics snapshot from Finnhub /stock/metric.
+# Written by: src/data_collection/stock_financials_collector.py (v0.36.38 T3).
+# Read by: enricher (financial_* feature dict) + FUNDAMENTAL CONTEXT packet section.
+# as_of_date is the YYYY-MM-DD collection date — /stock/metric is a current snapshot.
+# Populator is gated on finnhub_plan_supports('stock_financials'); table exists
+# regardless of plan. BIGINT market_cap: megacaps exceed int32.
+_register(TableDef(
+    name="stock_financials",
+    description="Fundamental metrics snapshot from Finnhub /stock/metric "
+                "(plan-gated populator; as_of_date = collection date).",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("as_of_date", "TEXT", nullable=False,
+                  description="YYYY-MM-DD collection date — /stock/metric is a current snapshot"),
+        ColumnDef("pe_ratio", "REAL", nullable=True),
+        ColumnDef("pb_ratio", "REAL", nullable=True),
+        ColumnDef("ps_ratio", "REAL", nullable=True),
+        ColumnDef("ev_ebitda", "REAL", nullable=True),
+        ColumnDef("roe", "REAL", nullable=True),
+        ColumnDef("roa", "REAL", nullable=True),
+        ColumnDef("gross_margin", "REAL", nullable=True),
+        ColumnDef("net_margin", "REAL", nullable=True),
+        ColumnDef("debt_to_equity", "REAL", nullable=True),
+        ColumnDef("current_ratio", "REAL", nullable=True),
+        ColumnDef("dividend_yield", "REAL", nullable=True),
+        ColumnDef("market_cap", "BIGINT", nullable=True),
+        ColumnDef("week52_high", "REAL", nullable=True),
+        ColumnDef("week52_low", "REAL", nullable=True),
+        ColumnDef("retrieved_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+        ColumnDef("source", "TEXT", nullable=False, default="finnhub"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_stock_fin_ticker_date", ["ticker", "as_of_date"]),
+        IndexDef("idx_stock_fin_unique", ["ticker", "as_of_date"], unique=True),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="retrieved_at",
+    sync_pk="id",
+    sync_conflict_col="ticker, as_of_date",
+))
+
+# price_targets: Plan-gated analyst price target consensus from Finnhub.
+# Written by: src/data_collection/price_target_collector.py (v0.36.38 T4).
+# Read by: enricher (price_target_* feature dict) + FUNDAMENTAL CONTEXT packet section.
+# as_of_date is the YYYY-MM-DD collection date; last_updated is Finnhub's lastUpdated.
+# Populator is gated on finnhub_plan_supports('price_target'); table exists regardless.
+_register(TableDef(
+    name="price_targets",
+    description="Analyst price target consensus from Finnhub "
+                "(plan-gated populator; table exists regardless of plan).",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("as_of_date", "TEXT", nullable=False,
+                  description="YYYY-MM-DD collection date"),
+        ColumnDef("target_high", "REAL", nullable=True),
+        ColumnDef("target_low", "REAL", nullable=True),
+        ColumnDef("target_mean", "REAL", nullable=True),
+        ColumnDef("target_median", "REAL", nullable=True),
+        ColumnDef("last_updated", "TEXT", nullable=True,
+                  description="Finnhub lastUpdated field"),
+        ColumnDef("retrieved_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+        ColumnDef("source", "TEXT", nullable=False, default="finnhub"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_price_targets_ticker_date", ["ticker", "as_of_date"]),
+        IndexDef("idx_price_targets_unique", ["ticker", "as_of_date"], unique=True),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="retrieved_at",
+    sync_pk="id",
+    sync_conflict_col="ticker, as_of_date",
+))

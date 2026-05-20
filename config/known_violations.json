@@ -141,7 +141,8 @@
     },
     {
       "file": "src/scheduler/overnight.py",
-      "lines": 1163
+      "lines": 1327,
+      "rationale": "v0.36.38 T1: +3 plan-gated collector wiring blocks (company_executives/stock_financials/price_targets)."
     },
     {
       "file": "src/scheduler/reports.py",
@@ -915,7 +916,14 @@
     {
       "file": "src/scheduler/overnight.py",
       "function": "run_data_collection",
-      "lines": 247
+      "lines": 343,
+      "rationale": "v0.36.38 T1: +3 plan-gated collector wiring blocks."
+    },
+    {
+      "file": "src/scheduler/overnight.py",
+      "function": "_run_plan_gated_collector",
+      "lines": 67,
+      "rationale": "Pre-existing (v0.36.26); surfaced during v0.36.38 T1 which touched overnight.py. Real split deferred."
     },
     {
       "file": "src/scheduler/overnight.py",

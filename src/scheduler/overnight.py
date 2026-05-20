@@ -869,6 +869,54 @@ def run_data_collection(db_path: str = DB_PATH,
         logger.warning("[WATCH] Press releases collection failed: %s", e)
         results["press_releases"] = {"error": str(e)}
 
+    # 11e. Company executives (plan-gated; v0.36.38 T2).
+    print("[WATCH]   [11e] Company executives (plan-gated)...")
+    try:
+        from src.data_collection.company_executive_collector import (
+            collect_company_executives,
+        )
+        results["company_executives"] = _run_plan_gated_collector(
+            name="company_executives",
+            capability="company_executive",
+            collector_fn=collect_company_executives,
+            universe=universe,
+        )
+    except Exception as e:
+        logger.warning("[WATCH] Company executives collection failed: %s", e)
+        results["company_executives"] = {"error": str(e)}
+
+    # 11f. Stock financials (plan-gated; v0.36.38 T3).
+    print("[WATCH]   [11f] Stock financials (plan-gated)...")
+    try:
+        from src.data_collection.stock_financials_collector import (
+            collect_stock_financials,
+        )
+        results["stock_financials"] = _run_plan_gated_collector(
+            name="stock_financials",
+            capability="stock_financials",
+            collector_fn=collect_stock_financials,
+            universe=universe,
+        )
+    except Exception as e:
+        logger.warning("[WATCH] Stock financials collection failed: %s", e)
+        results["stock_financials"] = {"error": str(e)}
+
+    # 11g. Price targets (plan-gated; v0.36.38 T4).
+    print("[WATCH]   [11g] Price targets (plan-gated)...")
+    try:
+        from src.data_collection.price_target_collector import (
+            collect_price_targets,
+        )
+        results["price_targets"] = _run_plan_gated_collector(
+            name="price_targets",
+            capability="price_target",
+            collector_fn=collect_price_targets,
+            universe=universe,
+        )
+    except Exception as e:
+        logger.warning("[WATCH] Price targets collection failed: %s", e)
+        results["price_targets"] = {"error": str(e)}
+
     # 12. Analyst estimates (batch 20/night to stay under FMP limit)
     print("[WATCH]   [12/12] Analyst estimates (batch)...")
     try:
