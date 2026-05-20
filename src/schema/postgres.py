@@ -36,6 +36,11 @@ def _format_default(value) -> str:
 # SQLite -> Postgres type mapping
 _TYPE_MAP = {
     "INTEGER": "INTEGER",
+    # BIGINT (PG int64) for columns whose values can exceed int32's 2.1B
+    # ceiling — e.g. aggregated institutional share counts (v0.36.33).
+    # SQLite stores both as INTEGER affinity (full int64); only PG needs
+    # the distinct type.
+    "BIGINT": "BIGINT",
     "REAL": "REAL",
     "TEXT": "TEXT",
     "BLOB": "BYTEA",
