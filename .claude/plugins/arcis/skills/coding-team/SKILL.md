@@ -16,6 +16,9 @@ This skill provides the `/arcis:code` command for autonomous, large-scope implem
 5. **DOCUMENT** — Dispatch Documentarian to update docs/README/CHANGELOG
 6. **INTEGRATE** — Dispatch Integrator for final regression sweep
 7. **REPORT** — PM produces summary with scorecard
+8. **MERGE GATE** — Governed by the merge policy chosen before execution (`--merge-policy` or prompted): either hand the open PR(s) to the operator to review, OR (PM-merge) merge each PR only after it clears **two completely independent Opus QA reviews** that certify root-cause fix, hardening, no ripple, and no noise to 100% confidence
+
+Before execution begins, the PM asks the operator (unless `--merge-policy` is set) whether the PM should merge the PRs (with the dual-QA gate) or the operator wants to review first.
 
 ## Agent Hierarchy
 
@@ -44,6 +47,7 @@ Coding PM (command orchestrator, opus)
 - **Progress dashboard** — Live HTML dashboard with task graph, PM notes, scorecard, and agent activity
 - **Worktree isolation** — Developers run in `git worktree add`-isolated branches by default; first tool use must verify cwd (see Delivery Discipline below)
 - **Delivery checkpoints** — commit-and-push after each sub-deliverable; PR body regenerated from final git log post-commits
+- **Merge-policy gate** — before execution the PM asks whether to PM-merge or hand off to the operator. On PM-merge, every PR must pass **two independent Opus QA reviews** (root-cause / hardening / ripple / noise, 100%-confidence bar) before merge — this replaces the operator's review eyes, so it must be at least as rigorous
 
 ## Delivery Discipline
 
