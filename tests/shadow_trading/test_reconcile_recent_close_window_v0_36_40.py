@@ -113,6 +113,37 @@ def test_window_default_is_24h():
     assert _RECENT_CLOSE_WINDOW_HOURS == 24
 
 
+def test_tz_naive_exit_time_treated_as_recent(tmp_db):
+    """A legacy tz-NAIVE actual_exit_time within the window must be treated as a
+    recent close (coerced to ET), NOT silently bypassed into 'not recent'. The
+    bypass (TypeError on aware−naive subtraction) would re-open the orphan cycle
+    for legacy rows — both QA reviewers flagged this as the residual risk."""
+    from src.shadow_trading.reconcile import _has_recent_close, _RECENT_CLOSE_WINDOW_HOURS
+    naive_1h_ago = (_NOW - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+    assert "+" not in naive_1h_ago and "Z" not in naive_1h_ago  # truly naive
+    _insert_closed(tmp_db, "COP", naive_1h_ago)
+    assert _has_recent_close(tmp_db, "COP", _NOW, _RECENT_CLOSE_WINDOW_HOURS, "swing") is True
+
+
+def test_exactly_at_window_boundary_is_not_recent(tmp_db):
+    """Boundary: a close exactly window_hours ago is NOT 'recent' (strict `<`), so it
+    becomes backfillable. Documents the accepted trade-off — a position lingering
+    beyond the window re-opens the cycle once (it should be cleared manually; the
+    detection-step WARNING surfaces it, and #357 + bracket auto-attach contain it)."""
+    from src.shadow_trading.reconcile import _has_recent_close, _RECENT_CLOSE_WINDOW_HOURS
+    _insert_closed(tmp_db, "COP", (_NOW - timedelta(hours=24)).isoformat())
+    assert _has_recent_close(tmp_db, "COP", _NOW, _RECENT_CLOSE_WINDOW_HOURS, "swing") is False
+
+
+def test_multiple_closes_recent_one_wins(tmp_db):
+    """With both an old (outside) and a recent (inside) close for a ticker, the
+    recent one makes it 'recently closed' (helper scans all closed rows)."""
+    from src.shadow_trading.reconcile import _has_recent_close, _RECENT_CLOSE_WINDOW_HOURS
+    _insert_closed(tmp_db, "COP", (_NOW - timedelta(hours=40)).isoformat(), exit_reason="stop_loss")
+    _insert_closed(tmp_db, "COP", (_NOW - timedelta(hours=2)).isoformat(), exit_reason="timeout")
+    assert _has_recent_close(tmp_db, "COP", _NOW, _RECENT_CLOSE_WINDOW_HOURS, "swing") is True
+
+
 # ───────────────────────── wiring (regression-lock) ─────────────────────────
 
 def test_detection_loop_excludes_recent_closes():

@@ -105,10 +105,16 @@ def _has_recent_close(db_path, ticker, now, window_hours, desk):
         raw = row["actual_exit_time"]
         try:
             exit_t = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+            # Coerce a tz-naive legacy timestamp to `now`'s zone (the system writes
+            # ET wall-clock) so the comparison can't raise TypeError and silently
+            # bypass into a false "not recent" — that would re-open the cycle for
+            # that row. All live write paths are tz-aware; this covers legacy rows.
+            if exit_t.tzinfo is None and now.tzinfo is not None:
+                exit_t = exit_t.replace(tzinfo=now.tzinfo)
             if (now - exit_t).total_seconds() < cutoff_s:
                 return True
-        except (ValueError, TypeError):
-            # Unparseable or tz-naive/aware mismatch — treat as not-recent
+        except (ValueError, TypeError, AttributeError):
+            # Genuinely unparseable / wrong-typed timestamp — treat as not-recent
             # (fail toward backfilling so a genuine orphan is still recovered).
             continue
     return False
