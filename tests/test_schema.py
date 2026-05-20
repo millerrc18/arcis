@@ -113,6 +113,8 @@ EXPECTED_TABLES = {
     "institutional_holdings", "filings_sentiment", "press_releases",
     # v0.36.13 — FINRA daily short-volume (replaces defunct Finnhub short_interest)
     "short_volume_daily",
+    # v0.36.38 — dead-weight Finnhub collectors (T1 foundation: registry + wiring)
+    "company_executives", "stock_financials", "price_targets",
 }
 
 
