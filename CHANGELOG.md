@@ -3,6 +3,84 @@
 ## [Unreleased]
 
 
+## [v0.36.35] — 2026-05-20 — restore overnight training on multi-GPU desktop topology
+
+Found during a deep-dive into recurring VRAM handoff failures (operator
+flagged "VRAM handoff failed again"). Three fixes (A+B+C) that together restore
+overnight training, which had effectively stopped since the 2026-05-10 GPU
+upgrade (only 1 successful training handoff since). Bundled as one version
+because none is useful alone — training stays broken until all three land.
+
+### (A) Root cause — VRAM clear check measures the wrong thing
+
+`get_vram_used_mb()` reads only **GPU[0]**'s total memory
+(`split("\n")[0]`). On the host, GPU[0] is the **RTX 3090**, which also drives
+the Windows desktop — `dwm.exe`, Chrome, VS Code, Docker, Steam, etc. hold an
+irreducible **~2.6 GB** baseline that cannot be freed without closing the
+desktop. The handoff clear-thresholds (1500 MB inference / 2500 MB training)
+were written for the original **headless single RTX 3060** (docstring). The
+2026-05-10 GPU upgrade put the models on the display GPU, so the desktop floor
+permanently exceeds both thresholds and `_wait_for_vram_clear()` could **never
+pass** — every handoff escalated (needlessly killed Ollama) and FAILED.
+
+Impact: only **1 successful training handoff** since the upgrade; overnight
+training was effectively not running. Confirmed both directions
+(evening training handoff 2026-05-19 18:54, morning inference 05:18).
+
+### Fixed
+
+- `src/scheduler/vram_manager.py` — new `_model_pids_on_gpu(name_substr, pid)`
+  and `_wait_for_model_release(...)`: gate the handoff on whether the **model
+  process** (Ollama by name, or the training subprocess by PID) still appears
+  in `nvidia-smi --query-compute-apps`, instead of total-GPU-VRAM-vs-threshold.
+  Immune to desktop VRAM and GPU topology.
+- `handoff_to_training` now waits for the Ollama process to leave the GPU;
+  `handoff_to_inference` waits for the training PID to leave, and its escalation
+  force-kills the **training** process (the real VRAM holder) rather than
+  Ollama (which it is about to load — the prior escalation was a no-op).
+- `get_vram_used_mb()` retained for informational logging only.
+
+### (B) Fixed — Ollama restart full-path (`[WinError 2]`)
+
+After a failed handoff the manager restarts Ollama via
+`subprocess.Popen(["ollama", "serve"])`. Under the NSSM service context the
+user PATH is absent, so this raised `[WinError 2] cannot find the file`
+(2026-05-19 18:54) — Ollama never recovered from the handoff path.
+
+- `src/scheduler/vram_manager.py` — new `_find_ollama()` (mirrors
+  `_find_nvidia_smi`): `shutil.which` → `%LOCALAPPDATA%\Programs\Ollama\ollama.exe`
+  → `C:\Program Files\Ollama\ollama.exe`. Resolved once in `__init__`
+  (`self._ollama`), used at every `ollama` exec site; falls back to the bare
+  name when unresolved (unchanged behavior on PATH-equipped hosts).
+
+### (C) Fixed — trainer Modelfile crash (`'str' has no attribute as_posix`)
+
+`_find_gguf()` returns a `str` (its declared contract), but `run_fine_tune`
+called `gguf_path.as_posix()` on it — crashing **every** fine-tune at the
+Modelfile-write step.
+
+- `src/training/trainer.py` — new `_modelfile_content(gguf_path)` wraps the path
+  in `Path(...)` before `.as_posix()`; call site uses it. Works for str or Path.
+
+### Tests
+
+- `tests/test_vram_manager_per_process_clear_v0_36_35.py` (7): per-process
+  release detection ignores desktop VRAM, by-name and by-PID matching, no-smi
+  shortcut, and both handoffs succeed despite a 2611 MB desktop floor.
+- Updated `test_handoff_to_training_fails_when_ollama_wont_release` and
+  `test_handoff_to_inference_escalates_by_killing_training` to the corrected
+  per-process semantics (the old tests asserted the now-removed total-VRAM gate).
+- `tests/test_vram_manager_ollama_path_v0_36_35.py` (5): `_find_ollama`
+  resolution order + manager fallback (B).
+- `tests/test_trainer_modelfile_v0_36_35.py` (3): str input no longer crashes,
+  backslash normalization, Path input (C).
+
+### Known limitation
+
+If a training subprocess is orphaned by a watch-loop restart (handle lost),
+`handoff_to_inference` can't identify it by PID; tracked for post-freeze.
+
+
 ## [v0.36.34] — 2026-05-20 — guard initialize_database backfill against startup crash
 
 Found during a 10:49 ET health check. The watch-loop restart at 10:55:55

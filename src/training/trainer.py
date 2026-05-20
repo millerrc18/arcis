@@ -843,7 +843,7 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     # Write Ollama Modelfile
     modelfile_path = Path("training_data") / "Modelfile"
     with open(modelfile_path, "w") as f:
-        f.write(f"FROM ./{gguf_path.as_posix()}\n")
+        f.write(_modelfile_content(gguf_path))
 
     # Create model in Ollama with versioned name
     version_name = get_next_semver(db_path)
@@ -1216,6 +1216,18 @@ def _find_gguf(directory: str) -> str | None:
     for p in Path(directory).rglob("*.gguf"):
         return str(p)
     return None
+
+
+def _modelfile_content(gguf_path: str) -> str:
+    """Build the Ollama Modelfile body for a GGUF at `gguf_path`.
+
+    v0.36.37: `_find_gguf` returns a `str` (its declared contract), but
+    `run_fine_tune` called `gguf_path.as_posix()` on it — crashing every
+    fine-tune at the Modelfile step with `'str' object has no attribute
+    'as_posix'`. Wrap in `Path` so the forward-slash form is produced whether
+    the input is a str or a Path.
+    """
+    return f"FROM ./{Path(gguf_path).as_posix()}\n"
 
 
 def check_model_performance(db_path: str = DB_PATH) -> dict:
