@@ -3,6 +3,57 @@
 ## [Unreleased]
 
 
+## [v0.36.38] — 2026-05-20 — wire 3 dead-weight Finnhub collectors
+
+W21 collector-wiring deliverable. We pay for `company_executive`,
+`stock_financials`, and `price_target` on the Finnhub plan but had no collectors
+— the capacity was dead weight. Built via the coding-team skill (PM orchestrator
++ Planner + 3 parallel worktree developers + dual-independent-Opus-QA merge
+gate). Table count 77 → 80.
+
+### Added
+
+- **`company_executives` table + `company_executive_collector.py`** — Finnhub
+  `/stock/executive`. One row per executive (name/position/age/since/
+  compensation/currency); UNIQUE (ticker, name, position). `compensation` is
+  BIGINT (exec comp can exceed int32). Skips executives with no name.
+- **`stock_financials` table + `stock_financials_collector.py`** — Finnhub
+  `/stock/metric?metric=all`. Curated snapshot (pe/pb/ps, ev_ebitda, roe/roa,
+  margins, debt_to_equity, current_ratio, dividend_yield, market_cap, 52w
+  hi/lo) keyed by (ticker, as_of_date). Every metric field tolerates a missing
+  key (Finnhub omits per-ticker).
+- **`price_targets` table + `price_target_collector.py`** — Finnhub
+  `/stock/price-target` (target high/low/mean/median). Keyed by (ticker,
+  as_of_date). Dedicated full-universe snapshot, distinct from
+  `analyst_estimates`' opportunistic price-target columns.
+- All three wired into `src/scheduler/overnight.py` via `_run_plan_gated_collector`
+  (capabilities already present in the `fundamental-1` matrix — no
+  `finnhub_plan.py` edit). Each: plan-gate first (no API call when unsupported),
+  `CollectorConfigError` on missing key, idempotent upsert; overnight-layer
+  mass-failure detection via the wrapper.
+
+### Tests
+
+- 12 new tests across `tests/data_collection/test_{company_executive,stock_financials,price_target}_collector.py`:
+  plan-gated API call + row write + UPSERT idempotency; plan=free → no API call;
+  schema-discipline (table/columns/unique index); plus edge cases (empty
+  payload, missing-name skip). Full data_collection suite: 69 passed, 9 skipped.
+
+### Schema
+
+- 3 new `TableDef`s in `src/schema/registry.py` (single source of truth).
+  SQLite via `validate-schema --fix`; runtime Postgres (Docker) tables created
+  at watch-loop startup schema-ensure on deploy. Render PG migration N/A
+  (Render offline post-cutover).
+
+### Notes
+
+- `known_violations.json` scoped to this sprint's footprint only
+  (overnight.py + its 2 functions); pre-existing structure debt in unrelated
+  files remains deferred to the #65 sweep.
+- Out of scope: F-24 collector-contract refactor (next).
+
+
 ## [v0.36.37] — 2026-05-20 — F-20: FRED/macro failures visible (debug → warning)
 
 W21 audit F-20 (HIGH), collector series. `macro.py` logged every FRED
