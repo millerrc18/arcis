@@ -20,6 +20,7 @@ Parse the user's input for these flags:
 | `--no-docs` | `SKIP_DOCS` | false |
 | `--dry-run` | `DRY_RUN` | false |
 | `--sequential` | `FORCE_SEQUENTIAL` | false |
+| `--merge-policy <pm\|review>` | `MERGE_POLICY` | null (prompt before execution) |
 
 Everything after flags (or after `--`) is the `REQUEST` — the freeform description of what to build.
 
@@ -153,6 +154,20 @@ Parse the Planner's `<task_graph>` output. Extract:
 Wait for user approval. If `DRY_RUN` is true, stop here after presenting the plan.
 
 Update dashboard: `phase: "PLAN"`, populate `tasks[]`.
+
+---
+
+## MERGE POLICY GATE (before execution)
+
+**Before dispatching any Developer**, determine how this sprint's PR(s) will be merged. If `--merge-policy` was not provided, ask the operator with `AskUserQuestion`:
+
+> **How should this sprint's PR(s) be merged?**
+> - **PM merges (with dual-QA gate)** — the PM merges each PR itself, but only after it passes **two completely independent Opus QA reviews** (PHASE 8). No operator review step; the dual-QA gate is the quality bar.
+> - **Operator reviews first** — the PM opens the PR(s) and stops. The operator reviews and merges manually.
+
+Set `MERGE_POLICY` to `pm` or `review`. This decision governs PHASE 8. Record it in a PM note and (if non-empty) clear any related `operator_questions[]` entry once answered.
+
+Do not begin PHASE 3 until `MERGE_POLICY` is set.
 
 ---
 
@@ -428,6 +443,56 @@ Produce the final summary report:
 ```
 
 Update dashboard: `phase: "REPORT"`, final scorecard values.
+
+---
+
+## PHASE 8: MERGE GATE
+
+This phase is governed by `MERGE_POLICY` (set at the MERGE POLICY GATE before execution).
+
+### If `MERGE_POLICY = review`
+
+**STOP.** Do not merge. Report the open PR URL(s) and hand off to the operator for review and manual merge. Done.
+
+### If `MERGE_POLICY = pm`
+
+The PM may merge — but **only** after each PR clears a **dual independent Opus QA review**. The standard the operator set: *after this gate we know, with 100% confidence, that the fix is sound, will work, and is not a bunch of noise.*
+
+For **each** PR opened this sprint:
+
+1. **Dispatch TWO independent QA reviewers in parallel**, both `model: opus`. They must be genuinely independent — two separate `coding-qa-reviewer` dispatches, neither given the other's findings. (Their independent agreement is the signal; a disagreement is itself information to surface.)
+
+**DYNAMIC CONTEXT for each Merge-Gate QA Reviewer (identical for both):**
+```
+## DYNAMIC CONTEXT — MERGE-GATE REVIEW (independent, 100%-confidence bar)
+
+**PR / BRANCH:** <pr number + branch>
+**ROOT-CAUSE STATEMENT:** <the actual problem this PR is meant to solve>
+**ORIGINAL_SPEC:** <spec/request text>
+**FULL_DIFF:** run `git diff origin/main...<branch>` and read every hunk
+**CHANGE_MANIFEST:** <manifest>
+
+Evaluate to 100% confidence and answer each explicitly with evidence:
+1. ROOT CAUSE — does this fix the actual root cause, not a symptom or band-aid? Cite the mechanism by which the bug can no longer occur.
+2. HARDENING — does it harden against recurrence (regression test / guard / invariant)? Name the future change that would re-break it and confirm whether that path is guarded.
+3. RIPPLE — trace upstream callers and downstream consumers of every changed symbol. Does it change behavior for, or break, any caller? Enumerate exactly what you checked (files/functions), not a generality.
+4. NOISE — is any part of the diff noise (unrelated churn, scope creep, dead code, cosmetic-only, speculative abstraction)?
+
+VERDICT (required, exactly one):
+- SOUND — 100% confident: correct, hardened, no ripple, no noise.
+- NOT_SOUND — list each blocking reason with file:line and the specific failure mode.
+```
+
+2. **Merge decision:**
+
+| Reviews | PM action |
+|---------|-----------|
+| BOTH return SOUND | PM merges (squash), creates the version tag on the merge commit per `docs/versioning-policy.md`, syncs `main`, deletes the branch |
+| EITHER returns NOT_SOUND | **Do NOT merge.** Route the blocking reasons to a Developer, re-dispatch to fix, then re-run the affected reviewer(s). Repeat (max 3 cycles). Still NOT_SOUND after 3 → escalate to the operator with **both** full reviews attached. |
+
+3. Never collapse the two reviews into one, never let the second reviewer see the first's verdict, and never self-certify in place of a reviewer. The two-independent-Opus bar is the whole point of PM-merge — it replaces the operator's eyes, so it must be at least as rigorous.
+
+Update dashboard: `phase: "MERGE"`, record each PR's two verdicts in `pm_notes[]`.
 
 ---
 
