@@ -65,8 +65,8 @@
     },
     {
       "file": "src/evaluation/auditor.py",
-      "lines": 645,
-      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2). Sprint 6 T2 audit-data-quality-filters: added _check_regime_classification (+48L) to support Alert 2 false-positive suppression (NULL regime_at_entry exclusion from denominator). The precheck functions are architecturally co-located with the deterministic audit loop; splitting into a sibling module would require re-exporting _deterministic_flag and _collect_deterministic_precheck_flags. Real refactor deferred to post-Sprint-6."
+      "lines": 780,
+      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2; 645 after T2's _check_regime_classification). W21 audit-hotfix series grew it to 780: v0.36.22 drawdown sample guard, v0.36.27 _LLM_AUDIT_MIN_SAMPLE LLM-narrative guard (#1139), v0.36.31 _MODEL_WIN_RATE_MIN_SAMPLE precheck guard (#1143). These small-sample guards are co-located with the deterministic precheck loop by design. Recorded as W21 cleanup (v0.36.34); real split into auditor_daily/_weekly/_escalation deferred to post-freeze."
     },
     {
       "file": "src/evaluation/build_score.py",
@@ -218,6 +218,12 @@
     }
   ],
   "oversized_functions": [
+    {
+      "file": "src/monitoring/alert_silence.py",
+      "function": "_query_max_signal",
+      "lines": 62,
+      "rationale": "Pre-existing violation surfaced during W21 cleanup (v0.36.34). 62 lines, 2 over the 60-line limit. Recorded as baseline per operator decision; trivial shrink (extract the query-build block) deferred to post-freeze."
+    },
     {
       "file": "src/api/cloud_routes/analytics.py",
       "function": "create_router",
