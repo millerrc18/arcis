@@ -3,6 +3,55 @@
 ## [Unreleased]
 
 
+## [v0.36.33] — 2026-05-19 — institutional_holdings.total_shares BIGINT (v0.36.25 follow-up)
+
+Surfaced during tonight's overnight cycle: the institutional_ownership
+collector — fixed in v0.36.25 to hit the correct `/stock/ownership`
+endpoint — now returns real data and failed to store it:
+
+    [COLLECT] institutional_ownership: FAILED -- {'error': 'integer out of range'}
+
+### Root cause
+
+`institutional_holdings.total_shares` was `INTEGER` (PG int32, max
+2,147,483,647). The collector sums `share` across ALL institutional holders
+of a ticker (`institutional_ownership_collector.py:73-81`). For a megacap
+this exceeds int32 — verified: AAPL aggregates to **9,893,657,756 shares**
+across 8,184 holders (4.6× the int32 ceiling).
+
+SQLite never hit this (dynamic typing stores full int64 in INTEGER affinity);
+the strict PG `integer` overflowed. This is a clean follow-on from v0.36.25
+— the bug only became reachable once the URL fix started returning data.
+
+### Fixed
+
+- `src/schema/registry.py` — `total_shares` ColumnDef `INTEGER` → `BIGINT`.
+- `src/schema/postgres.py` — added `"BIGINT": "BIGINT"` to `_TYPE_MAP`
+  (first BIGINT column in the registry).
+- PG migration applied: `ALTER TABLE institutional_holdings ALTER COLUMN
+  total_shares TYPE bigint`.
+- Verified end-to-end: `collect_institutional_ownership('AAPL')` now stores
+  `total_shares=9893657756` successfully.
+
+### No restart required
+
+The collector computes an unbounded Python int and the upsert sends it to
+PG, which now accepts bigint. The running watch loop's in-memory registry
+version is irrelevant to the INSERT — the next overnight cycle's
+institutional_ownership collector succeeds because the PG column is migrated.
+(Also avoids a restart inside the 21:30–22:30 ET overnight window.)
+
+### Tests
+
+NEW `tests/test_institutional_holdings_bigint_v0_36_33.py` (3 tests):
+- registry ColumnDef for total_shares is BIGINT
+- `_TYPE_MAP["BIGINT"] == "BIGINT"`
+- `_aggregate_holders` produces a total_shares > int32 max (proves the
+  overflow scenario is real, not hypothetical)
+
+All 3 green + `tests/test_schema.py` (48) pass = 51.
+
+
 ## [v0.36.32] — 2026-05-19 — W21 audit F-3: phantom-close drift anomaly alarm
 
 Third of three hotfixes from the W21 lifecycle audit. F-3 adds the alarm

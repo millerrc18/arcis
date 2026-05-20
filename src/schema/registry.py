@@ -2679,7 +2679,12 @@ _register(TableDef(
         ColumnDef("ticker", "TEXT", nullable=False),
         ColumnDef("as_of_date", "TEXT", nullable=False,
                   description="YYYY-MM-DD — quarterly filing date"),
-        ColumnDef("total_shares", "INTEGER", nullable=True),
+        # BIGINT (v0.36.33): aggregate institutional share count across all
+        # holders of a megacap exceeds int32's 2.1B ceiling (AAPL ~8000
+        # holders; collector sums `share` per holder). PG int32 overflowed
+        # with "integer out of range" once v0.36.25's URL fix started
+        # returning real data.
+        ColumnDef("total_shares", "BIGINT", nullable=True),
         ColumnDef("num_holders", "INTEGER", nullable=True),
         ColumnDef("top_5_holders_pct", "REAL", nullable=True),
         ColumnDef("qoq_delta_pct", "REAL", nullable=True,
