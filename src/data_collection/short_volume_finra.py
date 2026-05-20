@@ -51,6 +51,10 @@ _CHROME_UA = (
     "Chrome/126.0.0.0 Safari/537.36"
 )
 
+# v0.36.36 (F-7): minimum SP100 universe size below which a zero-match result is
+# NOT treated as a mass failure (a degenerate tiny universe shouldn't alarm).
+_MASS_FAILURE_MIN_UNIVERSE = 10
+
 
 def collect_finra_short_volume(
     target_date: date | None = None,
@@ -181,6 +185,20 @@ def collect_finra_short_volume(
                 rows_inserted += 1
 
             tickers_collected += 1
+
+    # v0.36.36 (F-7): surface mass failure instead of silently succeeding. If
+    # the FINRA file matched ZERO SP100 tickers against a healthy universe, the
+    # CDN almost certainly served a malformed/empty/format-drifted file — a
+    # systemic issue, not normal partial coverage. A degenerate tiny universe
+    # (<_MASS_FAILURE_MIN_UNIVERSE) is not alarmed (avoids false positives).
+    if tickers_collected == 0 and len(sp100) >= _MASS_FAILURE_MIN_UNIVERSE:
+        from src.data_collection.errors import CollectorPartialFailureError
+        raise CollectorPartialFailureError(
+            f"[SHORT_VOLUME_FINRA] 0/{len(sp100)} SP100 tickers matched in the "
+            f"FINRA file for {trade_date_str} — likely CDN format drift or an "
+            f"empty/malformed download",
+            errors=len(sp100), total=len(sp100),
+        )
 
     result = {
         "tickers_collected": tickers_collected,

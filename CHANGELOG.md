@@ -3,6 +3,37 @@
 ## [Unreleased]
 
 
+## [v0.36.36] — 2026-05-20 — F-7: FINRA short-volume surfaces mass failure
+
+W21 lifecycle-audit finding F-7 (CRITICAL), first of the collector hotfix
+series. `collect_finra_short_volume` returned a success-shaped dict regardless
+of how many SP100 tickers it matched (`short_volume_finra.py:185-192`). If the
+FINRA CDN serves a malformed / empty / format-drifted file, the collector
+matches 0 SP100 tickers, `_is_collector_error` treats it as success, and
+`short_volume_daily` silently goes stale — feature enrichment loses
+short-volume context with no operator signal. Same anti-pattern as v0.36.26
+(institutional/filings/press_releases) and v0.36.25 (6-day institutional
+staleness).
+
+Note: this is the **FINRA** collector (`short_volume_finra.py`), which was
+*succeeding* in production (101 tickers). It is distinct from
+`short_interest_collector.py`, which already raises on mass failure (v0.36.26).
+F-7 is a latent defensive fix against future CDN drift.
+
+### Fixed
+
+- `src/data_collection/short_volume_finra.py` — raise
+  `CollectorPartialFailureError` when `tickers_collected == 0` against a healthy
+  universe (`len(sp100) >= _MASS_FAILURE_MIN_UNIVERSE = 10`). A degenerate tiny
+  universe is not alarmed (avoids false positives).
+
+### Tests
+
+- `tests/data_collection/test_short_volume_finra_mass_failure_v0_36_36.py` (3):
+  mass-failure raises on 0 matched; partial/normal collection does not raise;
+  tiny universe (<10) does not alarm. Existing FINRA suite (11) still green.
+
+
 ## [v0.36.35] — 2026-05-20 — restore overnight training on multi-GPU desktop topology
 
 Found during a deep-dive into recurring VRAM handoff failures (operator
