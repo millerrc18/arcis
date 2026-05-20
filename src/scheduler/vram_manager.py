@@ -24,6 +24,7 @@ VRAM release -- the OS reclaims all CUDA memory when the process exits.
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -57,6 +58,30 @@ def _find_nvidia_smi() -> str | None:
     return None
 
 
+def _find_ollama() -> str | None:
+    """Find the ollama executable.
+
+    v0.36.36: the NSSM service runs without the operator's user PATH, so
+    `subprocess(["ollama", ...])` raised `[WinError 2] cannot find the file` on
+    the failed-handoff Ollama restart (2026-05-19 18:54). Fall back to the
+    default Windows install location under %LOCALAPPDATA%.
+    """
+    found = shutil.which("ollama")
+    if found:
+        return found
+    candidates = []
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        candidates.append(
+            os.path.join(localappdata, "Programs", "Ollama", "ollama.exe")
+        )
+    candidates.append(r"C:\Program Files\Ollama\ollama.exe")
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 class VRAMManager:
     """Manages GPU VRAM transitions between Ollama inference and PyTorch training."""
 
@@ -65,6 +90,10 @@ class VRAMManager:
         self._nvidia_smi = _find_nvidia_smi()
         if not self._nvidia_smi:
             logger.warning("[VRAM] nvidia-smi not found — VRAM monitoring unavailable")
+        # Resolve ollama up front so service-context PATH gaps don't break the
+        # restart path (v0.36.36). Fall back to the bare name (PATH lookup at
+        # call time) when not found at a known location.
+        self._ollama = _find_ollama() or "ollama"
 
     def get_active_model(self) -> str:
         """Get the active Ollama model name from versioning or config."""
@@ -109,7 +138,7 @@ class VRAMManager:
         try:
             import subprocess as _sp
             result = _sp.run(
-                ["ollama", "stop", model],
+                [self._ollama, "stop", model],
                 capture_output=True, text=True, timeout=15,
             )
             if result.returncode == 0:
@@ -176,6 +205,57 @@ class VRAMManager:
         used = self.get_vram_used_mb()
         logger.warning("[VRAM] VRAM not clear after %ds: %dMB used",
                        timeout_seconds, used)
+        return False
+
+    def _model_pids_on_gpu(self, name_substr: str | None = None,
+                           pid: int | None = None) -> list[int]:
+        """PIDs of model processes still holding GPU compute memory.
+
+        Matches a compute-app by process-name substring (case-insensitive,
+        e.g. "ollama") and/or an exact PID.
+
+        v0.36.35: judging "VRAM released" by total free memory is wrong on a
+        desktop host where GPU[0] is the display GPU — the Windows compositor
+        (dwm.exe) + browsers/IDEs hold an irreducible ~2.6GB baseline that
+        exceeds any sane threshold. The model's release is provable only by the
+        absence of its PROCESS from nvidia-smi --query-compute-apps.
+        """
+        matches: list[int] = []
+        for proc in self._get_gpu_processes():
+            if name_substr and name_substr.lower() in proc["name"].lower():
+                matches.append(proc["pid"])
+            elif pid is not None and proc["pid"] == pid:
+                matches.append(proc["pid"])
+        return matches
+
+    def _wait_for_model_release(self, *, name_substr: str | None = None,
+                                pid: int | None = None,
+                                timeout_seconds: int = 30) -> bool:
+        """Wait until the named/PID model process no longer holds GPU memory.
+
+        Per-process replacement for the total-VRAM-threshold gate (v0.36.35);
+        immune to desktop VRAM on a shared display GPU. Mirrors
+        `_wait_for_vram_clear`'s no-nvidia-smi shortcut.
+        """
+        if not self._nvidia_smi:
+            time.sleep(3)
+            return True
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            if not self._model_pids_on_gpu(name_substr=name_substr, pid=pid):
+                logger.info("[VRAM] model released GPU (name=%s pid=%s)",
+                            name_substr, pid)
+                return True
+            time.sleep(2)
+        # Final check after the deadline — the process may have exited between
+        # the last poll and the timeout (and guarantees a check even if the
+        # loop body never ran).
+        holding = self._model_pids_on_gpu(name_substr=name_substr, pid=pid)
+        if not holding:
+            logger.info("[VRAM] model released GPU (name=%s pid=%s)", name_substr, pid)
+            return True
+        logger.warning("[VRAM] model still holding GPU after %ds: pids=%s",
+                       timeout_seconds, holding)
         return False
 
     def _get_gpu_processes(self) -> list[dict]:
@@ -385,13 +465,13 @@ class VRAMManager:
 
         time.sleep(3)
 
-        # Step 2: Verify VRAM clear
-        if not self._wait_for_vram_clear(threshold_mb=2500, timeout_seconds=30):
+        # Step 2: Verify Ollama released the GPU (per-process; v0.36.35)
+        if not self._wait_for_model_release(name_substr="ollama", timeout_seconds=30):
             # Retry unload
-            logger.warning("[VRAM] VRAM not clear, retrying unload...")
+            logger.warning("[VRAM] Ollama still on GPU, retrying unload...")
             self._unload_ollama()
             time.sleep(3)
-            if not self._wait_for_vram_clear(threshold_mb=2500, timeout_seconds=30):
+            if not self._wait_for_model_release(name_substr="ollama", timeout_seconds=30):
                 # Kill Ollama process entirely to free VRAM
                 logger.warning("[VRAM] Killing Ollama process to reclaim VRAM...")
                 self._kill_ollama_processes()
@@ -408,7 +488,7 @@ class VRAMManager:
                 # #304/#333: 3 retry attempts with 15s backoff before giving up
                 _vram_ready = False
                 for _retry in range(3):
-                    if self._wait_for_vram_clear(threshold_mb=2500, timeout_seconds=15):
+                    if self._wait_for_model_release(name_substr="ollama", timeout_seconds=15):
                         _vram_ready = True
                         break
                     logger.warning("[VRAM] Retry %d/3: VRAM still not clear, waiting 15s...", _retry + 1)
@@ -437,9 +517,9 @@ class VRAMManager:
                     try:
                         import platform as _plat
                         if _plat.system() == "Windows":
-                            subprocess.Popen(["ollama", "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
+                            subprocess.Popen([self._ollama, "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
                         else:
-                            subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            subprocess.Popen([self._ollama, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         time.sleep(5)
                         self._reload_ollama()
                         logger.info("[VRAM] Ollama restarted after failed training handoff")
@@ -459,7 +539,12 @@ class VRAMManager:
         """
         logger.info("[VRAM] Beginning handoff to inference...")
 
-        # Step 1: Kill training subprocess if running
+        # Step 1: Kill training subprocess if running. Capture the PID up front
+        # so the per-process clear check (v0.36.35) can confirm the OS has
+        # reclaimed its CUDA memory after exit. None when no training is tracked
+        # (e.g. handle lost across a watch-loop restart) — then there is nothing
+        # we launched holding VRAM and the check is a no-op.
+        training_pid = self._training_process.pid if self._training_process else None
         if self._training_process and self._training_process.poll() is None:
             logger.info("[VRAM] Terminating training subprocess (pid=%d)...",
                         self._training_process.pid)
@@ -487,33 +572,37 @@ class VRAMManager:
         except ImportError:
             pass
 
-        # Step 2: Verify VRAM clear — escalate if needed
-        if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
-            logger.warning("[VRAM] VRAM not clear after 30s — escalating cleanup")
+        # Step 2: Verify training released the GPU (per-process; v0.36.35) —
+        # escalate by force-killing the lingering TRAINING process, which is
+        # what holds the VRAM here (the prior code killed Ollama, which we are
+        # about to load — a no-op against the real holder).
+        if not self._wait_for_model_release(pid=training_pid, timeout_seconds=30):
+            logger.warning("[VRAM] Training PID %s still on GPU after 30s — force-killing",
+                           training_pid)
 
-            # Kill Ollama processes to free VRAM (same as training handoff)
-            self._kill_ollama_processes()
+            if training_pid is not None:
+                self._kill_pid(training_pid)
 
-            # Clear GPU cache again after kills
+            # Clear GPU cache again after the kill
             try:
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                    logger.info("[VRAM] torch.cuda.empty_cache() called after Ollama kill")
+                    logger.info("[VRAM] torch.cuda.empty_cache() called after training force-kill")
             except ImportError:
                 pass
 
-            if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
-                logger.error("[VRAM] Handoff to inference FAILED — VRAM not clear after aggressive cleanup")
+            if not self._wait_for_model_release(pid=training_pid, timeout_seconds=45):
+                logger.error("[VRAM] Handoff to inference FAILED — training still holding GPU after force-kill")
                 return False
 
         # Step 3: Ensure Ollama process is running, then reload model
         try:
             import platform
             if platform.system() == "Windows":
-                subprocess.Popen(["ollama", "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.Popen([self._ollama, "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
             else:
-                subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen([self._ollama, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(3)
         except Exception:
             pass  # May already be running

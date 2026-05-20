@@ -120,32 +120,30 @@ def test_handoff_to_training_unload_fails():
     assert result is False
 
 
-def test_handoff_to_training_vram_not_clear():
+def test_handoff_to_training_fails_when_ollama_wont_release():
+    """v0.36.35: the training handoff fails only when Ollama keeps holding the
+    GPU after unload + kill — NOT merely because total GPU VRAM is high. The
+    prior `_wait_for_vram_clear(2500)` gate failed on the display GPU's ~2.6GB
+    desktop floor even when Ollama had released; the per-process gate doesn't."""
     from src.scheduler.vram_manager import VRAMManager
     with patch("src.scheduler.vram_manager._find_nvidia_smi",
                return_value="nvidia-smi"):
         vm = VRAMManager()
 
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
+    # Ollama persistently present in compute-apps — it never releases the GPU.
+    ollama_proc = [{"pid": 4242, "name": "ollama_llama_server.exe", "used_mb": None}]
 
-    # nvidia-smi always reports high VRAM
-    mock_smi = MagicMock()
-    mock_smi.returncode = 0
-    mock_smi.stdout = "8000\n"
-
-    # Make time.time() return a monotonically increasing counter so
-    # _wait_for_vram_clear's `while time.time() < deadline` loop exits
-    # immediately (deadline = t + timeout where t is in the past by the
-    # second call). Without this, the test waits the full real-time
-    # 30s + 15s×3 = 75s, exceeding pytest-timeout=60s in CI.
+    # Monotonic time so the wait loops exit immediately (else 30s+15s×3 real wait).
     time_counter = [0]
     def fake_time():
-        time_counter[0] += 1000  # jump forward 1000s per call
+        time_counter[0] += 1000
         return time_counter[0]
 
-    with patch("requests.post", return_value=mock_resp), \
-         patch("subprocess.run", return_value=mock_smi), \
+    with patch.object(vm, "_unload_ollama", return_value=True), \
+         patch.object(vm, "_get_gpu_processes", return_value=ollama_proc), \
+         patch.object(vm, "_kill_ollama_processes"), \
+         patch.object(vm, "_reload_ollama", return_value=True), \
+         patch("subprocess.Popen"), \
          patch("time.sleep"), \
          patch("time.time", side_effect=fake_time):
         result = vm.handoff_to_training()
@@ -276,46 +274,46 @@ def test_training_running_finished():
 # ── VRAM inference handoff escalation (#198) ────────────────────────
 
 
-def test_handoff_to_inference_escalates_when_vram_not_clear():
-    """When VRAM stays high after training kill, should kill Ollama processes (#198)."""
+def test_handoff_to_inference_escalates_by_killing_training():
+    """v0.36.35: when the training process won't release the GPU, the inference
+    handoff escalates by FORCE-KILLING the training PID — not Ollama, which it
+    is about to load. The prior code killed Ollama here, a no-op against the
+    real VRAM holder (and counterproductive to the goal of loading Ollama)."""
     from src.scheduler.vram_manager import VRAMManager
     with patch("src.scheduler.vram_manager._find_nvidia_smi",
                return_value="nvidia-smi"):
         vm = VRAMManager()
 
-    # Simulate training process that exits cleanly
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.pid = 12345
     vm._training_process = mock_proc
 
-    # nvidia-smi always reports high VRAM (above 1500MB threshold)
-    mock_smi = MagicMock()
-    mock_smi.returncode = 0
-    mock_smi.stdout = "5000\n"
+    # Training PID persistently holds the GPU (never releases) — desktop apps
+    # would also be present on a real host but are irrelevant to the per-process gate.
+    training_on_gpu = [{"pid": 12345, "name": "python.exe", "used_mb": None}]
 
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
+    mock_run_result = MagicMock()
+    mock_run_result.returncode = 0
+    mock_run_result.stdout = ""
 
-    # Patch time.time so _wait_for_vram_clear's deadline loop exits
-    # immediately (see test_handoff_to_training_vram_not_clear rationale).
     time_counter = [0]
     def fake_time():
         time_counter[0] += 1000
         return time_counter[0]
 
-    with patch("subprocess.run", return_value=mock_smi) as mock_run, \
+    with patch.object(vm, "_get_gpu_processes", return_value=training_on_gpu), \
+         patch("subprocess.run", return_value=mock_run_result) as mock_run, \
          patch("subprocess.Popen"), \
-         patch("requests.post", return_value=mock_resp), \
          patch("time.sleep"), \
          patch("time.time", side_effect=fake_time):
         result = vm.handoff_to_inference()
 
-    # Should have attempted to kill Ollama processes (taskkill or pkill)
-    kill_calls = [c for c in mock_run.call_args_list
-                  if any("taskkill" in str(a) or "pkill" in str(a)
-                         for a in c.args + tuple(c.kwargs.values()))]
-    assert len(kill_calls) > 0, "Should have called taskkill/pkill to kill Ollama"
+    # Escalation must force-kill the lingering TRAINING pid (12345), not Ollama.
+    killed_training = [c for c in mock_run.call_args_list
+                       if "taskkill" in str(c) and "12345" in str(c)]
+    assert killed_training, "escalation should force-kill the lingering training PID 12345"
+    assert result is False  # training never releases → handoff correctly fails
 
 
 def test_handoff_to_inference_returns_false_after_escalation_failure():
