@@ -59,8 +59,14 @@ _UNWIRED_FORWARD_ALLOWLIST: set[str] = {
 # NOT in any plan matrix. These calls always return False (feature
 # unknown ⇒ never in `_FEATURE_MATRIX.get(plan, set())`). Resolution
 # deferred to post-Sprint-5 per operator decision 2026-05-13.
-_REVERSE_INVARIANT_ALLOWLIST: set[str] = set()
-# price_target removed — added to _FEATURE_MATRIX['fundamental-1'] in Sprint 6 Wave A (WA2).
+# Features whose collector call-sites remain but which are intentionally gated OFF
+# (not in any plan matrix) because the live Finnhub plan does not entitle them.
+# The gate returns False ⇒ the collector skips cleanly. These are deferred-resolution
+# by design (re-add to the matrix only if the plan upgrades to entitle them).
+_REVERSE_INVARIANT_ALLOWLIST: set[str] = {
+    "filings_sentiment",  # v0.36.25 — /stock/filings-sentiment returns `{}` (deprecated/moved)
+    "price_target",       # v0.36.43 — /stock/price-target returns 403 (not entitled on fundamental-1)
+}
 
 
 # ---------------------------------------------------------------------------
@@ -246,21 +252,27 @@ def test_self_ast_scanner_extracts_literal_feature_args(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# WA2 — price_target in fundamental-1 matrix (Sprint 6 Wave A)
+# v0.36.43 — price_target NOT entitled on fundamental-1 (inverts the WA2 assumption)
 # ---------------------------------------------------------------------------
 
 
-def test_price_target_supported_on_fundamental_1():
-    """price_target must be in _FEATURE_MATRIX['fundamental-1'] so the
-    analyst_collector gate at :146 can activate on paid plans.
-    Sprint 6 Wave A item 1 (WA2) — source PR #1085 review.
+def test_price_target_not_supported_on_fundamental_1():
+    """price_target must NOT be gated-open on fundamental-1.
+
+    WA2 (Sprint 6 Wave A) added price_target to _FEATURE_MATRIX['fundamental-1']
+    on the assumption the paid plan entitled it. Empirically it does NOT: the live
+    Finnhub /stock/price-target endpoint returns HTTP 403 "You don't have access to
+    this resource" on the fundamental-1 key (verified 2026-05-21; sibling
+    /stock/executive + /stock/metric return 200). Leaving it gated-open caused the
+    nightly `price_targets: 0/102 ... endpoint may be broken` collector failure.
+    Gate it off so the collector skips cleanly (mirrors the v0.36.25
+    filings_sentiment removal). Re-add only if the plan upgrades to entitle it.
     """
     from src.data_enrichment.finnhub_plan import finnhub_plan_supports
     assert finnhub_plan_supports(
         "price_target",
         {"data_enrichment": {"finnhub_plan": "fundamental-1"}},
-    ) is True, (
-        "price_target must be supported on fundamental-1 plan. "
-        "Add 'price_target' to _FEATURE_MATRIX['fundamental-1'] in "
-        "src/data_enrichment/finnhub_plan.py."
+    ) is False, (
+        "price_target is NOT entitled on fundamental-1 (403). It must be removed "
+        "from _FEATURE_MATRIX['fundamental-1'] in src/data_enrichment/finnhub_plan.py."
     )

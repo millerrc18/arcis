@@ -47,7 +47,14 @@ _FEATURE_MATRIX: dict[str, set[str]] = {
         "institutional_ownership",
         "news_sentiment",
         "press_releases",
-        "price_target",
+        # price_target removed in v0.36.43 — Finnhub /stock/price-target returns
+        # HTTP 403 "You don't have access to this resource" on the fundamental-1
+        # plan (verified 2026-05-21; sibling /stock/executive + /stock/metric
+        # return 200, so it's a per-endpoint entitlement gap, not a bad key).
+        # WA2 (Sprint 6 Wave A) gated it open on the assumption the plan covered
+        # it, causing the nightly `price_targets: 0/102 ... endpoint may be broken`
+        # failure. Gated off so the collector skips cleanly (cf. filings_sentiment
+        # above). Re-add only after the plan upgrades to entitle this endpoint.
         "recommendation_trends",
         "short_interest",
         "stock_financials",
