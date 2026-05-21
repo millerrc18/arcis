@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [v0.36.46] — 2026-05-21 — Drawdown audit false-positive: measure vs capital, exclude synthetic closes
+
+The deterministic+LLM auditor fired a CRITICAL "catastrophic drawdown of 112.1% …
+systematic execution failure" while the real book drawdown was ~1.3% of the $100k
+capital. Root cause in `cto_report._compute_trade_summary`: `max_drawdown_pct` was
+computed as peak-to-trough dollars divided by **peak cumulative P&L** (a tiny,
+volatile denominator) instead of by starting capital, and the equity curve included
+synthetic/orphan closes (62 `reconciled_stale` + others out of 133 "trades").
+
+Fix: `max_drawdown_pct = max_dd / starting_capital * 100`, and exclude
+`EXCLUDED_FROM_OUTCOME_STATS` exit_reasons (reconciled_stale / position_already_closed
+/ duplicate_orphan_backfill) from the drawdown curve — the same filter the other
+outcome metrics already document. No change to win-rate/expectancy/trade counts
+(scoped to the drawdown that tripped the flag). Real drawdown now reads ~1% and the
+false CRITICAL clears. The full 30-day-rolling-window rework remains task #51.
+
 
 ## [v0.36.45] — 2026-05-21 — Liquidate-on-stale: clear "close-didn't-clear" shares so they can't re-orphan
 

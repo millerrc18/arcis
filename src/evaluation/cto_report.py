@@ -287,11 +287,21 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     if sharpe is None:
         sharpe = 0
 
-    # Max drawdown (cumulative P&L peak-to-trough)
+    # Max drawdown (cumulative P&L peak-to-trough), measured as a % of STARTING
+    # CAPITAL — not as a % of the peak cumulative P&L. v0.36.46: the old
+    # `max_dd / peak` denominator is a tiny, volatile number (peak realized P&L),
+    # so a benign ~$1.3k dip on a $100k book reported as a >100% "catastrophic
+    # drawdown" and tripped a CRITICAL audit false-positive (2026-05-21). Synthetic
+    # /orphan closes (reconciled_stale etc.) are excluded from the curve so
+    # reconciler bookkeeping doesn't pollute the strategy equity curve — mirrors
+    # the EXCLUDED_FROM_OUTCOME_STATS filter the other outcome metrics rely on.
+    from src.shadow_trading.exit_reason import EXCLUDED_FROM_OUTCOME_STATS
     cumulative = 0
     peak = 0
     max_dd = 0
     for t in closed:
+        if (t.get("exit_reason") or "") in EXCLUDED_FROM_OUTCOME_STATS:
+            continue
         # float() cast: pnl_dollars can be TEXT from SQLite (#195 pattern)
         cumulative += _num(t.get("pnl_dollars"))
         if cumulative > peak:
@@ -299,7 +309,9 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
         dd = peak - cumulative
         if dd > max_dd:
             max_dd = dd
-    max_dd_pct = (max_dd / peak * 100) if peak > 0 else 0
+    from src.config import load_config
+    _starting_capital = (load_config().get("risk", {}) or {}).get("starting_capital", 100000) or 100000
+    max_dd_pct = (max_dd / _starting_capital * 100) if _starting_capital > 0 else 0
 
     # Profit factor (gross wins / gross losses)
     # float() casts prevent abs(str) TypeError when pnl_dollars is TEXT
