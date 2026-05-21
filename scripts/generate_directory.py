@@ -30,6 +30,9 @@ SKIP = {
     ".git", "__pycache__", "node_modules", ".venv", "venv",
     ".pytest_cache", "dist", ".cache", ".idea", ".vscode",
     "unsloth_compiled_cache", ".claude",
+    # Bulk data / vendored / runtime dirs — excluded so DIRECTORY.md stays a
+    # code-structure index (these deep-walk to 10k+ leaf files otherwise).
+    "data", "training_data", "logs", "llama.cpp", "models", "pg-data",
 }
 
 # Annotations for key directories and files
@@ -110,8 +113,11 @@ ANNOTATIONS = {
 
 
 def count_files(path: Path, ext: str = ".py") -> int:
+    # Match SKIP against path COMPONENTS, not substrings: a substring test wrongly
+    # excludes legitimate dirs like src/data_collection (contains "data") and zeroes
+    # the count when the repo lives under a skipped dir (e.g. a .claude worktree).
     return len([f for f in path.rglob(f"*{ext}") if f.name != "__init__.py"
-                and not any(s in str(f) for s in SKIP)])
+                and not any(part in SKIP for part in f.parts)])
 
 
 def build_tree(root: Path, prefix: str = "", max_depth: int = 3, current_depth: int = 0) -> list[str]:
