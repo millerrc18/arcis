@@ -3,6 +3,34 @@
 ## [Unreleased]
 
 
+## [v0.36.43] — 2026-05-21 — price_target plan-gate off (403, not entitled on fundamental-1)
+
+The overnight comprehensive collection logged `price_targets: 0/102 tickers landed
+data (plan-gate open but no rows returned — endpoint may be broken)`. Not a broken
+endpoint: the live Finnhub `/stock/price-target` returns **HTTP 403 "You don't have
+access to this resource"** on the fundamental-1 plan (verified 2026-05-21; the
+sibling `/stock/executive` and `/stock/metric` return 200, so it's a per-endpoint
+entitlement gap, not a bad key). WA2 (Sprint 6 Wave A) had gated it open on the
+assumption the paid plan covered it, so the collector made 102 calls that all 403'd
+and were masked as "0 rows."
+
+### Fixed
+
+- `src/data_enrichment/finnhub_plan.py` — removed `price_target` from
+  `_FEATURE_MATRIX["fundamental-1"]` so the plan-gate closes and the collector skips
+  cleanly (mirrors the v0.36.25 `filings_sentiment` removal). Re-add only if the plan
+  upgrades to entitle the endpoint.
+- `tests/test_finnhub_plan_runtime_coverage.py` — inverted the WA2 test to
+  `test_price_target_not_supported_on_fundamental_1` (regression-locks the 403
+  reality), and populated `_REVERSE_INVARIANT_ALLOWLIST` with `price_target` +
+  `filings_sentiment` (gated-off features whose collector call-sites remain by
+  design). This also clears a pre-existing failure of the reverse-invariant test.
+
+Note (latent, not fixed here): the YAML fallback Finnhub key is stale/invalid (401);
+the system works only because `.env` supplies the valid key. If the env var ever
+fails to load, all Finnhub silently fails on the bad key.
+
+
 ## [v0.36.42] — 2026-05-20 — reconcile_live_trades: orphan recent-close parity with paper path
 
 `reconcile_live_trades` had the same orphan-backfill cycle bug fixed in the paper
