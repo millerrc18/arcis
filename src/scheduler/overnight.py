@@ -11,7 +11,6 @@ instead of relying on ``self``.
 
 import logging
 import sys
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -1015,102 +1014,6 @@ def run_data_collection(db_path: str = DB_PATH,
                                           "results": summary})
     except Exception as e:
         logger.warning("[WATCH] broadcast overnight_task failed: %s", e)
-
-
-def run_evening_handoff(vram_manager=None):
-    """6:50 PM ET — Unload Ollama, launch overnight training subprocess.
-
-    WHY VRAM handoff: RTX 3060 12GB cannot run Ollama (inference) and
-    PyTorch (training) simultaneously. The evening handoff frees VRAM
-    for overnight fine-tuning, morning handoff reloads Ollama for scans.
-
-    Returns the VRAMManager instance (caller should store it for morning handoff).
-    """
-    from pathlib import Path
-    from src.scheduler.vram_manager import VRAMManager
-
-    vm = VRAMManager()
-    if vm.handoff_to_training():
-        try:
-            from src.scheduler.metrics import upsert_daily_metric
-
-            upsert_daily_metric(
-                "vram_handoff_training_ok",
-                1.0,
-                '{"direction":"training","detail":"overnight training handoff succeeded"}',
-            )
-        except Exception as metric_err:
-            logger.debug("[WATCH] vram_handoff_training_ok metric failed: %s", metric_err)
-        vm.launch_training_subprocess(
-            "overnight",
-            ["-m", "scripts.overnight_train"],
-        )
-        print("[WATCH] VRAM handoff complete -- overnight training started")
-        safe_send("vram_handoff", direction="training", success=True)
-        return vm
-    else:
-        try:
-            from src.scheduler.metrics import upsert_daily_metric
-
-            upsert_daily_metric(
-                "vram_handoff_training_ok",
-                0.0,
-                '{"direction":"training","detail":"handoff failed; staying in inference mode"}',
-            )
-        except Exception as metric_err:
-            logger.debug("[WATCH] vram_handoff_training_ok metric failed: %s", metric_err)
-        print("[WATCH] VRAM handoff FAILED -- staying in inference mode")
-        safe_send("vram_handoff", direction="training", success=False, detail="Staying in inference mode")
-        return vram_manager
-
-
-def run_morning_handoff(vram_manager=None):
-    """5:15 AM ET — Kill training subprocess, reload Ollama."""
-    from pathlib import Path
-    from src.scheduler.vram_manager import VRAMManager
-
-    # Signal overnight pipeline to stop
-    stop_flag = Path("data/STOP_OVERNIGHT")
-    stop_flag.parent.mkdir(parents=True, exist_ok=True)
-    stop_flag.touch()
-
-    # Give subprocess time to checkpoint and exit
-    time.sleep(60)
-
-    vm = vram_manager or VRAMManager()
-    if vm.handoff_to_inference():
-        try:
-            from src.scheduler.metrics import upsert_daily_metric
-
-            upsert_daily_metric(
-                "vram_handoff_inference_ok",
-                1.0,
-                '{"direction":"inference","detail":"morning inference handoff succeeded"}',
-            )
-        except Exception as metric_err:
-            logger.debug("[WATCH] vram_handoff_inference_ok metric failed: %s", metric_err)
-        stop_flag.unlink(missing_ok=True)
-        print("[WATCH] Morning handoff complete -- Ollama loaded and warm")
-        safe_send("vram_handoff", direction="inference", success=True)
-    else:
-        try:
-            from src.scheduler.metrics import upsert_daily_metric
-
-            upsert_daily_metric(
-                "vram_handoff_inference_ok",
-                0.0,
-                '{"direction":"inference","detail":"handoff failed; attempting restart"}',
-            )
-        except Exception as metric_err:
-            logger.debug("[WATCH] vram_handoff_inference_ok metric failed: %s", metric_err)
-        print("[WATCH] Morning handoff FAILED -- attempting Ollama restart")
-        safe_send("vram_handoff", direction="inference", success=False, detail="Attempting restart")
-        # Fallback: try reload anyway
-        stop_flag.unlink(missing_ok=True)
-        try:
-            vm._reload_ollama()
-        except Exception as e:
-            logger.error("[WATCH] Ollama restart failed: %s", e)
 
 
 def run_daily_council():

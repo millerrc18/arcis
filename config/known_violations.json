@@ -151,8 +151,8 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "lines": 2432,
-      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). Real split is deferred \u2014 the loop body and helper methods are tightly coupled."
+      "lines": 2687,
+      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). dual-gpu-sep T2/T6 (prior tasks on this branch) grew the file to 2664 within tolerance. dual-gpu-sep T5/T7 (this PR): replaced the two short VRAM-handoff runner methods (_run_evening_handoff/_run_morning_handoff, ~10L) with three dual-GPU training-lifecycle methods (_run_evening_training, _run_morning_training_stop, _run_market_open_training_stop, ~+33L) plus one extra daily-state flag (_market_open_training_stopped, +2L sites), net ~+23L pushing 2664->2687 over the 2675 tolerance. Real split is deferred \u2014 the loop body and helper methods are tightly coupled; splitting watch.py is explicitly out of T5/T7 scope (no unrelated refactors)."
     },
     {
       "file": "src/schema/registry.py",

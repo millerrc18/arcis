@@ -44,14 +44,19 @@ def _is_overnight_window(watch: "WatchLoop", now: datetime) -> bool:
 # ── Overnight schedule — 14 handlers ────────────────────────────────────
 
 
-def maybe_morning_vram_handoff(watch: "WatchLoop", now: datetime) -> None:
-    """5:15 AM weekdays — unload Ollama, clear VRAM for pre-market inference."""
+def maybe_morning_training_stop(watch: "WatchLoop", now: datetime) -> None:
+    """5:15 AM weekdays — cooperatively stop overnight training (bounded).
+
+    Dual-GPU separation: training lives on GPU0, Ollama stays resident on
+    GPU1 — there is no VRAM handoff. We just bring training to a clean halt
+    via stop_training_bounded before the pre-market pipeline ramps up.
+    """
     if not _is_overnight_window(watch, now):
         return
     if (now.weekday() < 5 and now.hour == 5 and now.minute >= 15
-            and not watch._morning_handoff_done):
-        if watch._safe_run("morning VRAM handoff", watch._run_morning_handoff):
-            watch._morning_handoff_done = True
+            and not watch._morning_training_stopped):
+        if watch._safe_run("morning training stop", watch._run_morning_training_stop):
+            watch._morning_training_stopped = True
 
 
 def maybe_post_close_capture(watch: "WatchLoop", now: datetime) -> None:
@@ -75,14 +80,19 @@ def maybe_overnight_training_collection(watch: "WatchLoop", now: datetime) -> No
             watch._overnight_training_collection_done = True
 
 
-def maybe_evening_vram_handoff(watch: "WatchLoop", now: datetime) -> None:
-    """6:50 PM weekdays — unload Ollama, launch overnight training subprocess."""
+def maybe_evening_training(watch: "WatchLoop", now: datetime) -> None:
+    """6:50 PM weekdays — launch the overnight training subprocess on GPU0.
+
+    Dual-GPU separation: training is pinned to GPU0 while Ollama stays up on
+    GPU1, so there is no unload/handoff step anymore. The off-hours fence
+    (overnight-mode + market closed) is preserved.
+    """
     if not _is_overnight_window(watch, now):
         return
     if (now.weekday() < 5 and now.hour == 18 and now.minute >= 50
-            and not watch._vram_handoff_done):
-        if watch._safe_run("evening VRAM handoff", watch._run_evening_handoff):
-            watch._vram_handoff_done = True
+            and not watch._evening_training_launched):
+        if watch._safe_run("evening training launch", watch._run_evening_training):
+            watch._evening_training_launched = True
 
 
 def maybe_stress_test(watch: "WatchLoop", now: datetime) -> None:
@@ -251,10 +261,10 @@ def _send_stats_pulse(label: str) -> None:
 # ── Canonical handler lists — consumed by WatchLoop._register_default_handlers ──
 
 OVERNIGHT_HANDLERS = [
-    maybe_morning_vram_handoff,
+    maybe_morning_training_stop,
     maybe_post_close_capture,
     maybe_overnight_training_collection,
-    maybe_evening_vram_handoff,
+    maybe_evening_training,
     maybe_stress_test,
     maybe_data_collection,
     maybe_news_ingestion,
@@ -281,9 +291,29 @@ def maybe_walkforward_reconciler(watch: "WatchLoop", now: datetime) -> None:
     )
 
 
+def maybe_market_open_training_stop(watch: "WatchLoop", now: datetime) -> None:
+    """≥09:25 ET weekdays — force a bounded training stop before the session.
+
+    Training must never run into the trading session contending for GPU0, so
+    at/after 09:25 ET we force the stop regardless of the configured timeout.
+    This is a daytime handler (NOT overnight-gated): it must fire as the
+    market opens, when _is_overnight_window would already be False.
+    """
+    if now.weekday() >= 5:
+        return
+    if (now.hour, now.minute) < (9, 25):
+        return
+    if watch._market_open_training_stopped:
+        return
+    if watch._safe_run("market-open training stop",
+                       watch._run_market_open_training_stop):
+        watch._market_open_training_stopped = True
+
+
 DAYTIME_HANDLERS = [
     maybe_stats_pulse,
     maybe_walkforward_reconciler,
+    maybe_market_open_training_stop,
 ]
 
 ALL_HANDLERS = OVERNIGHT_HANDLERS + DAYTIME_HANDLERS

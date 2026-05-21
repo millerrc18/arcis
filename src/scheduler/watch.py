@@ -239,10 +239,12 @@ class WatchLoop(HandlerRegistryMixin):
         self._daily_scored = 0
         self._tg_last_update_id = 0
 
-        # VRAM handoff flags — RTX 3060 12GB shared between Ollama (inference)
-        # and PyTorch (training). Evening handoff unloads Ollama, morning reloads it.
-        self._vram_handoff_done = False
-        self._morning_handoff_done = False
+        # Dual-GPU training lifecycle flags — training runs on GPU0, Ollama
+        # stays resident on GPU1 (no VRAM handoff). Evening launches training;
+        # morning + market-open force a bounded cooperative stop.
+        self._evening_training_launched = False
+        self._morning_training_stopped = False
+        self._market_open_training_stopped = False
 
         # Pre-market pipeline flags
         self._premarket_features_done = False
@@ -359,10 +361,11 @@ class WatchLoop(HandlerRegistryMixin):
         self._enrichment_precache_done = False
         self._1min_bar_collection_done = False
         self._pre_market_done = False
-        # Scoring + VRAM handoffs
+        # Scoring + dual-GPU training lifecycle
         self._daily_scored = 0
-        self._vram_handoff_done = False
-        self._morning_handoff_done = False
+        self._evening_training_launched = False
+        self._morning_training_stopped = False
+        self._market_open_training_stopped = False
         # Pre-market pipeline
         self._premarket_features_done = False
         self._premarket_training_done = False
@@ -2401,18 +2404,39 @@ class WatchLoop(HandlerRegistryMixin):
         elapsed = (now - self._last_scan_time).total_seconds() / 60
         return max(0, self.scan_interval - elapsed)
 
-    # ── VRAM Handoff Methods ─────────────────────────────────────────
+    # ── Dual-GPU Training Lifecycle Methods ──────────────────────────
 
-    def _run_evening_handoff(self):
-        """6:50 PM ET — Unload Ollama, launch overnight training subprocess."""
-        from src.scheduler.overnight import run_evening_handoff
-        self._vram_manager = run_evening_handoff(
-            vram_manager=getattr(self, '_vram_manager', None))
+    def _run_evening_training(self):
+        """6:50 PM ET — Launch the overnight fine-tune subprocess on GPU0.
 
-    def _run_morning_handoff(self):
-        """5:15 AM ET — Kill training subprocess, reload Ollama."""
-        from src.scheduler.overnight import run_morning_handoff
-        run_morning_handoff(vram_manager=getattr(self, '_vram_manager', None))
+        No VRAM handoff: Ollama stays resident on GPU1. The trainer pins the
+        subprocess to GPU0 and writes logs/training.pid for the bounded stop.
+        """
+        from src.training.trainer import run_fine_tune
+        run_fine_tune()
+
+    def _run_morning_training_stop(self):
+        """5:15 AM ET — Cooperatively stop training (bounded escalation).
+
+        The launcher does not hand back a live Popen across the tick loop, so
+        stop_training_bounded(None) signals the cooperative flag and, if the
+        process ignores it, PID-escalates from logs/training.pid. Never an
+        /im name-kill, never Ollama.
+        """
+        from src.scheduler.training_control import (
+            MORNING_STOP_TIMEOUT,
+            stop_training_bounded,
+        )
+        stop_training_bounded(None, timeout=MORNING_STOP_TIMEOUT)
+
+    def _run_market_open_training_stop(self):
+        """≥09:25 ET — Force a bounded training stop before the session.
+
+        timeout=0 means we do not wait for a cooperative exit: training must
+        not contend for GPU0 during market hours.
+        """
+        from src.scheduler.training_control import stop_training_bounded
+        stop_training_bounded(None, timeout=0)
 
     # ── AI Council ────────────────────────────────────────────────
 
