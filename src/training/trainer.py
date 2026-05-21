@@ -138,6 +138,42 @@ import json, sys, os, torch
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
+# Absolute STOP_OVERNIGHT flag baked in by trainer._build_curriculum_train_script
+# (this subprocess cannot import src/). NEVER a bare relative data-dir path:
+# under the NSSM LocalSystem service the cwd is C:\\Windows\\System32, so a relative
+# path would silently no-op. The ARCIS_STOP_FLAG env override takes precedence.
+_STOP_FLAG = r"__ARCIS_STOP_FLAG__"
+_resolved_flag = os.environ.get("ARCIS_STOP_FLAG", _STOP_FLAG)
+
+def _stop_requested():
+    return os.path.exists(_resolved_flag)
+
+from transformers import TrainerCallback
+
+# Mirrors src/training/stop_callback.py: on each step/epoch boundary, request a
+# clean training stop when the STOP_OVERNIGHT flag exists.
+class StopOnFlagCallback(TrainerCallback):
+    def on_step_end(self, args, state, control, **kwargs):
+        if _stop_requested():
+            control.should_training_stop = True
+        return control
+    def on_epoch_end(self, args, state, control, **kwargs):
+        if _stop_requested():
+            control.should_training_stop = True
+        return control
+
+def _checkpoint_and_exit(model, tokenizer, reason):
+    # Save partial progress to a STAGING path so a known-good artifact is never
+    # overwritten, then exit cleanly. Cooperative-stop in non-step phases where
+    # on_step_end never fires (tokenization, between stages, before GGUF export).
+    print(f"[TRAIN] STOP_OVERNIGHT detected ({reason}); saving partial to staging and exiting.")
+    try:
+        model.save_pretrained("training_data/lora_adapter_staging")
+        tokenizer.save_pretrained("training_data/lora_adapter_staging")
+    except Exception as e:
+        print(f"[TRAIN] staging save failed: {e}")
+    sys.exit(0)
+
 def main():
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -157,7 +193,9 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         "Qwen/Qwen3-8B",
         quantization_config=bnb_config,
-        device_map="auto",
+        # Defensive only: the real GPU0 guarantee is CUDA_VISIBLE_DEVICES=0 in
+        # the subprocess env. Pinning device 0 here keeps placement explicit.
+        device_map={"": 0},
         torch_dtype=torch.bfloat16,
     )
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
@@ -193,7 +231,13 @@ def main():
                 [{"role":"system","content":ex["instruction"]},
                  {"role":"user","content":ex["input"]},
                  {"role":"assistant","content":ex["output"]}], tokenize=False)}
-        return Dataset.from_list(examples).map(fmt)
+        # Cooperative poll around tokenization (on_step_end never fires here).
+        if _stop_requested():
+            _checkpoint_and_exit(model, tokenizer, "before tokenization")
+        ds = Dataset.from_list(examples).map(fmt)
+        if _stop_requested():
+            _checkpoint_and_exit(model, tokenizer, "after tokenization")
+        return ds
 
     stages = [
         ("STRUCTURE", "training_data/stage1_structure.jsonl", 3e-4),
@@ -202,6 +246,9 @@ def main():
     ]
 
     for name, path, lr in stages:
+        # Cooperative poll between curriculum stages (no on_step_end boundary here).
+        if _stop_requested():
+            _checkpoint_and_exit(model, tokenizer, f"between stages (before {name})")
         print(f"=== STAGE: {name} ===")
         try:
             ds = load_stage(path)
@@ -236,6 +283,7 @@ def main():
             model=model,
             train_dataset=ds,
             args=sft_config,
+            callbacks=[StopOnFlagCallback()],
         )
         trainer.train()
         print(f"  {name} complete: {len(ds)} examples")
@@ -243,6 +291,10 @@ def main():
     # Save LoRA adapter
     model.save_pretrained("training_data/lora_adapter")
     tokenizer.save_pretrained("training_data/lora_adapter")
+
+    # Cooperative poll before the (long, non-step) GGUF export block.
+    if _stop_requested():
+        _checkpoint_and_exit(model, tokenizer, "before GGUF export")
 
     # Merge and export GGUF
     # #387: Try Unsloth GPU export first, then fall back to llama.cpp CPU conversion.
@@ -799,7 +851,7 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     stage1 = Path("training_data") / "stage1_structure.jsonl"
     if stage1.exists() and stage1.stat().st_size > 0:
         with open(script_path, "w", encoding="utf-8") as f:
-            f.write(CURRICULUM_TRAIN_SCRIPT)
+            f.write(_build_curriculum_train_script())
         print("[TRAINING] Using three-stage curriculum training")
     else:
         with open(script_path, "w", encoding="utf-8") as f:
@@ -808,31 +860,48 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
     print("[TRAINING] Running fine-tuning script...")
 
-    # Step 3: Run as subprocess
+    # Step 3: Run as subprocess pinned to GPU0, under repo root, at lowered
+    # priority on Windows so it never starves the inference path. The PID is
+    # written to an absolute logs/training.pid so the watch loop's
+    # stop_training_bounded lost-handle path can find and stop it.
     train_env = _training_subprocess_env()
+    popen_kwargs = {}
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS
+    proc = None
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             [sys.executable, str(script_path)],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
             env=train_env,
-            timeout=7200,  # 2 hour timeout
+            cwd=str(_repo_root()),
+            **popen_kwargs,
         )
+        _write_training_pidfile(proc.pid)
+        stdout, stderr = proc.communicate(timeout=7200)  # 2 hour timeout
+        returncode = proc.returncode
     except subprocess.TimeoutExpired:
+        if proc is not None:
+            proc.kill()
+            proc.communicate()
         print("[TRAINING] ERROR: Fine-tuning timed out after 2 hours")
         return None
     except Exception as e:
         print(f"[TRAINING] ERROR: Failed to run training script: {e}")
         return None
+    finally:
+        _clear_training_pidfile()
 
-    if result.returncode != 0:
+    if returncode != 0:
         print(f"[TRAINING] ERROR: Training script failed:")
-        print(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
+        print(stderr[-2000:] if len(stderr) > 2000 else stderr)
         return None
 
-    print(result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout)
+    print(stdout[-1000:] if len(stdout) > 1000 else stdout)
 
     # Step 4: Find GGUF and register in Ollama
     gguf_path = _find_gguf("training_data")
@@ -1060,11 +1129,64 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
 
 def _training_subprocess_env() -> dict[str, str]:
-    """Environment for Windows-safe UTF-8 training subprocesses."""
+    """Environment for the GPU0-pinned, Windows-safe UTF-8 training subprocess.
+
+    Pins the training subprocess to GPU0 via CUDA_VISIBLE_DEVICES so it never
+    contends with the inference (Ollama) GPU, and bakes the absolute
+    STOP_OVERNIGHT flag into ARCIS_STOP_FLAG so the inline script (which cannot
+    import src/) honors a cooperative stop.
+    """
+    from src.scheduler.training_stop import STOP_FLAG
+
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    env["CUDA_VISIBLE_DEVICES"] = "0"
+    env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    env["ARCIS_STOP_FLAG"] = STOP_FLAG
     return env
+
+
+def _repo_root() -> Path:
+    """Absolute repo root (src/training/trainer.py -> repo root is parents[2])."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _training_pidfile_path() -> str:
+    """Absolute path to the training PID file the watch loop looks for.
+
+    stop_training_bounded's lost-handle path reads this file to find and stop a
+    training subprocess it has no live handle to.
+    """
+    return str(_repo_root() / "logs" / "training.pid")
+
+
+def _write_training_pidfile(pid: int) -> None:
+    """Write the training subprocess PID to the absolute pidfile."""
+    path = _training_pidfile_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(str(pid))
+
+
+def _clear_training_pidfile() -> None:
+    """Remove the training pidfile idempotently."""
+    try:
+        os.remove(_training_pidfile_path())
+    except FileNotFoundError:
+        pass
+
+
+def _build_curriculum_train_script() -> str:
+    """Return CURRICULUM_TRAIN_SCRIPT with the absolute stop-flag baked in.
+
+    The inline script runs as a subprocess that cannot import src/, so the
+    resolved absolute STOP_OVERNIGHT path is substituted for the sentinel token
+    rather than being read from src.scheduler.training_stop at runtime.
+    """
+    from src.scheduler.training_stop import STOP_FLAG
+
+    return CURRICULUM_TRAIN_SCRIPT.replace("__ARCIS_STOP_FLAG__", STOP_FLAG)
 
 
 def _resolve_returns_for_gate(
