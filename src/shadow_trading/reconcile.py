@@ -79,27 +79,38 @@ _TRANSIENT_EMPTY_FETCH_THRESHOLD = 3
 _RECENT_CLOSE_WINDOW_HOURS = 24
 
 
-def _has_recent_close(db_path, ticker, now, window_hours, desk):
-    """True if `ticker` has a paper/alpaca shadow_trade closed within `window_hours`.
+def _has_recent_close(db_path, ticker, now, window_hours, desk=None, source="paper"):
+    """True if `ticker` has an alpaca shadow_trade closed within `window_hours`.
 
     Distinguishes a lingering "close-didn't-clear" position (recent close → not a
     fresh orphan) from a genuine orphan (no recent close → backfill). Generalizes
     the Wave 5 guard (reconciled_stale-only / 6h) to ANY exit_reason over a wider
-    window. Alpaca-paper-scoped, mirroring the Wave 5 guard's broker/source filter.
+    window.
+
+    `source` selects 'paper' or 'live' shadow_trades. `desk` is optional: when None
+    no desk filter is applied — the live tracked-query is desk-agnostic, so the live
+    caller passes desk=None to mirror it (a desk filter there could miss a recent
+    close on another desk → spurious orphan). Always broker='alpaca'-scoped: IB
+    orphans are intentionally unguarded (Wave 5 brief — do not guard IB without
+    operator authorization).
     """
-    with connect_db(db_path) as conn:
+    sql = (
         # STATUS-NARROW: this is the literal terminal state 'closed' (not the active
-        # set) — we are looking for a RECENTLY-CLOSED row, so active_in_clause() /
+        # set) — we want a RECENTLY-CLOSED row, so active_in_clause() /
         # terminal_in_clause() do not apply. A closed row with a fresh actual_exit_time
         # is exactly the "close-didn't-clear" signal we want.
-        rows = conn.execute(
-            "SELECT actual_exit_time FROM shadow_trades "
-            "WHERE ticker = ? AND status = 'closed' "
-            "AND COALESCE(source, 'paper') = 'paper' "
-            "AND COALESCE(broker, 'alpaca') = 'alpaca' "
-            "AND desk = ? AND actual_exit_time IS NOT NULL",
-            (ticker, desk),
-        ).fetchall()
+        "SELECT actual_exit_time FROM shadow_trades "
+        "WHERE ticker = ? AND status = 'closed' "
+        "AND COALESCE(source, 'paper') = ? "
+        "AND COALESCE(broker, 'alpaca') = 'alpaca' "
+        "AND actual_exit_time IS NOT NULL"
+    )
+    params: list = [ticker, source]
+    if desk is not None:
+        sql += " AND desk = ?"
+        params.append(desk)
+    with connect_db(db_path) as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
     cutoff_s = window_hours * 3600.0
     for row in rows:
         raw = row["actual_exit_time"]
@@ -363,7 +374,26 @@ def reconcile_live_trades(
     # Find discrepancies.
     # stale detection is suppressed when live_fetch_ok is False — a failed or
     # transient-empty fetch cannot distinguish "position gone" from "API hiccup".
-    orphaned = [t for t in alpaca_tickers if t not in tracked_tickers]
+    #
+    # v0.36.42 — parity with the paper path (v0.36.40): exclude lingering
+    # "close-didn't-clear" tickers from orphan-backfill. A live ticker closed in
+    # the DB within the recent-close window whose Alpaca position still shows is a
+    # close that didn't clear, NOT a fresh orphan — backfilling it would start the
+    # duplicate-NULL-rec_id cycle. desk=None mirrors the desk-agnostic live tracked
+    # query above. (docs/audits/2026-W21-orphan-source.)
+    orphaned = []
+    for t in alpaca_tickers:
+        if t in tracked_tickers:
+            continue
+        if _has_recent_close(db_path, t, now, _RECENT_CLOSE_WINDOW_HOURS, desk=None, source="live"):
+            logger.warning(
+                "[RECONCILE-LIVE] %s has a live Alpaca position but was closed in DB "
+                "within %dh — close-didn't-clear, NOT backfilling an orphan "
+                "(position may need a manual clear). See 2026-W21-orphan-source.",
+                t, _RECENT_CLOSE_WINDOW_HOURS,
+            )
+            continue
+        orphaned.append(t)
     stale = [] if not live_fetch_ok else [t for t in tracked_tickers if t not in alpaca_tickers]
 
     backfilled = []
