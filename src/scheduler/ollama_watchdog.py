@@ -1,0 +1,274 @@
+"""Ollama-on-GPU1 lifecycle owner (dual-GPU workload separation, T6).
+
+Called by: NSSM service ArcisOllamaWatchdog (python -m src.scheduler.ollama_watchdog)
+Calls: config, scheduler.metrics
+Owns tables: none
+Owns files: logs/ollama-watchdog.log (via the watch loop's logging)
+Config keys: llm.base_url
+Tests: tests/scheduler/test_ollama_watchdog.py
+
+This process is the SINGLE owner of the Ollama inference server, pinned to GPU1
+(the RTX 3060). Per the 2026-05-21 dual-GPU separation design (§2.3 watchdog,
+§4.6 startup guard), training runs isolated on GPU0 (the RTX 3090) so the prior
+shared-GPU VRAM handoff failures cannot recur.
+
+Single-owner pre-flight (MAJOR-3): before launching, terminate or adopt any
+pre-existing Ollama so exactly ONE owner results. All process kills are
+PID-scoped — never `/im` name-kill, never by name, never a non-Ollama PID
+(operator invariant from the 4 prior handoff incidents).
+
+ollama exe resolution mirrors scripts/ollama_watchdog.ps1: OLLAMA_EXE / OLLAMA_PATH
+override > PATH > per-user install glob `C:\\Users\\*\\AppData\\Local\\Programs\\
+Ollama\\ollama.exe`. Under LocalSystem %LOCALAPPDATA% points at the systemprofile,
+so the glob (not %LOCALAPPDATA% expansion) is what finds the operator's per-user
+install.
+"""
+
+import glob
+import logging
+import os
+import platform
+import shutil
+import subprocess
+import time
+
+import requests
+
+from src.config import load_config
+from src.scheduler.metrics import upsert_daily_metric
+
+logger = logging.getLogger(__name__)
+
+# Per-user Ollama install glob (LocalSystem cannot rely on %LOCALAPPDATA%).
+_OLLAMA_USER_GLOB = r"C:\Users\*\AppData\Local\Programs\Ollama\ollama.exe"
+
+_HEALTH_POLL_SEC = 30
+_STARTUP_GRACE_SEC = 8
+
+
+def resolve_ollama_exe() -> str | None:
+    """Resolve the ollama executable.
+
+    Order (mirrors scripts/ollama_watchdog.ps1):
+      1. OLLAMA_EXE / OLLAMA_PATH env override
+      2. PATH lookup (shutil.which)
+      3. per-user install glob C:\\Users\\*\\AppData\\Local\\Programs\\Ollama\\ollama.exe
+    Returns None if nothing resolves.
+    """
+    override = os.environ.get("OLLAMA_EXE") or os.environ.get("OLLAMA_PATH")
+    if override:
+        return override
+    found = shutil.which("ollama")
+    if found:
+        return found
+    for candidate in glob.glob(_OLLAMA_USER_GLOB):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+class OllamaWatchdog:
+    """Single-owner lifecycle manager for the GPU1-pinned Ollama server."""
+
+    def __init__(self, base_url: str | None = None):
+        if base_url is None:
+            config = load_config()
+            base_url = config.get("llm", {}).get("base_url", "http://localhost:11434")
+        self.base_url = base_url.rstrip("/")
+        self._exe = resolve_ollama_exe()
+        self._launched_pid: int | None = None
+
+    # ── health ────────────────────────────────────────────────────────────
+
+    def _is_healthy(self) -> bool:
+        """True if Ollama answers /api/version at the configured base_url."""
+        try:
+            resp = requests.get(f"{self.base_url}/api/version", timeout=5)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    # ── process discovery ───────────────────────────────────────────────────
+
+    def _ollama_pids(self) -> list[int]:
+        """PIDs of running ollama processes (Windows tasklist / POSIX pgrep).
+
+        Returns a deduped list. Used to PID-terminate residual owners — never
+        used to drive a name-kill.
+        """
+        pids: list[int] = []
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    ["tasklist", "/fo", "csv", "/nh", "/fi", "imagename eq ollama.exe"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                for line in result.stdout.strip().splitlines():
+                    parts = [p.strip().strip('"') for p in line.split(",")]
+                    if len(parts) >= 2:
+                        try:
+                            pids.append(int(parts[1]))
+                        except ValueError:
+                            continue
+            else:
+                result = subprocess.run(
+                    ["pgrep", "-f", "ollama"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                for line in result.stdout.strip().splitlines():
+                    try:
+                        pids.append(int(line.strip()))
+                    except ValueError:
+                        continue
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning("[OLLAMA-WD] process discovery failed: %s", exc)
+        # Dedupe, preserve order.
+        seen: set[int] = set()
+        unique: list[int] = []
+        for pid in pids:
+            if pid not in seen:
+                seen.add(pid)
+                unique.append(pid)
+        return unique
+
+    def _graceful_stop(self) -> None:
+        """Attempt `ollama stop` to release the model gracefully before kill."""
+        if not self._exe:
+            return
+        try:
+            subprocess.run(
+                [self._exe, "stop"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.info("[OLLAMA-WD] 'ollama stop' unavailable (%s)", exc)
+
+    def _kill_pid(self, pid: int) -> None:
+        """Terminate a SPECIFIC pid. PID-scoped only — never /im, never by name.
+
+        Windows escalation: taskkill /f /t /pid -> PowerShell Stop-Process.
+        POSIX: kill -9.
+        """
+        if platform.system() != "Windows":
+            try:
+                subprocess.run(["kill", "-9", str(pid)], capture_output=True, timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            return
+        try:
+            result = subprocess.run(
+                ["taskkill", "/f", "/t", "/pid", str(pid)],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode == 0:
+                logger.info("[OLLAMA-WD] killed Ollama PID %d via taskkill", pid)
+                return
+        except subprocess.TimeoutExpired:
+            logger.warning("[OLLAMA-WD] taskkill /pid %d timed out, escalating", pid)
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"Stop-Process -Id {pid} -Force -ErrorAction Stop"],
+                capture_output=True, timeout=10,
+            )
+            logger.info("[OLLAMA-WD] killed Ollama PID %d via Stop-Process", pid)
+        except subprocess.TimeoutExpired:
+            logger.warning("[OLLAMA-WD] Stop-Process %d timed out — kill exhausted", pid)
+
+    # ── single-owner pre-flight ──────────────────────────────────────────────
+
+    def preflight(self) -> None:
+        """Ensure no foreign Ollama owner survives before we launch.
+
+        If an instance is already healthy, callers ADOPT it (see ensure_owner)
+        and never reach here. When reached, any residual Ollama is gracefully
+        stopped then PID-terminated so exactly one owner results.
+        """
+        self._graceful_stop()
+        residual = self._ollama_pids()
+        for pid in residual:
+            logger.info("[OLLAMA-WD] terminating residual Ollama PID %d", pid)
+            self._kill_pid(pid)
+
+    # ── launch ───────────────────────────────────────────────────────────────
+
+    def _launch(self) -> None:
+        """Launch `ollama serve` pinned to GPU1 with the R17 parallel cushion."""
+        exe = self._exe or "ollama"
+        env = dict(os.environ)
+        env["CUDA_VISIBLE_DEVICES"] = "1"
+        env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        env["OLLAMA_NUM_PARALLEL"] = "2"
+        kwargs: dict = {"env": env}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            kwargs["stdout"] = subprocess.DEVNULL
+            kwargs["stderr"] = subprocess.DEVNULL
+        proc = subprocess.Popen([exe, "serve"], **kwargs)
+        self._launched_pid = proc.pid
+        logger.info("[OLLAMA-WD] launched 'ollama serve' on GPU1 (pid=%s)", proc.pid)
+
+    def ensure_owner(self) -> bool:
+        """Guarantee exactly one Ollama owner, GPU1-pinned.
+
+        Returns True if a healthy existing instance was ADOPTED (no relaunch),
+        False if a fresh instance was launched after pre-flight cleanup.
+        """
+        if self._is_healthy():
+            logger.info("[OLLAMA-WD] healthy Ollama already present — adopting")
+            return True
+        self.preflight()
+        self._launch()
+        time.sleep(_STARTUP_GRACE_SEC)
+        return False
+
+    # ── health signal ─────────────────────────────────────────────────────────
+
+    def _emit_health_signal(self, ok: bool) -> None:
+        """Emit the gpu_health_ollama_ok daily metric (T8 metric-key rename)."""
+        try:
+            upsert_daily_metric(
+                "gpu_health_ollama_ok",
+                1.0 if ok else 0.0,
+                '{"gpu":"1","detail":"ollama health loop"}',
+            )
+        except Exception as exc:
+            logger.debug("[OLLAMA-WD] gpu_health_ollama_ok metric failed: %s", exc)
+
+    # ── shutdown ────────────────────────────────────────────────────────────────
+
+    def shutdown(self) -> None:
+        """On service stop, terminate the Ollama PID we launched (if any)."""
+        if self._launched_pid is not None:
+            logger.info("[OLLAMA-WD] service stop — terminating launched PID %d",
+                        self._launched_pid)
+            self._kill_pid(self._launched_pid)
+            self._launched_pid = None
+
+    # ── health loop ────────────────────────────────────────────────────────────
+
+    def run(self) -> None:
+        """Run the watchdog: ensure owner, then poll health, restart on failure."""
+        self.ensure_owner()
+        self._emit_health_signal(self._is_healthy())
+        try:
+            while True:
+                time.sleep(_HEALTH_POLL_SEC)
+                healthy = self._is_healthy()
+                self._emit_health_signal(healthy)
+                if not healthy:
+                    logger.warning("[OLLAMA-WD] Ollama unhealthy — restarting")
+                    self.ensure_owner()
+        except KeyboardInterrupt:
+            self.shutdown()
+
+
+def main() -> None:
+    """Entrypoint for `python -m src.scheduler.ollama_watchdog`."""
+    logging.basicConfig(level=logging.INFO)
+    OllamaWatchdog().run()
+
+
+if __name__ == "__main__":
+    main()

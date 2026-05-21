@@ -1449,6 +1449,58 @@ class WatchLoop(HandlerRegistryMixin):
         except Exception:
             pass
 
+    _WATCHDOG_SERVICE_NAME = "ArcisOllamaWatchdog"
+
+    def _query_watchdog_service_state(self) -> str:
+        """Return the Windows service state for ArcisOllamaWatchdog.
+
+        Uses `sc query`; returns the upper-cased state token (e.g. "RUNNING",
+        "STOPPED") or "UNKNOWN" if the service is absent / query fails. On
+        non-Windows hosts there is no such service, so report "UNKNOWN".
+        """
+        import platform as _plat
+        import subprocess as _sp
+
+        if _plat.system() != "Windows":
+            return "UNKNOWN"
+        try:
+            result = _sp.run(
+                ["sc", "query", self._WATCHDOG_SERVICE_NAME],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, _sp.TimeoutExpired):
+            return "UNKNOWN"
+        if result.returncode != 0:
+            return "UNKNOWN"
+        for line in result.stdout.splitlines():
+            if "STATE" in line.upper():
+                tokens = line.split()
+                if tokens:
+                    return tokens[-1].upper()
+        return "UNKNOWN"
+
+    def _assert_ollama_watchdog_present(self) -> None:
+        """Fail loud if the Ollama lifecycle owner service is not RUNNING (§4.6).
+
+        Skippable in CI/dev via ARCIS_SKIP_WATCHDOG_GUARD=1; ON by default in
+        the real service context.
+        """
+        if os.environ.get("ARCIS_SKIP_WATCHDOG_GUARD") == "1":
+            return
+        state = self._query_watchdog_service_state()
+        if state == "RUNNING":
+            return
+        detail = (
+            "ArcisOllamaWatchdog not running — refusing to start with no Ollama "
+            f"lifecycle owner (service state={state})"
+        )
+        logger.error("[WATCH] %s", detail)
+        try:
+            safe_send("vram_handoff", direction="inference", success=False, detail=detail)
+        except Exception as exc:
+            logger.error("[WATCH] watchdog-guard alert failed: %s", exc)
+        raise RuntimeError(detail)
+
     def _run_sync_body(self):
         """Main watch loop. Checks every 60 seconds.
 
@@ -1495,6 +1547,11 @@ class WatchLoop(HandlerRegistryMixin):
             root.addHandler(db_handler)
 
         self._print_banner()
+
+        # Deploy-atomicity guard (§4.6): refuse to start if the Ollama lifecycle
+        # owner service is not running, so we never enter the half-applied state
+        # (code merged, ArcisOllamaWatchdog absent → no Ollama owner).
+        self._assert_ollama_watchdog_present()
 
         # Ensure all expected tables exist
         self._ensure_all_tables()
