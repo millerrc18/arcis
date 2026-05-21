@@ -3,6 +3,31 @@
 ## [Unreleased]
 
 
+## [v0.36.42] — 2026-05-20 — reconcile_live_trades: orphan recent-close parity with paper path
+
+`reconcile_live_trades` had the same orphan-backfill cycle bug fixed in the paper
+path by v0.36.40, but **unguarded**: ticker-only match against `source='live' AND
+status='open'`, then backfill with no recent-close check. A live position lingering
+after a close was re-discovered as an orphan and backfilled as a duplicate
+NULL-rec_id row. Currently dormant (CLI-invoked only; `trading.ib_enabled=false` so
+Alpaca-only) but a footgun once live trading scales up.
+
+### Fixed
+
+- `src/shadow_trading/reconcile.py` — `_has_recent_close` is now parameterized:
+  `source` ('paper'|'live') and an **optional** `desk` (None = no desk filter). The
+  live caller passes `source='live', desk=None` to mirror the live tracked-query
+  (which is desk-agnostic), so a recent close on any desk is honoured. Broker stays
+  `alpaca`-scoped — IB orphans remain intentionally unguarded (Wave 5 brief). The
+  paper path is unchanged (positional `desk`, `source` defaults to 'paper').
+- `reconcile_live_trades` orphan detection now skips lingering "close-didn't-clear"
+  tickers (with a `[RECONCILE-LIVE]` warning) instead of backfilling duplicates.
+
+TDD: `tests/shadow_trading/test_reconcile_live_recent_close_parity_v0_36_42.py`
+(helper source/desk params, + behavioral reconcile_live_trades: recent-close→not
+backfilled, genuine orphan→backfilled, >window→backfillable, + wiring lock).
+
+
 ## [v0.36.41] — 2026-05-20 — system_validator: db_orphaned_fk excludes rejected_* records
 
 The `db_orphaned_fk` check counted shadow_trades whose (non-NULL) `recommendation_id`
