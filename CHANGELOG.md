@@ -3,6 +3,40 @@
 ## [Unreleased]
 
 
+## [v0.36.45] — 2026-05-21 — Liquidate-on-stale: clear "close-didn't-clear" shares so they can't re-orphan
+
+Operator hit "no trades today despite strong setups." Root cause was the orphan
+backlog saturating the per-sector correlation caps (max 3/sector): 19 open
+positions, 13 of them orphans — the governor correctly refused new Health-Care/
+Industrials/Tech setups because those sectors were full of un-attributed lingering
+positions, not real conviction trades.
+
+Investigation traced the orphan engine to two stacked bugs:
+- **Source** — a phantom `stop_loss` close (executor misread a bracket parent/leg
+  fill as an exit, recording a stop-out at the *entry* price while selling **0**
+  shares). **Already fixed by v0.36.28** — reconciled-orphan creation collapsed
+  `30 → 28 → 5 → 7 → 1 → 0` (none since the fix).
+- **Amplifier (this fix)** — when the reconciler detects a live Alpaca position
+  whose DB row was closed within the recent-close window (a "close-didn't-clear"),
+  v0.36.40 stopped *re-backfilling* it, but the shares **persisted at the broker
+  forever** (logged as `skipped`), keeping the orphan exposure alive and clogging
+  the sector caps. The literal `reconciled_stale` close never sees a held position
+  (stale = local-has / broker-doesn't), so the gap lived at the detector.
+
+`reconcile.py` now **liquidates** a close-didn't-clear position: `_liquidate_if_held`
+cancels the protective legs, market-SELLs the **broker-held qty** (never DB
+`planned_shares` — avoids the AVGO 6-vs-4 over-sell trap), and only records success
+once the position is *confirmed* cleared. If the sell can't be confirmed it leaves
+the row for the next cycle rather than declaring a close it can't back — never
+closing while shares are still held. Applied to both paper and live detectors;
+new `liquidated` field in the reconcile result. Also realigned a stale
+`test_reconcile_stale_without_yfinance` assertion to v0.36.30's NULL-pnl behavior.
+
+Operator separately liquidated the 5 legacy reconciled phantoms (AVGO/BAC/DUK/FDX/UNP,
+net +$21) to unblock trading the same day; the 8 real bracket trades with NULL
+recommendation_id (attribution gap) were left untouched.
+
+
 ## [v0.36.44] — 2026-05-21 — VRAM handoff: skip the /im kill on the CUDA-wedge path
 
 Last night's 18:54 evening handoff to training failed: the graceful unload

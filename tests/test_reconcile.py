@@ -387,9 +387,11 @@ def test_reconcile_stale_without_yfinance(mock_positions, db_path):
     assert row["status"] == "closed"
     assert row["exit_reason"] == "reconciled_stale"
     assert row["actual_exit_time"] is not None
-    # P&L defaults to 0.0 when yfinance fails (better than invisible trade)
-    assert row["pnl_dollars"] == 0.0
-    assert row["actual_exit_price"] == 0.0
+    # v0.36.30 (F-1): when the exit price is unknown (yfinance fails) the stale
+    # close writes NULL pnl, not 0.0 — a $0 close is indistinguishable from a
+    # genuine flat close and corrupts audit/dashboard aggregates.
+    assert row["pnl_dollars"] is None
+    assert row["actual_exit_price"] is None
 
 
 # ── Fix #356: Cancel-before-close tests ──

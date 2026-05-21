@@ -37,6 +37,7 @@ incomplete position lists).
 import logging
 import sqlite3
 from datetime import datetime
+from typing import NamedTuple
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -265,6 +266,123 @@ def _estimate_exit_pnl(ticker, entry_px, shares):
     return None, None, None
 
 
+class _LiquidationResult(NamedTuple):
+    """Outcome of a liquidate-on-stale attempt.
+
+    ``should_close`` — whether the caller may proceed to close_shadow_trade.
+    ``exit_price``   — the confirmed fill price (None → caller keeps its own
+                       best-effort price estimate).
+    ``action``       — "no_position" | "sold" | "sell_unconfirmed" (logging).
+    """
+
+    should_close: bool
+    exit_price: float | None
+    action: str
+
+
+def _broker_qty(ticker: str, positions) -> float:
+    """Return the broker-held share qty for ``ticker`` (0.0 if absent/unparseable)."""
+    for p in positions or []:
+        if p.get("symbol") == ticker:
+            try:
+                return float(p.get("qty") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def _liquidate_if_held(
+    ticker: str,
+    *,
+    desk: str,
+    source: str,
+    alpaca_positions,
+    now,
+    _attempts: int = 8,
+    _sleep: float = 1.0,
+) -> _LiquidationResult:
+    """v0.36.45 — liquidate a "close-didn't-clear" position so it can't re-orphan.
+
+    Used at the close-didn't-clear detector (a live Alpaca position whose DB row
+    was closed within the recent-close window). Before this, v0.36.40 merely
+    declined to re-backfill such a position — but the shares persisted at the
+    broker forever (logged as ``skipped``), keeping the orphan exposure alive
+    and clogging the sector caps. This helper completes the close: when the
+    broker still holds the position, it liquidates it (market SELL of the BROKER
+    qty — never DB planned_shares, which avoids the AVGO 6-vs-4 over-sell trap)
+    and only signals success once the position is *confirmed* gone.
+
+    Note: the literal ``reconciled_stale`` close path (stale = local-has /
+    broker-doesn't) never sees a held position, so a sell there would be a
+    no-op; the held-but-closed condition is observed only at the detector.
+
+    Safety invariant: ``should_close`` is True ONLY when the broker held nothing
+    (qty<=0 → unchanged DB-only close) OR the sell is confirmed cleared. A
+    submitted-but-unconfirmed sell returns ``should_close=False`` so the caller
+    leaves the row open for the next cycle — never closing a row whose shares
+    are still held.
+    """
+    qty = _broker_qty(ticker, alpaca_positions)
+    if qty <= 0:
+        return _LiquidationResult(True, None, "no_position")
+
+    # Cancel protective OCO legs first (prevents held_for_orders deadlock on the
+    # liquidating sell). Idempotent — harmless if already cancelled upstream.
+    try:
+        from src.shadow_trading.alpaca_adapter import cancel_orders_for_ticker as _cot
+        _cot(ticker, desk=desk)
+    except Exception as exc:
+        logger.warning("[RECONCILE] %s pre-liquidation cancel failed: %s", ticker, exc)
+
+    try:
+        if source == "live":
+            from src.shadow_trading.alpaca_adapter_live import place_live_exit
+            order = place_live_exit(ticker)  # shares=0 → close_position (handles fractional)
+        else:
+            from src.shadow_trading.alpaca_adapter_paper import place_paper_exit
+            order = place_paper_exit(ticker, int(qty), desk=desk)
+    except Exception as exc:
+        logger.warning(
+            "[RECONCILE] %s liquidating SELL failed to submit: %s — leaving row "
+            "open for next cycle (NOT closing while shares held)", ticker, exc,
+        )
+        return _LiquidationResult(False, None, "sell_unconfirmed")
+
+    fill = order.get("filled_avg_price") if isinstance(order, dict) else None
+
+    # Confirm the position actually cleared before allowing the DB close.
+    if _position_cleared(ticker, desk=desk, source=source, attempts=_attempts, sleep_s=_sleep):
+        logger.info(
+            "[RECONCILE] %s liquidated stale position: sold %.4f sh (fill=%s)",
+            ticker, qty, fill if fill is not None else "unconfirmed-price",
+        )
+        return _LiquidationResult(True, float(fill) if fill else None, "sold")
+
+    logger.warning(
+        "[RECONCILE] %s liquidating SELL submitted but position NOT confirmed "
+        "cleared — leaving row open for next cycle (avoids re-orphan)", ticker,
+    )
+    return _LiquidationResult(False, None, "sell_unconfirmed")
+
+
+def _position_cleared(ticker: str, *, desk: str, source: str, attempts: int, sleep_s: float) -> bool:
+    """Re-fetch broker positions until ``ticker`` qty drops to <=0 (or attempts exhaust)."""
+    import time
+
+    from src.shadow_trading.alpaca_adapter import get_all_positions, get_live_positions
+
+    for i in range(max(1, attempts)):
+        if i and sleep_s:
+            time.sleep(sleep_s)
+        try:
+            positions = get_live_positions(desk=desk) if source == "live" else get_all_positions(desk=desk)
+        except Exception:
+            continue
+        if _broker_qty(ticker, positions) <= 0:
+            return True
+    return False
+
+
 def reconcile_live_trades(
     desk: str = "swing",
     dry_run: bool = False,
@@ -382,14 +500,31 @@ def reconcile_live_trades(
     # duplicate-NULL-rec_id cycle. desk=None mirrors the desk-agnostic live tracked
     # query above. (docs/audits/2026-W21-orphan-source.)
     orphaned = []
+    liquidated = []  # v0.36.45 — close-didn't-clear positions sold to clear orphan exposure
     for t in alpaca_tickers:
         if t in tracked_tickers:
             continue
         if _has_recent_close(db_path, t, now, _RECENT_CLOSE_WINDOW_HOURS, desk=None, source="live"):
+            # v0.36.45 — liquidate-on-stale parity with paper: the DB row is
+            # already closed but the broker still holds the shares. Complete the
+            # close by selling them so they can't re-orphan / clog exposure.
+            if not dry_run:
+                _liq = _liquidate_if_held(
+                    t, desk=desk, source="live",
+                    alpaca_positions=alpaca_positions, now=now,
+                )
+                if _liq.action == "sold":
+                    logger.warning(
+                        "[RECONCILE-LIVE] %s close-didn't-clear — LIQUIDATED the "
+                        "lingering broker position (fill=%s). See 2026-W21-orphan-source.",
+                        t, _liq.exit_price,
+                    )
+                    liquidated.append(t)
+                    continue
             logger.warning(
                 "[RECONCILE-LIVE] %s has a live Alpaca position but was closed in DB "
-                "within %dh — close-didn't-clear, NOT backfilling an orphan "
-                "(position may need a manual clear). See 2026-W21-orphan-source.",
+                "within %dh — close-didn't-clear; liquidating sell unconfirmed, "
+                "leaving for next cycle (NOT backfilling). See 2026-W21-orphan-source.",
                 t, _RECENT_CLOSE_WINDOW_HOURS,
             )
             continue
@@ -547,6 +682,7 @@ def reconcile_live_trades(
         "resolved_stale": resolved_stale,
         "unresolved_stale": unresolved_stale,
         "backfilled": backfilled,
+        "liquidated": liquidated,
         "marked_closed": marked_closed,
         "error": _live_fetch_error,
     }
@@ -704,6 +840,7 @@ def reconcile_paper_trades(
     backfilled = []
     marked_closed = []
     skipped = []
+    liquidated = []  # v0.36.45 — close-didn't-clear positions sold to clear orphan exposure
 
     # Alpaca has it, local doesn't -> orphaned.
     # Also checks for qty mismatches between Alpaca and local records,
@@ -717,10 +854,27 @@ def reconcile_paper_trades(
             # Backfilling it would create a duplicate NULL-rec_id row → the orphan cycle
             # (docs/audits/2026-W21-orphan-source). Surface it as a discrepancy instead.
             if _has_recent_close(db_path, ticker, now, _RECENT_CLOSE_WINDOW_HOURS, desk):
+                # v0.36.45 — liquidate-on-stale. The DB row is already closed but
+                # the broker still holds the shares (close-didn't-clear). v0.36.40
+                # stopped re-backfilling these, but the shares lingered forever and
+                # clogged the sector caps. Complete the close by selling them.
+                if not dry_run:
+                    _liq = _liquidate_if_held(
+                        ticker, desk=desk, source="paper",
+                        alpaca_positions=alpaca_positions, now=now,
+                    )
+                    if _liq.action == "sold":
+                        logger.warning(
+                            "[RECONCILE-PAPER] %s close-didn't-clear — LIQUIDATED the "
+                            "lingering broker position (fill=%s). See 2026-W21-orphan-source.",
+                            ticker, _liq.exit_price,
+                        )
+                        liquidated.append(ticker)
+                        continue
                 logger.warning(
                     "[RECONCILE-PAPER] %s has a live Alpaca position but was closed in "
-                    "DB within %dh — close-didn't-clear, NOT backfilling an orphan "
-                    "(position may need a manual clear). See 2026-W21-orphan-source.",
+                    "DB within %dh — close-didn't-clear; liquidating sell unconfirmed, "
+                    "leaving for next cycle (NOT backfilling). See 2026-W21-orphan-source.",
                     ticker, _RECENT_CLOSE_WINDOW_HOURS,
                 )
                 skipped.append(ticker)
@@ -1196,6 +1350,7 @@ def reconcile_paper_trades(
         "discrepancies": discrepancies,
         "backfilled": backfilled,
         "skipped": skipped,
+        "liquidated": liquidated,
         "marked_closed": marked_closed,
         "resolved_closed": resolved_closed,
         "resolved_reopened": resolved_reopened,
