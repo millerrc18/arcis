@@ -291,3 +291,36 @@ def test_kill_ollama_processes_ignores_non_ollama_gpu_procs():
                 "Killed a python.exe PID — must only kill ollama-named processes "
                 "to avoid taking down the watch loop or training subprocess."
             )
+
+
+# ── v0.36.44: skip /im on the CUDA-wedge path ────────────────────────────
+
+
+def test_kill_ollama_processes_skips_im_when_wedged_after_pid_kill():
+    """v0.36.44: PID found + killed, but VRAM is STILL held (Ollama runner wedged
+    in a CUDA syscall) → must NOT fall back to the legacy /im kill. /im can't
+    terminate a wedged process and just blocks for its full timeout (observed
+    2026-05-20 18:54). The method returns so the caller's retry+empty_cache loop
+    waits for the driver to reclaim VRAM."""
+    from src.scheduler.vram_manager import VRAMManager
+
+    with patch("src.scheduler.vram_manager._find_nvidia_smi", return_value="nvidia-smi"), \
+         patch("src.scheduler.vram_manager.platform.system", return_value="Windows"):
+        vm = VRAMManager()
+
+        gpu_first = MagicMock(returncode=0, stdout="55555, ollama_llama_server.exe, 2673\n")
+        taskkill_ok = MagicMock(returncode=0)          # _kill_pid taskkill /pid succeeds
+        gpu_still = MagicMock(returncode=0, stdout="55555, ollama_llama_server.exe, 2673\n")  # still held
+
+        with patch(
+            "src.scheduler.vram_manager.subprocess.run",
+            side_effect=[gpu_first, taskkill_ok, gpu_still],
+        ) as mock_run, patch("src.scheduler.vram_manager.time.sleep"):
+            vm._kill_ollama_processes()
+
+    # The wedge path must NOT invoke any /im kill.
+    for c in mock_run.call_args_list:
+        args = c.args[0]
+        assert "/im" not in args, f"must not fall back to /im on the wedge path: {args}"
+    # And it must have attempted the PID kill (taskkill /pid 55555).
+    assert any("/pid" in c.args[0] and "55555" in c.args[0] for c in mock_run.call_args_list)

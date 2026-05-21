@@ -3,6 +3,35 @@
 ## [Unreleased]
 
 
+## [v0.36.44] — 2026-05-21 — VRAM handoff: skip the /im kill on the CUDA-wedge path
+
+Last night's 18:54 evening handoff to training failed: the graceful unload
+(`ollama stop` + keep_alive=0, already in `_unload_ollama`) didn't free VRAM, the
+PID-based kill (taskkill /pid → Stop-Process → wmic) ran but VRAM stayed held, then
+the legacy `/im` fallback **hung for its full 10s timeout**. Root cause: the Ollama
+model-runner was wedged in a CUDA syscall — a process stuck in a kernel-mode GPU
+driver call can't be terminated until the call returns, so no kill method works. It
+self-cleared by the 05:16 morning handoff (inference healthy). No training run was
+lost (training was non-viable anyway — HOLDOUT EMPTY).
+
+### Fixed
+
+- `src/scheduler/vram_manager.py` — in `_kill_ollama_processes`, when the PID-based
+  kill ran but `nvidia-smi` shows Ollama **still** holding VRAM (the wedge
+  signature), return instead of falling back to `/im`. `/im` can't kill a wedged
+  process and only blocks for its timeout + muddies the logs; the caller's
+  retry + `torch.cuda.empty_cache` loop already waits for the driver to reclaim VRAM.
+  The `/im` fallback is preserved for the legitimate case where nvidia-smi found no
+  Ollama GPU process (nvidia-smi missing / Ollama crashed without a tracked app).
+
+Note: the graceful unload and escalating PID-kill were already in place; this only
+trims a useless 10s hang on the wedge path. The wedge itself is an external
+Ollama/GPU-driver condition that the existing retry + recovery already absorb.
+
+TDD: `tests/test_vram_manager_pid_kill.py::test_kill_ollama_processes_skips_im_when_wedged_after_pid_kill`
+(+ 3 existing kill-path tests still green).
+
+
 ## [v0.36.43] — 2026-05-21 — price_target plan-gate off (403, not entitled on fundamental-1)
 
 The overnight comprehensive collection logged `price_targets: 0/102 tickers landed
