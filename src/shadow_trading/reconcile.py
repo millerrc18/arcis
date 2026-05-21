@@ -334,6 +334,26 @@ def _liquidate_if_held(
     except Exception as exc:
         logger.warning("[RECONCILE] %s pre-liquidation cancel failed: %s", ticker, exc)
 
+    # Re-read the broker qty AFTER the cancel before submitting the sell. This
+    # closes the cancel→sell race: if the original OCO sell-leg filled during the
+    # cancel/settle window, selling the stale qty would over-sell into a SHORT.
+    # We only ever sell a qty we just confirmed is currently held. A failed
+    # re-read (None) means we can't know the current qty → do NOT sell (safer to
+    # leave for next cycle than risk an over-sell on a live path).
+    fresh_qty = _fetch_broker_qty(ticker, desk=desk, source=source)
+    if fresh_qty is None:
+        logger.warning(
+            "[RECONCILE] %s post-cancel qty re-read failed — NOT selling (avoids "
+            "over-sell); leaving row for next cycle", ticker,
+        )
+        return _LiquidationResult(False, None, "sell_unconfirmed")
+    if fresh_qty <= 0:
+        # The position cleared during the cancel/settle (e.g. the OCO leg filled).
+        # Nothing to sell and nothing left to re-orphan — resolved.
+        logger.info("[RECONCILE] %s position already cleared at re-read — no sell needed", ticker)
+        return _LiquidationResult(True, None, "cleared")
+    qty = fresh_qty
+
     try:
         if source == "live":
             from src.shadow_trading.alpaca_adapter_live import place_live_exit
@@ -356,7 +376,7 @@ def _liquidate_if_held(
             "[RECONCILE] %s liquidated stale position: sold %.4f sh (fill=%s)",
             ticker, qty, fill if fill is not None else "unconfirmed-price",
         )
-        return _LiquidationResult(True, float(fill) if fill else None, "sold")
+        return _LiquidationResult(True, float(fill) if fill is not None else None, "sold")
 
     logger.warning(
         "[RECONCILE] %s liquidating SELL submitted but position NOT confirmed "
@@ -365,20 +385,30 @@ def _liquidate_if_held(
     return _LiquidationResult(False, None, "sell_unconfirmed")
 
 
+def _fetch_broker_qty(ticker: str, *, desk: str, source: str) -> float | None:
+    """One fresh broker fetch → current held qty for ``ticker``.
+
+    Returns the qty (>=0), or ``None`` if the fetch failed (caller must treat an
+    unknown qty conservatively — never sell a qty it can't currently confirm).
+    """
+    from src.shadow_trading.alpaca_adapter import get_all_positions, get_live_positions
+
+    try:
+        positions = get_live_positions(desk=desk) if source == "live" else get_all_positions(desk=desk)
+    except Exception:
+        return None
+    return _broker_qty(ticker, positions)
+
+
 def _position_cleared(ticker: str, *, desk: str, source: str, attempts: int, sleep_s: float) -> bool:
     """Re-fetch broker positions until ``ticker`` qty drops to <=0 (or attempts exhaust)."""
     import time
 
-    from src.shadow_trading.alpaca_adapter import get_all_positions, get_live_positions
-
     for i in range(max(1, attempts)):
         if i and sleep_s:
             time.sleep(sleep_s)
-        try:
-            positions = get_live_positions(desk=desk) if source == "live" else get_all_positions(desk=desk)
-        except Exception:
-            continue
-        if _broker_qty(ticker, positions) <= 0:
+        q = _fetch_broker_qty(ticker, desk=desk, source=source)
+        if q is not None and q <= 0:
             return True
     return False
 
@@ -513,11 +543,13 @@ def reconcile_live_trades(
                     t, desk=desk, source="live",
                     alpaca_positions=alpaca_positions, now=now,
                 )
-                if _liq.action == "sold":
+                if _liq.action in ("sold", "cleared"):
                     logger.warning(
-                        "[RECONCILE-LIVE] %s close-didn't-clear — LIQUIDATED the "
-                        "lingering broker position (fill=%s). See 2026-W21-orphan-source.",
-                        t, _liq.exit_price,
+                        "[RECONCILE-LIVE] %s close-didn't-clear — %s. "
+                        "See 2026-W21-orphan-source.",
+                        t,
+                        f"LIQUIDATED lingering broker position (fill={_liq.exit_price})"
+                        if _liq.action == "sold" else "position already cleared at re-read",
                     )
                     liquidated.append(t)
                     continue
@@ -863,11 +895,13 @@ def reconcile_paper_trades(
                         ticker, desk=desk, source="paper",
                         alpaca_positions=alpaca_positions, now=now,
                     )
-                    if _liq.action == "sold":
+                    if _liq.action in ("sold", "cleared"):
                         logger.warning(
-                            "[RECONCILE-PAPER] %s close-didn't-clear — LIQUIDATED the "
-                            "lingering broker position (fill=%s). See 2026-W21-orphan-source.",
-                            ticker, _liq.exit_price,
+                            "[RECONCILE-PAPER] %s close-didn't-clear — %s. "
+                            "See 2026-W21-orphan-source.",
+                            ticker,
+                            f"LIQUIDATED lingering broker position (fill={_liq.exit_price})"
+                            if _liq.action == "sold" else "position already cleared at re-read",
                         )
                         liquidated.append(ticker)
                         continue

@@ -69,10 +69,13 @@ def test_no_position_returns_db_only_close():
 
 def test_held_position_sells_broker_qty_and_confirms():
     sold_order = {"order_id": "o1", "filled_avg_price": 50.98}
+    # get_all_positions: post-cancel re-read sees the position still held, then
+    # the confirmation poll sees it cleared.
     with patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit",
                return_value=sold_order) as sell, \
          patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=1), \
-         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+               side_effect=[[_pos("BAC", 66.0)], []]):
         res = _liquidate_if_held(
             "BAC", desk="swing", source="paper",
             alpaca_positions=[_pos("BAC", 66.0)], now=None, _attempts=2, _sleep=0,
@@ -87,16 +90,47 @@ def test_held_position_sells_broker_qty_and_confirms():
 
 
 def test_broker_qty_differs_uses_broker_qty_not_planned():
-    """AVGO trap: DB planned 6 but broker holds 4 — must sell 4, never over-sell."""
+    """AVGO trap: DB planned 6 but broker holds 4 — must sell the fresh broker qty (4)."""
     with patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit",
                return_value={"order_id": "o", "filled_avg_price": 413.0}) as sell, \
          patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=0), \
-         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+               side_effect=[[_pos("AVGO", 4.0)], []]):
         _liquidate_if_held(
             "AVGO", desk="swing", source="paper",
             alpaca_positions=[_pos("AVGO", 4.0)], now=None, _attempts=1, _sleep=0,
         )
     assert sell.call_args[0][1] == 4
+
+
+def test_position_cleared_during_cancel_does_not_sell():
+    """If the OCO leg fills during the cancel/settle, the post-cancel re-read sees
+    qty<=0 → resolved as 'cleared' with NO sell submitted (no over-sell / no short)."""
+    with patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit") as sell, \
+         patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=1), \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
+        res = _liquidate_if_held(
+            "BAC", desk="swing", source="paper",
+            alpaca_positions=[_pos("BAC", 66.0)], now=None, _attempts=1, _sleep=0,
+        )
+    assert res.should_close is True
+    assert res.action == "cleared"
+    sell.assert_not_called()
+
+
+def test_post_cancel_reread_failure_blocks_sell():
+    """If the post-cancel qty re-read fails, do NOT sell a stale qty — leave for next cycle."""
+    with patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit") as sell, \
+         patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=0), \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+               side_effect=RuntimeError("alpaca timeout")):
+        res = _liquidate_if_held(
+            "BAC", desk="swing", source="paper",
+            alpaca_positions=[_pos("BAC", 66.0)], now=None, _attempts=1, _sleep=0,
+        )
+    assert res.should_close is False
+    assert res.action == "sell_unconfirmed"
+    sell.assert_not_called()
 
 
 # ── safety: sell submitted but position NOT cleared → block the close ─────────
@@ -116,9 +150,12 @@ def test_sell_unconfirmed_position_still_held_blocks_close():
 
 
 def test_sell_submit_exception_blocks_close():
+    # post-cancel re-read sees the position still held, so we reach the sell, which raises.
     with patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit",
                side_effect=RuntimeError("alpaca 500")), \
-         patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=0):
+         patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=0), \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+               return_value=[_pos("BAC", 66.0)]):
         res = _liquidate_if_held(
             "BAC", desk="swing", source="paper",
             alpaca_positions=[_pos("BAC", 66.0)], now=None, _attempts=1, _sleep=0,
@@ -134,7 +171,8 @@ def test_live_uses_place_live_exit_not_paper():
                return_value={"order_id": "L", "filled_avg_price": 124.26}) as live_sell, \
          patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit") as paper_sell, \
          patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=0), \
-         patch("src.shadow_trading.alpaca_adapter.get_live_positions", return_value=[]):
+         patch("src.shadow_trading.alpaca_adapter.get_live_positions",
+               side_effect=[[_pos("DUK", 34.0)], []]):
         res = _liquidate_if_held(
             "DUK", desk="swing", source="live",
             alpaca_positions=[_pos("DUK", 34.0)], now=None, _attempts=1, _sleep=0,
@@ -165,11 +203,14 @@ def test_paper_reconcile_liquidates_close_didnt_clear(db_path):
 
     held = [{"symbol": "LIQT", "qty": 10.0, "avg_entry_price": 100.0,
              "current_price": 99.0, "market_value": 990.0}]
+    # reconcile.get_all_positions → main fetch/detection (LIQT held). The helper's
+    # alpaca_adapter.get_all_positions: post-cancel re-read sees it held, confirm cleared.
     with patch("src.shadow_trading.reconcile.get_all_positions", return_value=held), \
          patch("src.shadow_trading.alpaca_adapter_paper.place_paper_exit",
                return_value={"order_id": "o", "filled_avg_price": 99.0}) as sell, \
          patch("src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker", return_value=0), \
-         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+               side_effect=[list(held), []]):
         result = reconcile_paper_trades(db_path=db_path, dry_run=False)
 
     assert result["liquidated"] == ["LIQT"]
