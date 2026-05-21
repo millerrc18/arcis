@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [v0.36.47] — 2026-05-21 — Audit-alert email throttle (stop the per-restart flood)
+
+`check_escalation` emailed the operator for every flag on every audit run with no
+dedup. The daily auditor re-runs on each watch-loop restart, so a persistent flag
+(notably the false 112% drawdown) re-spammed the operator every cycle (2026-05-21
+email flood; ~14 emails). Added `_audit_email_throttled`: each flag CATEGORY is
+emailed at most once per 24h via the restart-safe `notifications_dedup` table
+(reusing `platform_events._already_notified_recently_db`). Category — not the LLM
+`description` (whose wording varies per run) — is the dedup key, so a persistent
+issue alerts once/day instead of every cycle. Fail-open: a throttle-check error
+never suppresses a real alert. Applies to both CRITICAL and ALERT severities.
+
 ## [v0.36.46] — 2026-05-21 — Drawdown audit false-positive: measure vs capital, exclude synthetic closes
 
 The deterministic+LLM auditor fired a CRITICAL "catastrophic drawdown of 112.1% …

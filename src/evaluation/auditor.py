@@ -660,6 +660,27 @@ def run_weekly_audit(days: int = 7, db_path: str = DB_PATH) -> dict:
     return result
 
 
+def _audit_email_throttled(flag: dict, db_path: str) -> bool:
+    """v0.36.47 — restart-safe per-category throttle for audit-alert emails.
+
+    Returns True when an email for this flag's CATEGORY was already sent within
+    the dedup window (24h) — the caller then suppresses the re-send. The daily
+    auditor re-runs on every watch-loop restart; without this, a persistent flag
+    (e.g. a false-positive drawdown) re-spammed the operator every cycle
+    (2026-05-21 flood). Category — not the LLM `description`, whose wording varies
+    per run — is the dedup key, so a persistent issue alerts once/day rather than
+    every cycle. Fail-open: any error returns False so a real alert is never
+    silently dropped.
+    """
+    try:
+        from src.notifications.platform_events import _already_notified_recently_db
+        key = (flag.get("category") or "")[:120] or (flag.get("description") or "uncategorized")[:120]
+        return _already_notified_recently_db("audit_alert", key, db_path=db_path)
+    except Exception:
+        logger.debug("[AUDIT] email throttle check failed; allowing send", exc_info=True)
+        return False
+
+
 def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
     """Check if any audit flags require immediate escalation.
 
@@ -737,22 +758,30 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
                     "flag": flag,
                 })
 
-                # Send alert email — operator decides whether to halt
+                # Send alert email — operator decides whether to halt.
+                # v0.36.47: throttle per category (24h) so the daily auditor +
+                # restart re-runs don't re-spam a persistent flag.
                 try:
-                    from src.email.notifier import send_email
-                    subject = "[TRADE DESK] CRITICAL AUDIT FLAG — Operator Action Required"
-                    body = (
-                        f"CRITICAL AUDIT FLAG\n\n"
-                        f"Category: {flag.get('category')}\n"
-                        f"Description: {flag.get('description')}\n"
-                        f"Recommendation: {flag.get('recommendation')}\n\n"
-                        f"Trading was NOT auto-halted (operator-only kill-switch policy 2026-05-08). "
-                        f"Review and halt manually if appropriate via:\n"
-                        f"  - CLI: python -m src.main halt-trading\n"
-                        f"  - Dashboard halt button\n"
-                        f"  - API: POST /api/system/halt-trading"
-                    )
-                    send_email(subject, body)
+                    if _audit_email_throttled(flag, db_path):
+                        logger.info(
+                            "[AUDIT] CRITICAL email throttled (already alerted on category '%s' within 24h): %s",
+                            flag.get("category"), flag.get("description"),
+                        )
+                    else:
+                        from src.email.notifier import send_email
+                        subject = "[TRADE DESK] CRITICAL AUDIT FLAG — Operator Action Required"
+                        body = (
+                            f"CRITICAL AUDIT FLAG\n\n"
+                            f"Category: {flag.get('category')}\n"
+                            f"Description: {flag.get('description')}\n"
+                            f"Recommendation: {flag.get('recommendation')}\n\n"
+                            f"Trading was NOT auto-halted (operator-only kill-switch policy 2026-05-08). "
+                            f"Review and halt manually if appropriate via:\n"
+                            f"  - CLI: python -m src.main halt-trading\n"
+                            f"  - Dashboard halt button\n"
+                            f"  - API: POST /api/system/halt-trading"
+                        )
+                        send_email(subject, body)
                 except Exception as e:
                     logger.error("[AUDIT] Failed to send critical alert email: %s", e)
 
@@ -760,15 +789,21 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
 
         elif severity == "alert":
             try:
-                from src.email.notifier import send_email
-                subject = "[TRADE DESK] AUDIT ALERT"
-                body = (
-                    f"AUDIT ALERT\n\n"
-                    f"Category: {flag.get('category')}\n"
-                    f"Description: {flag.get('description')}\n"
-                    f"Recommendation: {flag.get('recommendation')}"
-                )
-                send_email(subject, body)
+                if _audit_email_throttled(flag, db_path):
+                    logger.info(
+                        "[AUDIT] ALERT email throttled (already alerted on category '%s' within 24h): %s",
+                        flag.get("category"), flag.get("description"),
+                    )
+                else:
+                    from src.email.notifier import send_email
+                    subject = "[TRADE DESK] AUDIT ALERT"
+                    body = (
+                        f"AUDIT ALERT\n\n"
+                        f"Category: {flag.get('category')}\n"
+                        f"Description: {flag.get('description')}\n"
+                        f"Recommendation: {flag.get('recommendation')}"
+                    )
+                    send_email(subject, body)
             except Exception as e:
                 logger.error("[AUDIT] Failed to send alert email: %s", e)
 
