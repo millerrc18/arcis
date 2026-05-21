@@ -69,7 +69,7 @@ ANNOTATIONS = {
     "src/email/": "SMTP email sender (digest, full-stream modes)",
     "src/evaluation/": "Build score, HSHS health, backtester, system validator",
     "src/features/": "Feature engine (regime, setup classifier, indicators, MR)",
-    "src/journal/": "Trade journal — SQLite CRUD for shadow_trades",
+    "src/journal/": "Trade journal — CRUD for shadow_trades (PostgreSQL runtime)",
     "src/llm/": "Ollama client, packet writer, conviction parser, validator",
     "src/logging/": "Structured logging configuration",
     "src/notifications/": "Telegram bot (32 notification functions)",

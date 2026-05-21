@@ -14,9 +14,9 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.27.0 (2026-04-25: Track 1.5 instrumentation gap closure — 14 rounds, ~16 commits, ~250 new tests, all Critical+Important from both audits cleared, 5-KPI hero strip, broker_exceptions panel, preflight UI echo, SD#46 fix-before-trade principle, Mon $100 deploy deferred post-Cohort-3; prior: v0.26.0 2026-04-23 chain complete + triage bundle; v0.25.0 walk-forward v1; v0.23.4 Telegram refresh; v0.21.0 earnings filter SD#33)
+**Release:** v0.36.x (2026-05 — W21 trading-execution-error cleanup series, run on the local Docker PostgreSQL runtime following the 2026-05 SQLite→Postgres cutover. See `CHANGELOG.md` for per-release detail. Prior milestone: v0.27.0 2026-04-25 Track 1.5 instrumentation gap closure.)
 **Repository:** github.com/millerrc18/arcis (renamed from `halcyon-lab` 2026-04-25; old URL still redirects)
-**Dashboard:** halcyonlab.app (Render static + Python API)
+**Dashboard:** halcyonlab.app — the local dashboard exposed publicly via Cloudflare Tunnel (the `ArcisDashboard` NSSM service); Render hosting decommissioned 2026-05 (see `docs/operations/render-decommission.md`)
 **Operator runbook:** [`docs/operator-guide.md`](docs/operator-guide.md) — daily ops, common commands, troubleshooting, recovery patterns, glossary. Single-source runbook; updated alongside any PR introducing a new operator-relevant procedure.
 
 **Purpose:** Autonomous AI trading system that scans, analyzes, and executes
@@ -35,13 +35,13 @@ under management. Family LP structure planned for external capital.
 with an unbeatable technological moat.
 
 **Tech Stack:**
-- Backend: Python 3.12, FastAPI, SQLite (raw sqlite3, no ORM)
+- Backend: Python 3.12, FastAPI, PostgreSQL (local Docker — the runtime DB since the 2026-05 SQLite→Postgres cutover; raw SQL via a thin engine-aware adapter, no ORM)
 - Frontend: React 19, Tailwind 4, Vite 8, TanStack Query
 - LLM: Ollama local (halcyon-v1.0.0, Qwen3 8B fine-tuned, Q8_0 GGUF 8.7GB)
-- Training: PEFT + TRL 0.24 + BitsAndBytes on RTX 3060 12GB
+- Training: PEFT + TRL 0.24 + BitsAndBytes on RTX 3090 24GB (primary; RTX 3060 12GB secondary — the 2026-05-10 upgrade removed the Unsloth dependency)
 - Trading: Alpaca paper + live API (bracket orders, GTC); IB Gateway dormant
   per SD#41 (`trading.ib_enabled=false`), all code preserved for reactivation
-- Deployment: Render (static frontend + Python API + Postgres read-replica)
+- Deployment: Cloudflare Tunnel exposing the local dashboard (the `ArcisDashboard` NSSM service); Render hosting decommissioned 2026-05
 - Config: YAML (`config/settings.*.yaml`) + `.env` for secrets
 
 ---

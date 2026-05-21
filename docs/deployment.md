@@ -1,6 +1,19 @@
-# Arcis — Render Deployment Guide
+# Arcis — Render Deployment Guide (DEPRECATED)
 
-This guide documents the current Render deployment path for the read-only cloud dashboard. The local machine remains the source of truth for trading, training, and data collection; Render hosts the remote frontend, API, and Postgres mirror.
+> **DEPRECATED as of 2026-05.** Render hosting (web service + Postgres mirror) has been
+> decommissioned. The dashboard is now served from the local machine via **Cloudflare Tunnel**
+> (the `ArcisDashboard` NSSM service), and the runtime database is **local PostgreSQL** following
+> the 2026-05 SQLite→Postgres cutover. The `render_sync.py` mirror and the SQLite runtime path
+> described below are no longer live.
+>
+> Current sources of truth:
+> - Decommission runbook: [`docs/operations/render-decommission.md`](operations/render-decommission.md)
+> - Cutover spec: [`docs/audits/2026-05-10-cloudflare-tunnel-cutover/spec.md`](audits/2026-05-10-cloudflare-tunnel-cutover/spec.md)
+> - Day-to-day ops: [`docs/operator-guide.md`](operator-guide.md)
+>
+> This file is retained for historical reference and rollback context only.
+
+This guide documents the (now-retired) Render deployment path for the read-only cloud dashboard. The local machine remains the source of truth for trading, training, and data collection; Render hosted the remote frontend, API, and Postgres mirror.
 
 ## What Gets Deployed
 
