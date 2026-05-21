@@ -424,7 +424,6 @@ class VRAMManager:
                 time.sleep(3)
 
                 # Verify: if no ollama-named PID still holds VRAM, we're done.
-                # Otherwise, fall through to /im-based kill as belt-and-suspenders.
                 # Dedupe again — same multi-GPU consideration.
                 _still = self._get_gpu_processes()
                 still_holding_pids = {
@@ -432,13 +431,24 @@ class VRAMManager:
                 }
                 if not still_holding_pids:
                     return
+                # v0.36.44: the PID-based kill (taskkill /pid → Stop-Process → wmic)
+                # ran but VRAM is STILL held — the Ollama runner is wedged in a CUDA
+                # syscall (a process stuck in a kernel-mode GPU driver call can't be
+                # terminated until the call returns). The legacy `/im` kill can't
+                # terminate it either; it just blocks for its full timeout (observed
+                # 2026-05-20 18:54: `/im` timed out at 10s, VRAM still held). Skip it
+                # and return — the caller's retry + torch.cuda.empty_cache loop waits
+                # for the driver to reclaim VRAM once the syscall unwinds.
                 logger.warning(
-                    "[VRAM] Ollama still holding VRAM after PID-based kill — "
-                    "falling back to /im"
+                    "[VRAM] Ollama still holding VRAM after PID-based kill — likely "
+                    "wedged in a CUDA syscall; skipping the /im fallback (it cannot "
+                    "kill a wedged process and would just block). Caller will retry."
                 )
+                return
 
-            # Strategy B (fallback): legacy /im kill — covers nvidia-smi missing
-            # or a hung Ollama process not reflected in --query-compute-apps.
+            # Strategy B (fallback): legacy /im kill — ONLY reached when nvidia-smi
+            # found NO ollama-named GPU process (nvidia-smi missing, or Ollama crashed
+            # without a tracked GPU app). The wedged-but-GPU-holding case returns above.
             subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
                            capture_output=True, timeout=10)
             subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
