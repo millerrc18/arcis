@@ -24,6 +24,7 @@ Tests: tests/test_watch_bootstrap.py, tests/test_watch_resilience.py, tests/test
 """
 
 import os
+import subprocess
 import sys
 import time
 import signal
@@ -129,7 +130,6 @@ def _sc_query_running(service_name: str) -> bool:
 
     Reusable by T18 (runtime liveness monitor) — kept at module level.
     """
-    import subprocess
     try:
         result = subprocess.run(
             ["sc", "query", service_name],

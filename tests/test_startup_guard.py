@@ -140,3 +140,10 @@ class TestAssertOllamaWatchdogPresent:
             with patch.dict(os.environ, env, clear=True):
                 with pytest.raises(RuntimeError):
                     _assert_ollama_watchdog_present()
+
+    def test_skip_env_var_truthy_non_one_does_not_bypass(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout=_SC_STOPPED, returncode=0)
+            with patch.dict(os.environ, {"ARCIS_SKIP_WATCHDOG_GUARD": "true"}):
+                with pytest.raises(RuntimeError):
+                    _assert_ollama_watchdog_present()
