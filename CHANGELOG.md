@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### Sprint #94 — Dual-GPU re-cutover (static partition: GPU0=training, GPU1=Ollama)
+## [v0.36.50] — 2026-05-22 — Dual-GPU re-cutover (static partition: GPU0=training, GPU1=Ollama)
 
 Replaces the overnight VRAM handoff pattern with a permanent static GPU partition.
 Training (`src/training/trainer.py`) is pinned to GPU0 (RTX 3090, 24 GB) via `CUDA_VISIBLE_DEVICES=0`.
