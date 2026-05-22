@@ -202,7 +202,9 @@ class TestCheckConnectivity:
         ollama = [r for r in results if r.name == "ollama"][0]
         assert ollama.status == "warn"
 
-    def test_render_db_not_configured(self):
+    def test_render_db_not_configured(self, monkeypatch):
+        # v0.36.48: the Render check only runs PRE-cutover; force cutover off.
+        monkeypatch.delenv("ARCIS_PG_CUTOVER_ENABLED", raising=False)
         config = {"alpaca": {"api_key": "x", "api_secret": "x"},
                   "render": {"enabled": True, "database_url": ""}}
         with patch("requests.get", return_value=MagicMock(status_code=200, json=lambda: {"equity": "100"})), \
@@ -212,10 +214,12 @@ class TestCheckConnectivity:
         assert len(render) == 1
         assert render[0].status == "critical"
 
-    def test_render_db_connect_uses_timeout(self):
+    def test_render_db_connect_uses_timeout(self, monkeypatch):
         """Regression: psycopg2.connect on the startup path must pass
         connect_timeout, otherwise an unreachable Render DB hangs startup
         indefinitely (libpq default is no timeout)."""
+        # v0.36.48: the Render check only runs PRE-cutover; force cutover off.
+        monkeypatch.delenv("ARCIS_PG_CUTOVER_ENABLED", raising=False)
         config = {"alpaca": {"api_key": "x", "api_secret": "x"},
                   "render": {"enabled": True,
                              "database_url": "postgresql://u:p@h:5432/d"}}

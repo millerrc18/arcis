@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+## [v0.36.48] — 2026-05-21 — Startup auto-migrates the LOCAL cutover Postgres (not dead Render)
+
+Root-cause fix for the 2026-05-21 incident where `notifications_sent` +
+`notifications_digest_queue` silently vanished from the live local PG (160
+"relation does not exist" errors) and were never recreated.
+
+The 2026-05-18 PG cutover repointed runtime *writes* to the local PG
+(`ARCIS_PG_CUTOVER_ENABLED=1` + `DATABASE_URL=localhost:5433`), but startup
+*schema management* (`_check_render_postgres`) still targeted
+`config.render.database_url` — the decommissioned Render PG. So the local PG
+schema was unmanaged: drift was never auto-fixed, and startup logged
+`Postgres auto-migrate failed: ...render.com` against a server that no longer
+exists.
+
+- New `_check_cutover_postgres`: when the cutover gate is on, auto-migrates
+  `DATABASE_URL` (the local PG) via the idempotent `create_all_tables` — the
+  same self-heal the SQLite path already does.
+- `_check_render_postgres` now no-ops when the cutover is active (Render is
+  decommissioned; migrating it just fails noisily).
+- Fixed a latent per-startup index DROP/recreate thrash: the drift comparison
+  now normalizes ASC/DESC ordering qualifiers (Postgres stores ordering in
+  `indoption`, not `attname`), so an ordered index like
+  `idx_notifications_sent_event_recent` is no longer falsely seen as drifted
+  on every boot.
+- Severity tiers for the new check: `critical` when the cutover PG (the sole
+  write target) is unreachable; `ok` (with a note) for the expected role-
+  ownership split where a subset of tables are owned by another role and can't
+  be reconciled by the runtime user; `warn` for other DDL errors.
+
+Verified against the live local PG. Does not require a restart to be correct
+now (the 2 missing tables were manually recreated 2026-05-21); takes effect as
+a permanent self-heal on the next startup. The live table-ownership split is
+tracked separately.
+
 ## [v0.36.47] — 2026-05-21 — Audit-alert email throttle (stop the per-restart flood)
 
 `check_escalation` emailed the operator for every flag on every audit run with no

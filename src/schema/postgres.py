@@ -70,6 +70,19 @@ def _pg_index_signature(cur, table_name: str, index_name: str) -> tuple[bool, li
     return bool(row[0]), list(row[1] or [])
 
 
+def _bare_index_cols(cols: list[str]) -> list[str]:
+    """Strip ordering qualifiers so a registry spec like 'sent_at DESC' compares
+    equal to Postgres's bare attname 'sent_at'.
+
+    Postgres stores index column ordering in pg_index.indoption, NOT in attname,
+    so _pg_index_signature can only ever return bare names. Without this
+    normalization any ordered index (e.g. idx_notifications_sent_event_recent on
+    ['event_type', 'sent_at DESC']) is perpetually seen as drifted and gets
+    DROP/recreated on EVERY startup — a needless lock on a live table each boot.
+    """
+    return [c.split()[0] for c in cols]
+
+
 def _reconcile_pg_index(cur, table: TableDef) -> None:
     """Drop/recreate same-name Postgres indexes whose definition drifted."""
     for idx in table.indexes:
@@ -77,7 +90,7 @@ def _reconcile_pg_index(cur, table: TableDef) -> None:
         if signature is None:
             continue
         existing_unique, existing_cols = signature
-        if existing_unique == idx.unique and existing_cols == idx.columns:
+        if existing_unique == idx.unique and existing_cols == _bare_index_cols(idx.columns):
             continue
         logger.info(
             "[SCHEMA] Replacing drifted Postgres index %s on %s: unique=%s cols=%s -> unique=%s cols=%s",

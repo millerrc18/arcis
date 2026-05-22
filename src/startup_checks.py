@@ -298,9 +298,81 @@ def _check_ollama(config: dict) -> CheckResult:
     )
 
 
+def _check_cutover_postgres(config: dict) -> list[CheckResult]:
+    """Auto-migrate the LOCAL cutover Postgres (DATABASE_URL) at startup (v0.36.48).
+
+    When ARCIS_PG_CUTOVER_ENABLED=1, runtime writes route to DATABASE_URL (the
+    local PG), but schema management historically targeted only the Render PG
+    (_check_render_postgres). That left the local PG schema unmanaged — on
+    2026-05-21 notifications_sent + notifications_digest_queue silently dropped
+    and were never recreated (160 'relation does not exist' errors). This makes
+    the local PG self-heal exactly like the SQLite path: create_all_tables +
+    ensure_columns are idempotent and registry-sourced.
+    """
+    results: list[CheckResult] = []
+    if os.environ.get("ARCIS_PG_CUTOVER_ENABLED") != "1":
+        return results
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url.startswith("postgres"):
+        return results  # gate-consistency check already flags this mismatch
+    try:
+        import psycopg2
+    except ImportError:
+        return results  # no PG driver present; nothing to migrate
+    try:
+        # create_all_tables is idempotent and already creates tables, adds columns,
+        # and builds indexes (all IF NOT EXISTS), so a separate ensure_columns pass
+        # is redundant.
+        from src.schema.postgres import create_all_tables
+        create_all_tables(db_url, connect_timeout=5)
+        results.append(CheckResult(
+            name="cutover_pg_schema", category="connectivity", status="ok",
+            detail="Local cutover PG schema verified",
+            fix_hint="",
+        ))
+    except psycopg2.OperationalError as e:
+        # The cutover PG is the SOLE runtime write target — unreachable is critical,
+        # not a benign warning (every connect_db() write would fail post-boot).
+        logger.critical("Cutover Postgres (sole write target) unreachable: %s", e)
+        results.append(CheckResult(
+            name="cutover_pg_schema", category="connectivity", status="critical",
+            detail=f"Local cutover PG (sole write target) unreachable: {e}",
+            fix_hint="Start the local Postgres (DATABASE_URL=localhost:5433) before the watch loop",
+        ))
+    except psycopg2.errors.InsufficientPrivilege as e:
+        # Expected + non-actionable: a subset of tables are owned by a different role
+        # (e.g. 'recommendations' by role 'halcyon', not 'halcyon_app'), so the runtime
+        # user cannot reconcile their indexes/columns. The table self-heal that matters
+        # for this incident already committed in the first (table-creation) phase before
+        # this point. Emit OK (a permanent yellow for a known, stable ownership split is
+        # the persistent-false-positive anti-pattern that flooded the operator before),
+        # keeping the note visible in the detail. The ownership split is tracked separately.
+        logger.info("Cutover PG: tables owned by another role skipped (expected): %s", e)
+        results.append(CheckResult(
+            name="cutover_pg_schema", category="connectivity", status="ok",
+            detail="Local cutover PG tables verified; tables owned by another role "
+                   "were skipped (managed by their owner)",
+            fix_hint="",
+        ))
+    except Exception as e:
+        # DDL hiccup against a reachable DB (e.g. a transient lock) — degraded, not fatal.
+        logger.warning("Cutover Postgres auto-migrate failed (non-connection): %s", e)
+        results.append(CheckResult(
+            name="cutover_pg_schema", category="connectivity", status="warn",
+            detail=f"Local cutover PG auto-migrate failed: {e}",
+            fix_hint="Check Postgres logs; schema may be partially migrated",
+        ))
+    return results
+
+
 def _check_render_postgres(config: dict) -> list[CheckResult]:
     """Check Render Postgres connectivity and schema drift (#307)."""
     results = []
+    # v0.36.48: once the local PG cutover is active, _check_cutover_postgres owns
+    # the schema. The Render PG is decommissioned (2026-05-18); migrating it just
+    # fails noisily against a server that no longer exists.
+    if os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1":
+        return results
     render_cfg = config.get("render", {})
     if not render_cfg.get("enabled"):
         return results
@@ -369,6 +441,7 @@ def _check_render_postgres(config: dict) -> list[CheckResult]:
 def check_connectivity(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
     """Check Alpaca, Ollama, and Render Postgres connectivity."""
     results = [_check_alpaca(config), _check_ollama(config)]
+    results.extend(_check_cutover_postgres(config))
     results.extend(_check_render_postgres(config))
     return results
 
