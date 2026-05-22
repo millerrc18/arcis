@@ -6,7 +6,8 @@ gate tuple, source-scan, package walk) rather than a static snapshot.
 
 Task 2 scope: Convention B.
 Task 3 scope: Convention A (watch-handler ACTIONs).
-Conventions C/D/E are added in later tasks per the sequencing contract in
+Task 4 scope: Convention C (governor-gate DECISIONs).
+Conventions D/E are added in later tasks per the sequencing contract in
 the design spec §8 (guard must land in the SAME batch as or after its target
 registrations).
 """
@@ -17,7 +18,13 @@ import pkgutil
 import pytest
 
 import src.data_collection as dc
-from src.platform.capability_registry import ensure_bootstrapped, list_actions, list_systems
+from src.platform.capability_registry import (
+    ensure_bootstrapped,
+    list_actions,
+    list_decisions,
+    list_systems,
+)
+from src.risk.governor import GOVERNOR_GATES
 from src.scheduler.watch_handlers import ALL_HANDLERS
 
 
@@ -117,4 +124,43 @@ def test_action_count_increased_by_16():
     assert len(scheduler_actions) == 16, (
         f"Expected 16 scheduler category ACTIONs; found {len(scheduler_actions)}: "
         f"{sorted(a.name for a in scheduler_actions)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Convention C — every GOVERNOR_GATES entry is a registered DECISION gate_<g>
+# (DA-4: definition enumeration from the GOVERNOR_GATES tuple, NO check_trade
+# dry-run — check_trade short-circuits at governor.py:613/680 so no fixture
+# emits all 11 gate names. The tuple is the oracle.)
+# ---------------------------------------------------------------------------
+
+def test_every_governor_gate_is_a_registered_decision():
+    """Every GOVERNOR_GATES entry maps to a registered DECISION named gate_<g>.
+
+    Oracle: src.risk.governor.GOVERNOR_GATES (the gate-definition tuple) — live
+    code drives the expected set, so a new gate that skips its register_decision
+    fails CI. This is robust definition-enumeration, not a fragile dry-run.
+    """
+    expected = {f"gate_{g}" for g in GOVERNOR_GATES}
+    registered_names = {d.name for d in list_decisions()}
+    missing = expected - registered_names
+    assert not missing, (
+        f"Governor gates missing register_decision: {sorted(missing)}"
+    )
+
+
+def test_risk_governor_category_decisions_count():
+    """Exactly 12 risk-governor DECISIONs: 11 gates + decision_drawdown_adjusted_risk."""
+    risk_decisions = [d for d in list_decisions() if d.category == "risk-governor"]
+    assert len(risk_decisions) == 12, (
+        f"Expected 12 risk-governor DECISIONs (11 gates + drawdown); "
+        f"found {len(risk_decisions)}: {sorted(d.name for d in risk_decisions)}"
+    )
+
+
+def test_risk_governor_system_registered():
+    """The risk_governor SYSTEM is registered exactly once."""
+    governors = [s for s in list_systems() if s.name == "risk_governor"]
+    assert len(governors) == 1, (
+        f"Expected exactly one risk_governor SYSTEM; found {len(governors)}"
     )

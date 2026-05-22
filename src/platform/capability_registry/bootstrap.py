@@ -53,6 +53,9 @@ CAPABILITY_MODULES: tuple[str, ...] = (
     "src.data_collection.capability_registration",
     # Actions — scheduler watch-loop handlers en-bloc (16 ALL_HANDLERS)
     "src.scheduler.handler_registration",
+    # Decisions + System — governor gates en-bloc (11 gate_ DECISIONs +
+    # risk_governor SYSTEM + decision_drawdown_adjusted_risk)
+    "src.risk.gate_decisions",
     # Decisions — en-bloc file (see evaluation doc §8.1)
     "src.platform.capability_registry.decisions",
 )
