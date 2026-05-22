@@ -309,3 +309,93 @@ def test_t7_no_collision_with_existing_training_entries():
     assert "training_data_audit" in action_names, (
         "pre-existing training_data_audit ACTION must remain"
     )
+
+
+# ---------------------------------------------------------------------------
+# T8 — Evaluation / audit family (keep 3)
+# ---------------------------------------------------------------------------
+
+def test_t8_system_auditor_system_registered():
+    """system_auditor SYSTEM is registered (T8 keep-set)."""
+    names = {s.name for s in list_systems()}
+    assert "system_auditor" in names, "system_auditor SYSTEM missing from registry"
+
+
+def test_t8_model_monitor_system_registered():
+    """model_monitor SYSTEM is registered (T8 keep-set)."""
+    names = {s.name for s in list_systems()}
+    assert "model_monitor" in names, "model_monitor SYSTEM missing from registry"
+
+
+def test_t8_run_backtest_action_registered():
+    """run_backtest ACTION is registered — distinct from strategy_backtest (T8 keep-set)."""
+    action_names = {a.name for a in list_actions()}
+    assert "run_backtest" in action_names, "run_backtest ACTION missing from registry"
+    assert "strategy_backtest" in action_names, (
+        "pre-existing strategy_backtest ACTION must still be present"
+    )
+
+
+def test_t8_health_fns_degrade_not_raise():
+    """system_auditor and model_monitor health fns return valid status dicts (bare env)."""
+    from src.evaluation.capability_registration import (
+        _system_auditor_health,
+        _model_monitor_health,
+    )
+    for fn in (_system_auditor_health, _model_monitor_health):
+        result = fn()
+        assert isinstance(result, dict), f"{fn.__name__} must return dict"
+        assert result.get("status") in {"ok", "degraded", "down"}, (
+            f"{fn.__name__} returned invalid status: {result}"
+        )
+
+
+def test_t8_run_backtest_schema_valid():
+    """run_backtest input_schema is a valid Draft-7 object schema."""
+    from jsonschema import Draft7Validator
+    actions = {a.name: a for a in list_actions()}
+    action = actions["run_backtest"]
+    Draft7Validator.check_schema(action.input_schema)
+    assert action.input_schema.get("type") == "object"
+
+
+# ---------------------------------------------------------------------------
+# T9 — Notifications / attribution family (keep 2)
+# ---------------------------------------------------------------------------
+
+def test_t9_telegram_notifier_system_registered():
+    """telegram_notifier SYSTEM is registered (T9 keep-set)."""
+    names = {s.name for s in list_systems()}
+    assert "telegram_notifier" in names, "telegram_notifier SYSTEM missing from registry"
+
+
+def test_t9_spy_benchmark_state_registered():
+    """spy_benchmark_state STATE is registered (T9 keep-set)."""
+    names = {s.name for s in list_states()}
+    assert "spy_benchmark_state" in names, "spy_benchmark_state STATE missing from registry"
+
+
+def test_t9_telegram_notifier_health_degrades_not_raises():
+    """telegram_notifier health fn returns valid status dict (bare env, no token)."""
+    from src.notifications.capability_registration import _telegram_notifier_health
+    result = _telegram_notifier_health()
+    assert isinstance(result, dict), "_telegram_notifier_health must return dict"
+    assert result.get("status") in {"ok", "degraded", "down"}, (
+        f"_telegram_notifier_health returned invalid status: {result}"
+    )
+
+
+def test_t9_spy_benchmark_state_query_returns_value_key():
+    """spy_benchmark_state query fn returns a dict with a 'value' key (bare env)."""
+    from src.notifications.capability_registration import _spy_benchmark_query
+    result = _spy_benchmark_query()
+    assert isinstance(result, dict), "_spy_benchmark_query must return dict"
+    assert "value" in result, f"_spy_benchmark_query missing 'value' key: {result}"
+
+
+def test_t9_no_collision_with_attribution_resolver():
+    """T9 registrations do not collide with existing attribution_resolver SYSTEM."""
+    names = {s.name for s in list_systems()}
+    assert "attribution_resolver" in names, (
+        "pre-existing attribution_resolver SYSTEM must still be present"
+    )

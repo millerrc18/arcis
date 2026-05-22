@@ -66,6 +66,10 @@ CAPABILITY_MODULES: tuple[str, ...] = (
     "src.council.capability_registration",
     # Training pipeline family — T7 keep-set (3 entries)
     "src.training.capability_registration",
+    # Evaluation / audit family — T8 keep-set (3 entries)
+    "src.evaluation.capability_registration",
+    # Notifications / attribution family — T9 keep-set (2 entries)
+    "src.notifications.capability_registration",
 )
 
 
