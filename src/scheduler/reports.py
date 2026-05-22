@@ -61,21 +61,27 @@ def _compute_max_scan_delay_seconds(conn, metric_date: str) -> float:
     return round(max_delay, 1)
 
 
-def _latest_vram_handoff_ok(conn) -> bool:
-    """Best-effort recent VRAM handoff status.
+def _latest_gpu_health_ok(conn) -> bool:
+    """Best-effort recent GPU health status.
 
-    Returns True when no handoff rows exist yet so the new metric
-    instrumentation does not cause a false-red first day after deploy.
+    Reads BOTH the old vram_handoff_* keys and the new gpu_health_* keys
+    within a 30-day window so the health report stays green across the
+    historical rename boundary.
+
+    Returns True when no rows exist yet so the new metric instrumentation
+    does not cause a false-red first day after deploy.
     """
-    cutoff = (datetime.now(ET) - timedelta(days=3)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(ET) - timedelta(days=30)).strftime("%Y-%m-%d")
     rows = conn.execute(
         "SELECT metric_name, metric_value, metric_date, id FROM schedule_metrics "
-        "WHERE metric_date >= ? AND metric_name IN (?, ?) "
+        "WHERE metric_date >= ? AND metric_name IN (?, ?, ?, ?) "
         "ORDER BY metric_date DESC, id DESC",
         (
             cutoff,
             "vram_handoff_inference_ok",
             "vram_handoff_training_ok",
+            "gpu_health_training_ok",
+            "gpu_health_ollama_ok",
         ),
     ).fetchall()
     if not rows:
@@ -98,7 +104,7 @@ def _collect_schedule_health(db_path: str = DB_PATH) -> dict[str, float | int | 
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         scan_delay_max = _compute_max_scan_delay_seconds(conn, today_str)
-        handoff_ok = _latest_vram_handoff_ok(conn)
+        handoff_ok = _latest_gpu_health_ok(conn)
 
     return {
         "gpu_util": float(snapshot.get("gpu_util_pct") or 0.0),
