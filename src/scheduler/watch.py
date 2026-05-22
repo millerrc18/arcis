@@ -223,9 +223,13 @@ class WatchLoop(HandlerRegistryMixin):
     """Automated daily cadence loop for the AI Research Desk."""
 
     def __init__(self, config: dict, email_mode: str | None = None,
-                 overnight: bool = False):
+                 overnight: bool = False, clock=None, sleep=None):
         self.config = config
         self.overnight = overnight
+        # Injectable clock/sleep seams for the lifecycle simulator (T3).
+        # Defaults reproduce prod behavior exactly: real now(ET) + time.sleep.
+        self._clock = clock or (lambda: datetime.now(ET))
+        self._sleep = sleep or time.sleep
         auto_cfg = config.get("automation", {})
         bootcamp_cfg = config.get("bootcamp", {})
         bootcamp_enabled = bootcamp_cfg.get("enabled", False)
@@ -1720,7 +1724,7 @@ class WatchLoop(HandlerRegistryMixin):
 
         try:
             while not self._shutdown_requested:
-                now = datetime.now(ET)
+                now = self._clock()
 
                 # Write heartbeat every iteration (~60s)
                 try:
@@ -2243,7 +2247,7 @@ class WatchLoop(HandlerRegistryMixin):
                 if self._safe_run("watchdog liveness", self.tick_watchdog_liveness):
                     pass  # cadence managed by _watchdog_liveness_last_check
 
-                time.sleep(60)
+                self._sleep(60)
 
         except (KeyboardInterrupt, SystemExit):
             print(f"\nShutting down watch mode...")
