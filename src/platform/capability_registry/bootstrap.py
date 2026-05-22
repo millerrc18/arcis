@@ -58,6 +58,14 @@ CAPABILITY_MODULES: tuple[str, ...] = (
     "src.risk.gate_decisions",
     # Decisions — en-bloc file (see evaluation doc §8.1)
     "src.platform.capability_registry.decisions",
+    # Execution / exits family — T5 keep-set (3 entries)
+    "src.shadow_trading.capability_registration",
+    # LLM scorer — T6 keep-set part 1 (llm_scorer SYSTEM)
+    "src.llm.capability_registration",
+    # Council engine + build_decision_packet — T6 keep-set part 2
+    "src.council.capability_registration",
+    # Training pipeline family — T7 keep-set (3 entries)
+    "src.training.capability_registration",
 )
 
 

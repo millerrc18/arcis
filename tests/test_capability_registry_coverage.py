@@ -22,6 +22,7 @@ from src.platform.capability_registry import (
     ensure_bootstrapped,
     list_actions,
     list_decisions,
+    list_states,
     list_systems,
 )
 from src.risk.governor import GOVERNOR_GATES
@@ -163,4 +164,148 @@ def test_risk_governor_system_registered():
     governors = [s for s in list_systems() if s.name == "risk_governor"]
     assert len(governors) == 1, (
         f"Expected exactly one risk_governor SYSTEM; found {len(governors)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T5 — Execution / exits family (keep 3)
+# ---------------------------------------------------------------------------
+
+def test_t5_submit_shadow_trade_action_registered():
+    """submit_shadow_trade ACTION is registered (T5 keep-set)."""
+    names = {a.name for a in list_actions()}
+    assert "submit_shadow_trade" in names, (
+        "submit_shadow_trade ACTION missing from registry"
+    )
+
+
+def test_t5_position_exit_manager_system_registered():
+    """position_exit_manager SYSTEM is registered (T5 keep-set)."""
+    names = {s.name for s in list_systems()}
+    assert "position_exit_manager" in names, (
+        "position_exit_manager SYSTEM missing from registry"
+    )
+
+
+def test_t5_trade_reconciler_system_registered():
+    """trade_reconciler SYSTEM is registered — distinct from reconcile_trades (T5)."""
+    names = {s.name for s in list_systems()}
+    assert "trade_reconciler" in names, (
+        "trade_reconciler SYSTEM missing from registry"
+    )
+    assert "reconcile_trades" in names, (
+        "pre-existing reconcile_trades SYSTEM must still be present"
+    )
+
+
+def test_t5_health_fns_degrade_not_raise():
+    """position_exit_manager and trade_reconciler health fns return valid status dicts."""
+    from src.shadow_trading.capability_registration import (
+        _position_exit_manager_health,
+        _trade_reconciler_health,
+    )
+    for fn in (_position_exit_manager_health, _trade_reconciler_health):
+        result = fn()
+        assert isinstance(result, dict), f"{fn.__name__} must return dict"
+        assert result.get("status") in {"ok", "degraded", "down"}, (
+            f"{fn.__name__} returned invalid status: {result}"
+        )
+
+
+def test_t5_submit_shadow_trade_schema_valid():
+    """submit_shadow_trade input_schema is a valid Draft-7 object schema."""
+    from jsonschema import Draft7Validator
+    actions = {a.name: a for a in list_actions()}
+    action = actions["submit_shadow_trade"]
+    Draft7Validator.check_schema(action.input_schema)
+    assert action.input_schema.get("type") == "object"
+
+
+# ---------------------------------------------------------------------------
+# T6 — Scan / LLM / council family (keep 3)
+# ---------------------------------------------------------------------------
+
+def test_t6_llm_scorer_system_registered():
+    """llm_scorer SYSTEM is registered (T6 keep-set)."""
+    names = {s.name for s in list_systems()}
+    assert "llm_scorer" in names, "llm_scorer SYSTEM missing from registry"
+
+
+def test_t6_council_engine_system_registered():
+    """council_engine SYSTEM is registered (T6 keep-set)."""
+    names = {s.name for s in list_systems()}
+    assert "council_engine" in names, "council_engine SYSTEM missing from registry"
+
+
+def test_t6_build_decision_packet_action_registered():
+    """build_decision_packet ACTION is registered (T6 keep-set)."""
+    names = {a.name for a in list_actions()}
+    assert "build_decision_packet" in names, (
+        "build_decision_packet ACTION missing from registry"
+    )
+
+
+def test_t6_health_fns_degrade_not_raise():
+    """llm_scorer and council_engine health fns return valid status dicts (bare env)."""
+    from src.llm.capability_registration import _llm_scorer_health
+    from src.council.capability_registration import _council_engine_health
+    for fn in (_llm_scorer_health, _council_engine_health):
+        result = fn()
+        assert isinstance(result, dict), f"{fn.__name__} must return dict"
+        assert result.get("status") in {"ok", "degraded", "down"}, (
+            f"{fn.__name__} returned invalid status: {result}"
+        )
+
+
+def test_t6_build_decision_packet_schema_valid():
+    """build_decision_packet input_schema is a valid Draft-7 object schema."""
+    from jsonschema import Draft7Validator
+    actions = {a.name: a for a in list_actions()}
+    action = actions["build_decision_packet"]
+    Draft7Validator.check_schema(action.input_schema)
+    assert action.input_schema.get("type") == "object"
+
+
+# ---------------------------------------------------------------------------
+# T7 — Training pipeline family (keep 3)
+# ---------------------------------------------------------------------------
+
+def test_t7_run_finetune_action_registered():
+    """run_finetune ACTION is registered (T7 keep-set)."""
+    names = {a.name for a in list_actions()}
+    assert "run_finetune" in names, "run_finetune ACTION missing from registry"
+
+
+def test_t7_model_promotion_gate_decision_registered():
+    """model_promotion_gate DECISION is registered (T7 keep-set)."""
+    names = {d.name for d in list_decisions()}
+    assert "model_promotion_gate" in names, (
+        "model_promotion_gate DECISION missing from registry"
+    )
+
+
+def test_t7_training_quality_filter_decision_registered():
+    """training_quality_filter DECISION is registered (T7 keep-set)."""
+    names = {d.name for d in list_decisions()}
+    assert "training_quality_filter" in names, (
+        "training_quality_filter DECISION missing from registry"
+    )
+
+
+def test_t7_run_finetune_schema_valid():
+    """run_finetune input_schema is a valid Draft-7 object schema."""
+    from jsonschema import Draft7Validator
+    actions = {a.name: a for a in list_actions()}
+    action = actions["run_finetune"]
+    Draft7Validator.check_schema(action.input_schema)
+    assert action.input_schema.get("type") == "object"
+
+
+def test_t7_no_collision_with_existing_training_entries():
+    """T7 registrations do not collide with existing training_corpus / training_data_audit."""
+    action_names = {a.name for a in list_actions()}
+    state_names = {s.name for s in list_states()}
+    assert "training_corpus" in state_names, "pre-existing training_corpus STATE must remain"
+    assert "training_data_audit" in action_names, (
+        "pre-existing training_data_audit ACTION must remain"
     )
