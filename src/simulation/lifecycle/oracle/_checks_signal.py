@@ -1,5 +1,11 @@
 """Signal / observer-derived invariant checks for the Oracle (Task 9).
 
+Called by: src.simulation.lifecycle.oracle.invariants
+Calls: none (operates on passed-in CapitalLedger / FakeTradingClient / observer)
+Owns tables: none (read-only SELECTs against the ephemeral 5434 sim Postgres)
+Config keys: none
+Tests: tests/simulation/lifecycle/test_oracle.py
+
 These checks compare DB state against the in-memory truth (CapitalLedger,
 FakeTradingClient) and the SwallowedErrorObserver's captured log events.
 Invariants 4 (position parity), 5 (capital conservation), 6 (honest metrics +

@@ -1,5 +1,11 @@
 """The InvariantResult value object shared by every oracle check (Task 9).
 
+Called by: src.simulation.lifecycle.oracle._checks_db, ._checks_signal, .invariants
+Calls: none (stdlib dataclass only)
+Owns tables: none
+Config keys: none
+Tests: tests/simulation/lifecycle/test_oracle.py
+
 Lives in its own module so both ``_checks_db`` and ``_checks_signal`` can import
 it without importing ``invariants`` (which imports them) — no circular import.
 """

@@ -1,5 +1,11 @@
 """DB-derived invariant checks for the lifecycle Oracle (Task 9).
 
+Called by: src.simulation.lifecycle.oracle.invariants
+Calls: none (stdlib hashlib + psycopg connection passed in)
+Owns tables: none (read-only SELECTs against the ephemeral 5434 sim Postgres)
+Config keys: none
+Tests: tests/simulation/lifecycle/test_oracle.py
+
 These checks query the ephemeral 5434 Postgres the simulator wrote to and
 return an ``InvariantResult`` each. Invariants 1, 2, 3, 7 and the determinism
 snapshot (invariant 9) live here; the signal/observer-derived checks (4, 5, 6,
