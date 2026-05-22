@@ -105,35 +105,22 @@ def get_loaded_model_name() -> str:
 
 
 def _check_ollama_health_or_restart() -> bool:
-    """Check Ollama health; attempt restart if unresponsive (#388).
+    """Check Ollama health; fail soft if unresponsive.
 
     After 3+ consecutive inference failures, this function is called before
-    the next attempt. If Ollama doesn't respond to /api/tags, it tries to
-    restart the process. Returns True if Ollama is healthy after the check.
+    the next attempt. Returns True if Ollama is healthy. On unhealthy, logs
+    that ArcisOllamaWatchdog owns recovery and returns False (fail soft).
+
+    The unpinned subprocess.Popen self-restart was removed: it could spawn
+    Ollama on GPU0 and collide with training under the dual-GPU partition.
+    ArcisOllamaWatchdog's 30s loop is the single Ollama recovery owner.
     """
     if is_llm_available():
         return True
 
-    logger.warning("[LLM] Ollama unresponsive after %d consecutive failures — attempting restart",
-                   _consecutive_failures)
-    try:
-        import subprocess
-        # Try ollama serve (it exits immediately if already running)
-        subprocess.Popen(
-            ["ollama", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        # Wait briefly for startup
-        import time
-        time.sleep(5)
-        if is_llm_available():
-            logger.info("[LLM] Ollama restarted successfully")
-            return True
-        logger.warning("[LLM] Ollama still unresponsive after restart attempt")
-    except Exception as e:
-        logger.warning("[LLM] Failed to restart Ollama: %s", e)
+    logger.warning(
+        "[LLM] Ollama unresponsive — ArcisOllamaWatchdog owns recovery (30s loop); failing soft"
+    )
     return False
 
 
