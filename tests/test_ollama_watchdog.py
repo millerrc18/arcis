@@ -61,14 +61,17 @@ def _version_response(status=200):
 # resolve_ollama_exe
 # ---------------------------------------------------------------------------
 
-def test_resolve_ollama_exe_env_var_wins():
-    """OLLAMA_EXE env var takes highest priority."""
+def test_resolve_ollama_exe_env_var_wins(tmp_path):
+    """OLLAMA_EXE env var takes highest priority when the path is a valid file."""
     from src.scheduler.ollama_watchdog import resolve_ollama_exe
 
-    with patch.dict(os.environ, {"OLLAMA_EXE": r"C:\custom\ollama.exe"}, clear=False):
+    fake_exe = tmp_path / "ollama.exe"
+    fake_exe.write_text("fake")
+
+    with patch.dict(os.environ, {"OLLAMA_EXE": str(fake_exe)}, clear=False):
         with patch("shutil.which", return_value=None):
             result = resolve_ollama_exe()
-    assert result == r"C:\custom\ollama.exe"
+    assert result == str(fake_exe)
 
 
 def test_resolve_ollama_exe_path_fallback():
@@ -187,11 +190,12 @@ def test_launch_env_contains_cuda_and_ollama_vars():
     with patch("src.scheduler.ollama_watchdog.subprocess.Popen", side_effect=fake_popen):
         wd._launch()
 
+    from src.scheduler.ollama_watchdog import _OLLAMA_MODELS_PATH
+
     assert captured_env.get("CUDA_VISIBLE_DEVICES") == "1"
     assert captured_env.get("CUDA_DEVICE_ORDER") == "PCI_BUS_ID"
     assert captured_env.get("OLLAMA_NUM_PARALLEL") == "2"
-    assert "OLLAMA_MODELS" in captured_env
-    assert captured_env["OLLAMA_MODELS"] != ""
+    assert captured_env.get("OLLAMA_MODELS") == _OLLAMA_MODELS_PATH
 
 
 def test_launch_ollama_models_absolute_path():
@@ -295,10 +299,12 @@ def test_ensure_owner_no_double_launch_when_already_healthy():
 # ---------------------------------------------------------------------------
 
 def test_ensure_owner_empty_store_not_healthy():
-    """/api/version 200 but /api/tags returns empty models list => not healthy.
+    """/api/version 200 but /api/tags returns empty models list => not adopted.
 
-    MAJOR-4: ensure_owner must NOT adopt; must report unhealthy (False),
-    not treat the empty-store Ollama as valid.
+    MAJOR-4 regression-lock: ensure_owner MUST call preflight (not adopt),
+    MUST return False (re-launched, not adopted), and MUST NOT skip the launch
+    branch. A regression where ensure_owner silently adopts an empty-store
+    Ollama would return True and leave mock_pre uncalled — this test catches it.
     """
     wd = _make_watchdog()
 
@@ -306,27 +312,21 @@ def test_ensure_owner_empty_store_not_healthy():
         if url.endswith("/api/version"):
             return _version_response(200)
         if url.endswith("/api/tags"):
-            return _tags_response([])  # empty store
+            return _tags_response([])  # empty store — MAJOR-4 failure shape
         raise ValueError(f"Unexpected URL: {url}")
 
     with patch("src.scheduler.ollama_watchdog.requests.get", side_effect=fake_get):
-        with patch.object(wd, "preflight"):
-            with patch.object(wd, "_launch"):
+        with patch.object(wd, "preflight") as mock_pre:
+            with patch.object(wd, "_launch") as mock_launch:
                 with patch("src.scheduler.ollama_watchdog.time.sleep"):
                     result = wd.ensure_owner()
 
-    # Must NOT adopt (result False = re-launched; True = adopted)
-    # Either outcome is acceptable as long as it doesn't silently treat empty store as healthy
-    # The key invariant: _store_nonempty must return False for empty tags
-    store_ok = wd._store_has_model()
-    # We can verify _store_has_model directly
-    def fake_get2(url, **kwargs):
-        if url.endswith("/api/tags"):
-            return _tags_response([])
-        raise ValueError
-
-    with patch("src.scheduler.ollama_watchdog.requests.get", side_effect=fake_get2):
-        assert wd._store_has_model() is False
+    # MUST NOT adopt — empty store is not a valid owner
+    assert result is False, "ensure_owner must return False (launch path) for empty store"
+    # MUST have called preflight — proves the adopt branch was NOT taken
+    mock_pre.assert_called_once()
+    # MUST have called _launch — proves a fresh Ollama was started
+    mock_launch.assert_called_once()
 
 
 def test_ensure_owner_missing_tag_not_healthy():
@@ -460,6 +460,94 @@ def test_run_loop_checks_store_invariant_each_iteration():
 # ---------------------------------------------------------------------------
 # __main__ runnable
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Security hardening: _kill_pid PID validation (Finding 1)
+# ---------------------------------------------------------------------------
+
+def test_kill_pid_rejects_zero_pid():
+    """_kill_pid must silently return (not execute any subprocess) for pid <= 0."""
+    wd = _make_watchdog()
+
+    with patch("src.scheduler.ollama_watchdog.subprocess.run") as mock_run:
+        with patch("src.scheduler.ollama_watchdog.subprocess.Popen"):
+            wd._kill_pid(0)
+            wd._kill_pid(-5)
+
+    mock_run.assert_not_called()
+
+
+def test_kill_pid_coerces_string_pid():
+    """_kill_pid must accept a string-typed PID without interpolation risk."""
+    wd = _make_watchdog()
+
+    with patch("src.scheduler.ollama_watchdog.platform.system", return_value="Windows"):
+        with patch("src.scheduler.ollama_watchdog.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            wd._kill_pid("1234")  # type: ignore[arg-type]
+
+    calls_flat = " ".join(str(a) for c in mock_run.call_args_list for a in c[0][0])
+    assert "1234" in calls_flat
+    assert "Stop-Process" not in calls_flat or "1234" in calls_flat
+
+
+def test_kill_pid_oserror_logged(caplog):
+    """OSError from PowerShell Stop-Process fallback must be logged at WARNING, not swallowed."""
+    import logging
+
+    wd = _make_watchdog()
+
+    def mock_run_taskkill_fails(args, **kwargs):
+        if "taskkill" in args:
+            m = MagicMock()
+            m.returncode = 1
+            return m
+        if "powershell" in args:
+            raise OSError("powershell not found")
+        return MagicMock(returncode=0)
+
+    with patch("src.scheduler.ollama_watchdog.platform.system", return_value="Windows"):
+        with patch("src.scheduler.ollama_watchdog.subprocess.run", side_effect=mock_run_taskkill_fails):
+            with caplog.at_level(logging.WARNING, logger="src.scheduler.ollama_watchdog"):
+                wd._kill_pid(9999)
+
+    assert any("OSError" in r.message or "oserror" in r.message.lower() or "kill exhausted" in r.message.lower()
+               for r in caplog.records), "Expected WARNING log for OSError in Stop-Process"
+
+
+# ---------------------------------------------------------------------------
+# Security hardening: resolve_ollama_exe env override validation (Finding 3)
+# ---------------------------------------------------------------------------
+
+def test_resolve_ollama_exe_invalid_override_falls_through(tmp_path):
+    """An OLLAMA_EXE override pointing to a non-existent file must be rejected
+    and resolution must fall through to shutil.which."""
+    from src.scheduler.ollama_watchdog import resolve_ollama_exe
+
+    bogus = str(tmp_path / "does_not_exist.exe")
+
+    with patch.dict(os.environ, {"OLLAMA_EXE": bogus}, clear=False):
+        with patch("shutil.which", return_value=r"C:\fallback\ollama.exe"):
+            result = resolve_ollama_exe()
+
+    assert result == r"C:\fallback\ollama.exe", (
+        f"Expected fallback via shutil.which, got {result!r}"
+    )
+
+
+def test_resolve_ollama_exe_valid_override_accepted(tmp_path):
+    """A valid OLLAMA_EXE override (file exists, correct name) must be returned immediately."""
+    from src.scheduler.ollama_watchdog import resolve_ollama_exe
+
+    fake_exe = tmp_path / "ollama.exe"
+    fake_exe.write_text("fake")
+
+    with patch.dict(os.environ, {"OLLAMA_EXE": str(fake_exe)}, clear=False):
+        with patch("shutil.which", return_value=None):
+            result = resolve_ollama_exe()
+
+    assert result == str(fake_exe)
+
 
 def test_main_entrypoint_exists():
     """Module must be runnable as python -m src.scheduler.ollama_watchdog."""

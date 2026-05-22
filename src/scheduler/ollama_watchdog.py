@@ -67,7 +67,12 @@ def resolve_ollama_exe() -> str | None:
     """
     override = os.environ.get("OLLAMA_EXE") or os.environ.get("OLLAMA_PATH")
     if override:
-        return override
+        is_valid = os.path.isfile(override)
+        if platform.system() == "Windows":
+            is_valid = is_valid and override.lower().endswith("ollama.exe")
+        if is_valid:
+            return override
+        logger.warning("[OLLAMA-WD] OLLAMA_EXE/OLLAMA_PATH override %r is not a valid exe — falling through", override)
     found = shutil.which("ollama")
     if found:
         return found
@@ -174,7 +179,7 @@ class OllamaWatchdog:
                             continue
             else:
                 result = subprocess.run(
-                    ["pgrep", "-f", "ollama"],
+                    ["pgrep", "-x", "ollama"],
                     capture_output=True, text=True, timeout=10,
                 )
                 for line in result.stdout.strip().splitlines():
@@ -210,6 +215,9 @@ class OllamaWatchdog:
         Windows escalation: taskkill /f /t /pid -> PowerShell Stop-Process.
         POSIX: kill -9.
         """
+        pid = int(pid)
+        if pid <= 0:
+            return
         if platform.system() != "Windows":
             try:
                 subprocess.run(["kill", "-9", str(pid)], capture_output=True, timeout=5)
@@ -235,6 +243,8 @@ class OllamaWatchdog:
             logger.info("[OLLAMA-WD] killed Ollama PID %d via Stop-Process", pid)
         except subprocess.TimeoutExpired:
             logger.warning("[OLLAMA-WD] Stop-Process %d timed out — kill exhausted", pid)
+        except OSError as exc:
+            logger.warning("[OLLAMA-WD] Stop-Process %d OSError — kill exhausted: %s", pid, exc)
 
     # ── single-owner pre-flight ───────────────────────────────────────────────
 
@@ -321,6 +331,8 @@ class OllamaWatchdog:
             self._emit_healthy()
             return True
 
+        # Pre-launch: only log for version/tags failures (Ollama isn't up yet, loud emit
+        # would be noise); always _emit_unhealthy after launch since Ollama SHOULD be up.
         if detail in ("empty_model_store", "missing_model_tag"):
             self._emit_unhealthy(detail)
         elif detail != "ok":
