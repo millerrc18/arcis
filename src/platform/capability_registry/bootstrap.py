@@ -49,6 +49,8 @@ CAPABILITY_MODULES: tuple[str, ...] = (
     "src.shadow_trading.reconcile_state",
     "src.attribution.logger",
     "src.platform.capability_registry.audit_registration",
+    # Systems — data-collection en-bloc (18 *_collector.py modules)
+    "src.data_collection.capability_registration",
     # Decisions — en-bloc file (see evaluation doc §8.1)
     "src.platform.capability_registry.decisions",
 )
