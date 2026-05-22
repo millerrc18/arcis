@@ -1,0 +1,50 @@
+name: Lifecycle Smoke
+
+# Per-PR (and per-push) fast wiring/regression tier for the lifecycle simulator.
+# Runs on a bare-metal runner: NO Docker service, NO 5434 PG, NO GPU. The smoke
+# scenario drives run_smoke() against a TEMPORARY SQLite DB, so its integrity
+# verdict is NON-authoritative (SQLite cannot enforce the PG FK/NOT NULL/type
+# constraints the data-integrity invariants assert against). The authoritative
+# integrity gate is the nightly full-gate job in pg-tests.yml — this job exists
+# for wiring + regression coverage on every PR, not integrity authority.
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lifecycle-smoke:
+    runs-on: ubuntu-latest
+    env:
+      # PYTHONUTF8=1 prevents TRL/jinja codec issues on non-UTF-8 systems
+      # (discovered 2026-05-10 during RTX 3090 training-readiness verify).
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        # requirements.txt pins freezegun>=1.5,<2.0 (the simulator clock source);
+        # installing it here ensures the smoke run has its determinism dependency.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-timeout
+
+      - name: Run lifecycle smoke (entrypoints + core lifecycle suite)
+        # The entrypoints test invokes run_smoke() end-to-end on temp SQLite;
+        # the core lifecycle suite is the regression net around it. The 5434
+        # full-gate tests in test_entrypoints.py skip cleanly here (no PG).
+        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=120
+
+      - name: Smoke verdict (run_smoke direct invocation)
+        # Direct call so the rendered, non-authoritative verdict is visible in
+        # the CI log. The job's purpose is wiring/regression, not authority.
+        run: python -c "from src.simulation.lifecycle import run_smoke; r = run_smoke(); print('tier=', r.tier, 'verdict=', r.verdict); print(r.report)"
