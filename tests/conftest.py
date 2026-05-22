@@ -79,6 +79,19 @@ def pytest_configure(config):
     """
     import pytest as _pytest
 
+    # #96 (2026-05-22 prod-wipe RCCA): close the timing hole. src/config loads
+    # .env LAZILY on the first `import src.*`, which can happen AFTER this hook —
+    # so a cwd/.env-provided prod DATABASE_URL (e.g. a worktree's copied .env) used
+    # to slip past this guard and only materialize mid-run, routing DROP/DELETE at
+    # production. Load .env HERE, before reading the env, so the guard sees it at the
+    # earliest hook. override=False so a real shell TEST_DATABASE_URL still wins.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(override=False)
+    except Exception:
+        pass
+
     db_url = os.environ.get("DATABASE_URL", "")
     test_db_url = os.environ.get("TEST_DATABASE_URL", "")
     allow_override = os.environ.get("ARCIS_ALLOW_PROD_PG_IN_TESTS", "").lower() in (
