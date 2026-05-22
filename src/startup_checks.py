@@ -301,13 +301,10 @@ def _check_ollama(config: dict) -> CheckResult:
 def _check_cutover_postgres(config: dict) -> list[CheckResult]:
     """Auto-migrate the LOCAL cutover Postgres (DATABASE_URL) at startup (v0.36.48).
 
-    When ARCIS_PG_CUTOVER_ENABLED=1, runtime writes route to DATABASE_URL (the
-    local PG), but schema management historically targeted only the Render PG
-    (_check_render_postgres). That left the local PG schema unmanaged — on
-    2026-05-21 notifications_sent + notifications_digest_queue silently dropped
-    and were never recreated (160 'relation does not exist' errors). This makes
-    the local PG self-heal exactly like the SQLite path: create_all_tables +
-    ensure_columns are idempotent and registry-sourced.
+    Runtime writes route to DATABASE_URL under the PG cutover, but schema management
+    historically targeted only the dead Render PG, leaving the local PG unmanaged
+    (2026-05-21: notifications_sent silently dropped, never recreated). This self-heals
+    it via idempotent create_all_tables, like the SQLite path.
     """
     results: list[CheckResult] = []
     if os.environ.get("ARCIS_PG_CUTOVER_ENABLED") != "1":
@@ -320,9 +317,7 @@ def _check_cutover_postgres(config: dict) -> list[CheckResult]:
     except ImportError:
         return results  # no PG driver present; nothing to migrate
     try:
-        # create_all_tables is idempotent and already creates tables, adds columns,
-        # and builds indexes (all IF NOT EXISTS), so a separate ensure_columns pass
-        # is redundant.
+        # create_all_tables is idempotent (CREATE ... IF NOT EXISTS for tables/cols/indexes).
         from src.schema.postgres import create_all_tables
         create_all_tables(db_url, connect_timeout=5)
         results.append(CheckResult(
@@ -340,13 +335,9 @@ def _check_cutover_postgres(config: dict) -> list[CheckResult]:
             fix_hint="Start the local Postgres (DATABASE_URL=localhost:5433) before the watch loop",
         ))
     except psycopg2.errors.InsufficientPrivilege as e:
-        # Expected + non-actionable: a subset of tables are owned by a different role
-        # (e.g. 'recommendations' by role 'halcyon', not 'halcyon_app'), so the runtime
-        # user cannot reconcile their indexes/columns. The table self-heal that matters
-        # for this incident already committed in the first (table-creation) phase before
-        # this point. Emit OK (a permanent yellow for a known, stable ownership split is
-        # the persistent-false-positive anti-pattern that flooded the operator before),
-        # keeping the note visible in the detail. The ownership split is tracked separately.
+        # Expected/non-actionable: some tables are owned by another role (e.g.
+        # 'recommendations' by 'halcyon'); the table self-heal already committed in phase 1.
+        # OK-with-note, not a permanent-yellow false positive. Ownership tracked separately.
         logger.info("Cutover PG: tables owned by another role skipped (expected): %s", e)
         results.append(CheckResult(
             name="cutover_pg_schema", category="connectivity", status="ok",

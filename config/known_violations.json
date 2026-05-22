@@ -184,7 +184,8 @@
     },
     {
       "file": "src/startup_checks.py",
-      "lines": 482
+      "lines": 575,
+      "rationale": "v0.36.48 added _check_cutover_postgres (local-PG schema self-heal at startup) to fix the 2026-05-21 notifications_sent table-loss incident. The file is a flat list of independent startup checks; splitting would scatter the check-registry across modules for marginal gain. Function-length kept <=60 via comment-trim."
     },
     {
       "file": "src/evaluation/walkforward.py",
