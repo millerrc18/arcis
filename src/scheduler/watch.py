@@ -24,6 +24,7 @@ Tests: tests/test_watch_bootstrap.py, tests/test_watch_resilience.py, tests/test
 """
 
 import os
+import subprocess
 import sys
 import time
 import signal
@@ -118,6 +119,54 @@ def _is_likely_sleep_gap(elapsed_min: float, scan_interval_min: int) -> bool:
     the buffer absorbs typical scheduler jitter (which is bounded by ~5%
     in practice but spikes occasionally) without missing actual gaps."""
     return elapsed_min > 1.5 * scan_interval_min
+
+
+def _sc_query_running(service_name: str) -> bool:
+    """Return True if `service_name` is in the RUNNING state per `sc query`.
+
+    Runs `sc query <service_name>` via subprocess and parses the stdout for
+    the string "RUNNING".  Returns False on any subprocess error, non-zero
+    exit, or absent/stopped state.  Never raises.
+
+    Reusable by T18 (runtime liveness monitor) — kept at module level.
+    """
+    try:
+        result = subprocess.run(
+            ["sc", "query", service_name],
+            capture_output=True,
+            text=True,
+        )
+        return "RUNNING" in result.stdout
+    except Exception:
+        return False
+
+
+def _assert_ollama_watchdog_present() -> None:
+    """Fail-fast guard: raise RuntimeError if ArcisOllamaWatchdog is not RUNNING.
+
+    Called early in WatchLoop._run_sync_body() before any other startup work.
+    Uses the code-level guard pattern (NOT DependOnService in SCM) to avoid
+    the dependency-wedge that caused a 13-min loop-down (#SCM-wedge incident).
+
+    Escape hatch: set ARCIS_SKIP_WATCHDOG_GUARD=1 to bypass the raise (useful
+    in CI, dev environments, or when intentionally starting without the watchdog).
+    """
+    if _sc_query_running("ArcisOllamaWatchdog"):
+        return
+    if os.environ.get("ARCIS_SKIP_WATCHDOG_GUARD") == "1":
+        logger.warning(
+            "[WATCH] ARCIS_SKIP_WATCHDOG_GUARD=1 — skipping ArcisOllamaWatchdog check"
+        )
+        return
+    logger.critical(
+        "[WATCH] STARTUP BLOCKED: ArcisOllamaWatchdog service is NOT RUNNING. "
+        "Start the service before launching the watch loop, or set "
+        "ARCIS_SKIP_WATCHDOG_GUARD=1 to bypass this check."
+    )
+    raise RuntimeError(
+        "ArcisOllamaWatchdog is not running. "
+        "Start the service or set ARCIS_SKIP_WATCHDOG_GUARD=1 to bypass."
+    )
 
 
 def sweep_stale_diagnostic_runs(db_path: str, stale_after_hours: int = 24) -> int:
@@ -1482,6 +1531,10 @@ class WatchLoop(HandlerRegistryMixin):
             6:00 AM — Pre-market refresh
         """
         self._acquire_lock()
+
+        # T5: code-level startup guard for ArcisOllamaWatchdog (no DependOnService
+        # in SCM — a wedge there caused a 13-min loop-down; we guard in code instead).
+        _assert_ollama_watchdog_present()
 
         # Logging is already configured by main.py → setup_logging() which sets up
         # console + rotating file handler (logs/arcis.log). Only add the DB handler
