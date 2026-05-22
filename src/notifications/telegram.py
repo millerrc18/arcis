@@ -39,7 +39,7 @@ Function groups (32+ functions organized by category):
 
   Overnight & scheduling:
     notify_overnight_complete, notify_overnight_training_complete,
-    notify_vram_handoff, notify_scoring_summary, notify_schedule_health
+    notify_gpu_health, notify_scoring_summary, notify_schedule_health
 
   Periodic reports:
     notify_daily_summary, notify_eod_report, notify_data_asset_report,
@@ -610,13 +610,13 @@ def notify_premarket_complete(features_done: bool, training_gen: int,
     return send_telegram(msg)
 
 
-def notify_vram_handoff(direction: str, success: bool, detail: str = "") -> bool:
-    """Alert: VRAM transition between Ollama and PyTorch."""
+def notify_gpu_health(direction: str, success: bool, detail: str = "") -> bool:
+    """Alert: GPU health transition (training ↔ Ollama inference)."""
     emoji = "✅" if success else "❌"
     if direction == "training":
-        msg = f"{emoji} <b>VRAM → TRAINING</b>\nOllama unloaded, PyTorch subprocess launched"
+        msg = f"{emoji} <b>GPU HEALTH → TRAINING</b>\nOllama unloaded, PyTorch subprocess launched"
     else:
-        msg = f"{emoji} <b>VRAM → INFERENCE</b>\nTraining complete, Ollama loaded and warm"
+        msg = f"{emoji} <b>GPU HEALTH → INFERENCE</b>\nTraining complete, Ollama loaded and warm"
     if detail:
         msg += f"\n{detail}"
     return send_telegram(msg)
@@ -1411,7 +1411,7 @@ _EVENT_MAP_MUTABLE: dict = {
     # Overnight & scheduling
     "overnight_complete": notify_overnight_complete,
     "overnight_training_complete": notify_overnight_training_complete,
-    "vram_handoff": notify_vram_handoff,
+    "gpu_health": notify_gpu_health,
     "scoring_summary": notify_scoring_summary,
     "schedule_health": notify_schedule_health,
     # Periodic reports

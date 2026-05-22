@@ -151,8 +151,8 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "lines": 2432,
-      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). Real split is deferred \u2014 the loop body and helper methods are tightly coupled."
+      "lines": 2762,
+      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). Real split is deferred \u2014 the loop body and helper methods are tightly coupled. #94 dual-GPU: +startup guard (T5), +runtime liveness monitor (T18), +training-lifecycle handlers & flag disambiguation (T10). Split still deferred."
     },
     {
       "file": "src/schema/registry.py",
@@ -175,8 +175,8 @@
     },
     {
       "file": "src/shadow_trading/reconcile.py",
-      "lines": 1042,
-      "rationale": "Sprint 5 Wave A+B base: reconcile.py grew from 901 to 1042 lines. Wave 6 reconciler improvements already grandfathered at 901 (reconcile_paper_trades at 581L); additional cutover-phase reconciler logic pushed it further. Real refactor of reconcile_paper_trades deferred."
+      "lines": 1392,
+      "rationale": "Sprint 5 Wave A+B base: reconcile.py grew from 901 to 1042 lines. Wave 6 reconciler improvements already grandfathered at 901 (reconcile_paper_trades at 581L); additional cutover-phase reconciler logic pushed it further. Real refactor of reconcile_paper_trades deferred. Recorded count was stale (1042) against origin/main, which already carries reconcile.py at 1392 lines from post-Sprint-5 reconciler work UNRELATED to #94 (the dual-GPU sprint did not touch this file — `git log origin/main..HEAD -- src/shadow_trading/reconcile.py` is empty). Bumped to 1392 during the #94 T15 repo-structure audit purely to record reality for CI-green; the underlying split remains owned by the reconciler/cutover track, not by #94."
     },
     {
       "file": "src/simulation/engine.py",
@@ -206,8 +206,8 @@
     },
     {
       "file": "src/training/trainer.py",
-      "lines": 1192,
-      "rationale": "T3 Sprint 2: _resolve_returns_for_gate refactored to return 3-tuple (returns, dates, directions) + SQL filter for actual_entry_time; run_promotion_gate_for_version gained backward-compat unpack branch. +16 lines from prior 1176."
+      "lines": 1463,
+      "rationale": "T3 Sprint 2: _resolve_returns_for_gate refactored to return 3-tuple (returns, dates, directions) + SQL filter for actual_entry_time; run_promotion_gate_for_version gained backward-compat unpack branch. +16 lines from prior 1176. Recorded count (1192) was stale against origin/main, which already carried trainer.py at 1328 lines from post-Sprint-2 training work UNRELATED to #94 (pre-existing drift 1192->1328 = +136). #94 dual-GPU T9 (commit 7c27949b): +135 net lines (1328->1463) for GPU0 pinning (CUDA_VISIBLE_DEVICES), nvidia-smi identity preflight, stop-aware training wait loop, and StopOnFlagCallback. The T9 additions are cohesive single-GPU-pin training-control code; splitting trainer.py is a structural refactor out of #94 scope. Real split deferred to the training-module owner."
     },
     {
       "file": "src/training/versioning.py",
@@ -1153,13 +1153,14 @@
     {
       "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_live_trades",
-      "lines": 203
+      "lines": 304,
+      "rationale": "Pre-existing drift on origin/main (recorded 203, actual 304); the #94 dual-GPU sprint did not touch reconcile.py (0 commits in origin/main..HEAD). Bumped to 304 during the #94 T15 repo-structure audit to record reality for CI-green. Split owned by the reconciler/cutover track, not #94."
     },
     {
       "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_paper_trades",
-      "lines": 581,
-      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). Real refactor of this 581-line function is deferred \u2014 splitting the stale/orphan/stuck-exit logic into helpers is a structural change out of scope for this hotfix."
+      "lines": 669,
+      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). Real refactor of this function is deferred \u2014 splitting the stale/orphan/stuck-exit logic into helpers is a structural change out of scope for this hotfix. Recorded count (581) was stale against origin/main, which already carried this function at 669 lines from post-Wave-6 reconciler work UNRELATED to #94 (the dual-GPU sprint did not touch reconcile.py; 0 commits in origin/main..HEAD). Bumped to 669 during the #94 T15 repo-structure audit to record reality for CI-green."
     },
     {
       "file": "src/simulation/engine.py",
@@ -1375,6 +1376,30 @@
       "function": "collect_filings_sentiment",
       "lines": 61,
       "rationale": "Pre-existing function (not introduced by Sprint 6 Wave A). 61 lines surfaced during PR #1088 review 2026-05-13 alongside fetch_insider_activity grandfather. Function bundles: plan-gate, key resolution, API call, response parsing, batched upsert, exception handling. Refactor candidate: extract _fetch_and_persist_filings (per-ticker inner loop, ~25 lines) so collect_filings_sentiment becomes the plan-gate + driver. Deferred to post-Sprint-6 cleanup track."
+    },
+    {
+      "file": "src/data_collection/stock_financials_collector.py",
+      "function": "collect_stock_financials",
+      "lines": 90,
+      "rationale": "Pre-existing (#1151 Finnhub collectors), NOT introduced by #94 (the dual-GPU sprint); surfaced during the #94 T15 repo-structure audit. 90 lines, 30 over the 60-line limit. Out of dual-GPU scope — defer the real split to the collector owner."
+    },
+    {
+      "file": "src/shadow_trading/reconcile.py",
+      "function": "_liquidate_if_held",
+      "lines": 91,
+      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 91 lines, 31 over the 60-line limit. Out of dual-GPU scope — defer the real split to the reconciler/cutover track."
+    },
+    {
+      "file": "src/shadow_trading/bracket_attach.py",
+      "function": "attach_brackets_for_unprotected_positions",
+      "lines": 152,
+      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 152 lines, 92 over the 60-line limit. Out of dual-GPU scope — defer the real split to the shadow-trading owner."
+    },
+    {
+      "file": "src/utils/codemod.py",
+      "function": "apply_codemod",
+      "lines": 71,
+      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 71 lines, 11 over the 60-line limit. Out of dual-GPU scope — defer the real split to the utils owner."
     }
   ],
   "missing_docstring_headers": [

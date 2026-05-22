@@ -24,6 +24,7 @@ Tests: tests/test_watch_bootstrap.py, tests/test_watch_resilience.py, tests/test
 """
 
 import os
+import subprocess
 import sys
 import time
 import signal
@@ -57,6 +58,11 @@ from src.utils.db import (
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+# Cooperative-then-hard stop budget for the GPU0 training subprocess. Generous
+# enough for the in-loop StopOnFlagCallback to checkpoint and exit cleanly
+# before stop_training_bounded escalates to a hard terminate (MAJOR-3).
+_TRAINING_STOP_TIMEOUT_S = 120
 
 
 class DBLogHandler(logging.Handler):
@@ -118,6 +124,54 @@ def _is_likely_sleep_gap(elapsed_min: float, scan_interval_min: int) -> bool:
     the buffer absorbs typical scheduler jitter (which is bounded by ~5%
     in practice but spikes occasionally) without missing actual gaps."""
     return elapsed_min > 1.5 * scan_interval_min
+
+
+def _sc_query_running(service_name: str) -> bool:
+    """Return True if `service_name` is in the RUNNING state per `sc query`.
+
+    Runs `sc query <service_name>` via subprocess and parses the stdout for
+    the string "RUNNING".  Returns False on any subprocess error, non-zero
+    exit, or absent/stopped state.  Never raises.
+
+    Reusable by T18 (runtime liveness monitor) — kept at module level.
+    """
+    try:
+        result = subprocess.run(
+            ["sc", "query", service_name],
+            capture_output=True,
+            text=True,
+        )
+        return "RUNNING" in result.stdout
+    except Exception:
+        return False
+
+
+def _assert_ollama_watchdog_present() -> None:
+    """Fail-fast guard: raise RuntimeError if ArcisOllamaWatchdog is not RUNNING.
+
+    Called early in WatchLoop._run_sync_body() before any other startup work.
+    Uses the code-level guard pattern (NOT DependOnService in SCM) to avoid
+    the dependency-wedge that caused a 13-min loop-down (#SCM-wedge incident).
+
+    Escape hatch: set ARCIS_SKIP_WATCHDOG_GUARD=1 to bypass the raise (useful
+    in CI, dev environments, or when intentionally starting without the watchdog).
+    """
+    if _sc_query_running("ArcisOllamaWatchdog"):
+        return
+    if os.environ.get("ARCIS_SKIP_WATCHDOG_GUARD") == "1":
+        logger.warning(
+            "[WATCH] ARCIS_SKIP_WATCHDOG_GUARD=1 — skipping ArcisOllamaWatchdog check"
+        )
+        return
+    logger.critical(
+        "[WATCH] STARTUP BLOCKED: ArcisOllamaWatchdog service is NOT RUNNING. "
+        "Start the service before launching the watch loop, or set "
+        "ARCIS_SKIP_WATCHDOG_GUARD=1 to bypass this check."
+    )
+    raise RuntimeError(
+        "ArcisOllamaWatchdog is not running. "
+        "Start the service or set ARCIS_SKIP_WATCHDOG_GUARD=1 to bypass."
+    )
 
 
 def sweep_stale_diagnostic_runs(db_path: str, stale_after_hours: int = 24) -> int:
@@ -239,10 +293,12 @@ class WatchLoop(HandlerRegistryMixin):
         self._daily_scored = 0
         self._tg_last_update_id = 0
 
-        # VRAM handoff flags — RTX 3060 12GB shared between Ollama (inference)
-        # and PyTorch (training). Evening handoff unloads Ollama, morning reloads it.
-        self._vram_handoff_done = False
-        self._morning_handoff_done = False
+        # Training-lifecycle flags (dual-GPU re-cutover) — GPU0 trains overnight
+        # concurrently with Ollama inference on GPU1; no VRAM handoff. Evening
+        # launches training; morning + market-open ceiling stop it.
+        self._evening_training_done = False
+        self._morning_training_stop_done = False
+        self._market_open_stop_done = False
 
         # Pre-market pipeline flags
         self._premarket_features_done = False
@@ -330,6 +386,13 @@ class WatchLoop(HandlerRegistryMixin):
         # Tick: alert silence detector (T14 D5, 5-min cadence)
         self._last_alert_silence_time: datetime | None = None
 
+        # T18: Runtime watchdog-liveness monitor (60s cadence).
+        # _watchdog_last_known_running: None = never checked (no prior state).
+        # Edge-triggered: alarm fires only on RUNNING→not-RUNNING transition.
+        # Re-arms on recovery (not-RUNNING→RUNNING clears armed state).
+        self._watchdog_liveness_last_check: datetime | None = None
+        self._watchdog_last_known_running: bool | None = None
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -359,10 +422,11 @@ class WatchLoop(HandlerRegistryMixin):
         self._enrichment_precache_done = False
         self._1min_bar_collection_done = False
         self._pre_market_done = False
-        # Scoring + VRAM handoffs
+        # Scoring + training-lifecycle flags (daily reset)
         self._daily_scored = 0
-        self._vram_handoff_done = False
-        self._morning_handoff_done = False
+        self._evening_training_done = False
+        self._morning_training_stop_done = False
+        self._market_open_stop_done = False
         # Pre-market pipeline
         self._premarket_features_done = False
         self._premarket_training_done = False
@@ -1045,6 +1109,84 @@ class WatchLoop(HandlerRegistryMixin):
             logger.error("[ALERT_SILENCE] tick_alert_silence failed: %s", exc)
             self._backoff["alert_silence"] = self._backoff.get("alert_silence", 0) + 1
 
+    # ── T18: Runtime watchdog-liveness monitor ──────────────────────────────
+
+    def _ollama_watchdog_metric_fresh(self, db_path: str = DB_PATH) -> bool:
+        """Return True if today's gpu_health_ollama_ok metric is positive.
+
+        Reads the schedule_metrics table for a row with metric_name =
+        'gpu_health_ollama_ok' and metric_date = today (ET). Returns True
+        when the value is > 0, False when absent or zero. Never raises.
+        """
+        try:
+            today = datetime.now(ET).strftime("%Y-%m-%d")
+            with connect_db(db_path) as conn:
+                row = conn.execute(
+                    "SELECT metric_value FROM schedule_metrics "
+                    "WHERE metric_date = ? AND metric_name = ?",
+                    (today, "gpu_health_ollama_ok"),
+                ).fetchone()
+            if row is None:
+                return False
+            return float(row[0] or 0) > 0
+        except Exception:
+            return False
+
+    def tick_watchdog_liveness(self) -> None:
+        """Tick: runtime liveness monitor for ArcisOllamaWatchdog (~60s cadence).
+
+        Authoritative signal: _sc_query_running("ArcisOllamaWatchdog").
+        Corroborating signal: gpu_health_ollama_ok metric freshness.
+
+        Edge-triggered: emits a loud Telegram alarm via safe_send ONLY on a
+        RUNNING→not-RUNNING transition (or fresh→stale corroboration). Re-arms
+        on recovery so a subsequent outage re-alerts.
+
+        Fail-soft: never raises. A broken alarm path must not break the tick.
+        Cadence gate: ~60s, tracked by _watchdog_liveness_last_check.
+        """
+        now = datetime.now()
+        if (
+            self._watchdog_liveness_last_check is not None
+            and (now - self._watchdog_liveness_last_check).total_seconds() < 60
+        ):
+            return
+
+        try:
+            is_running = _sc_query_running("ArcisOllamaWatchdog")
+        except Exception:
+            is_running = False
+
+        self._watchdog_liveness_last_check = now
+
+        prev = self._watchdog_last_known_running
+
+        if is_running:
+            # Recovery path: was not-RUNNING (or first check) → now RUNNING.
+            # Update state; no alarm on recovery itself.
+            self._watchdog_last_known_running = True
+        else:
+            # Not running — check for transition
+            if prev is True:
+                # RUNNING → not-RUNNING: edge-triggered alarm
+                try:
+                    metric_ok = self._ollama_watchdog_metric_fresh()
+                    corroboration = "" if metric_ok else " (metric also stale)"
+                    safe_send(
+                        "system_event",
+                        event="WATCHDOG DOWN",
+                        detail=(
+                            f"ArcisOllamaWatchdog is NOT RUNNING{corroboration}. "
+                            "NSSM may have silently given up. Manual inspection required."
+                        ),
+                        severity="critical",
+                    )
+                except Exception:
+                    pass
+            self._watchdog_last_known_running = False
+
+    # ── end T18 ──────────────────────────────────────────────────────────────
+
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
         safe_send(
@@ -1482,6 +1624,10 @@ class WatchLoop(HandlerRegistryMixin):
             6:00 AM — Pre-market refresh
         """
         self._acquire_lock()
+
+        # T5: code-level startup guard for ArcisOllamaWatchdog (no DependOnService
+        # in SCM — a wedge there caused a 13-min loop-down; we guard in code instead).
+        _assert_ollama_watchdog_present()
 
         # Logging is already configured by main.py → setup_logging() which sets up
         # console + rotating file handler (logs/arcis.log). Only add the DB handler
@@ -2091,6 +2237,12 @@ class WatchLoop(HandlerRegistryMixin):
                 if self._safe_run("alert silence", self.tick_alert_silence):
                     pass  # cadence managed by _last_alert_silence_time
 
+                # Tick: runtime watchdog-liveness monitor (T18, ~60s cadence)
+                # Emits a loud alarm on RUNNING→not-RUNNING transition.
+                # Fail-soft — never blocks the trading path.
+                if self._safe_run("watchdog liveness", self.tick_watchdog_liveness):
+                    pass  # cadence managed by _watchdog_liveness_last_check
+
                 time.sleep(60)
 
         except (KeyboardInterrupt, SystemExit):
@@ -2344,18 +2496,22 @@ class WatchLoop(HandlerRegistryMixin):
         elapsed = (now - self._last_scan_time).total_seconds() / 60
         return max(0, self.scan_interval - elapsed)
 
-    # ── VRAM Handoff Methods ─────────────────────────────────────────
+    # ── Training-Lifecycle Methods (dual-GPU) ────────────────────────
 
-    def _run_evening_handoff(self):
-        """6:50 PM ET — Unload Ollama, launch overnight training subprocess."""
-        from src.scheduler.overnight import run_evening_handoff
-        self._vram_manager = run_evening_handoff(
-            vram_manager=getattr(self, '_vram_manager', None))
+    def _run_evening_training_launch(self):
+        """18:30-04:00 ET, market closed — launch the overnight GPU0 training run."""
+        from src.training.trainer import run_fine_tune
+        run_fine_tune()
 
-    def _run_morning_handoff(self):
-        """5:15 AM ET — Kill training subprocess, reload Ollama."""
-        from src.scheduler.overnight import run_morning_handoff
-        run_morning_handoff(vram_manager=getattr(self, '_vram_manager', None))
+    def _run_morning_training_stop(self):
+        """5:15 AM ET — stop the overnight GPU0 training subprocess (bounded)."""
+        from src.training import training_control
+        training_control.stop_training_bounded(_TRAINING_STOP_TIMEOUT_S)
+
+    def _run_market_open_training_stop(self):
+        """>= 09:25 ET hard-ceiling safety net — stop GPU0 training (bounded)."""
+        from src.training import training_control
+        training_control.stop_training_bounded(_TRAINING_STOP_TIMEOUT_S)
 
     # ── AI Council ────────────────────────────────────────────────
 

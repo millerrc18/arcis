@@ -1,4 +1,4 @@
-"""Capability registration for the 16 ALL_HANDLERS watch-loop handlers.
+"""Capability registration for the 17 ALL_HANDLERS watch-loop handlers.
 
 Each handler is registered as a scheduler ACTION whose name is the
 ``maybe_``-stripped function name (Convention A oracle).  The real
@@ -29,8 +29,8 @@ _INTRODUCED = "v0.36.49"
 # Per-handler metadata: name -> (description, estimated_duration)
 # Name = maybe_-stripped handler __name__ (Convention A oracle).
 _HANDLER_META: dict[str, tuple[str, str]] = {
-    "morning_vram_handoff": (
-        "Unload Ollama and clear VRAM at 5:15 AM weekdays in preparation for pre-market inference.",
+    "morning_training_stop": (
+        "Stop the overnight GPU0 training subprocess at 5:15 AM weekdays (bounded cooperative-then-hard stop).",
         "1-2 minutes",
     ),
     "post_close_capture": (
@@ -38,12 +38,16 @@ _HANDLER_META: dict[str, tuple[str, str]] = {
         "2-5 minutes",
     ),
     "overnight_training_collection": (
-        "Collect training examples at 6:00 PM weekdays before the VRAM handoff at 6:50 PM.",
+        "Collect training examples at 6:00 PM weekdays before the overnight training launch.",
         "5-15 minutes",
     ),
-    "evening_vram_handoff": (
-        "Unload Ollama and launch the overnight training subprocess at 6:50 PM weekdays.",
+    "evening_training_launch": (
+        "Launch the overnight GPU0 training run in the 18:30-04:00 ET window when the market is closed.",
         "1-3 minutes",
+    ),
+    "market_open_training_stop": (
+        "Hard-ceiling safety net at or after 09:25 ET that stops any GPU0 training still running before market open.",
+        "1-2 minutes",
     ),
     "stress_test": (
         "Re-run the model stress test at 7 PM weekdays when the active model version has changed.",

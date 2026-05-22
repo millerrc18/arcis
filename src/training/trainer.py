@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -41,6 +42,14 @@ from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.methods.promotion_gate import promotion_gate
 from src.notifications import safe_send
+from src.training import training_control, training_stop
+
+# MAJOR-5 (dual-GPU re-cutover): the 24 GB RTX 3090 MUST be CUDA index 0 before
+# any training launch. A configured UUID (env override) takes precedence over
+# the name substring so a BIOS/driver reseat that renames but keeps the same
+# card can still be authorized. Mirrors scripts/gpu_placement_smoke.py (T7).
+_TRAIN_GPU0_NAME_SUBSTR = "3090"
+_TRAIN_GPU0_UUID = os.environ.get("ARCIS_TRAIN_GPU0_UUID", "").strip()
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -139,10 +148,28 @@ os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 def main():
-    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainerCallback
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from trl import SFTTrainer, SFTConfig
     from datasets import Dataset
+
+    # Stop-flag callback (inlined: the subprocess cannot import from src/). Mirrors
+    # src/training/stop_callback.py — checkpoints + stops cleanly when the overnight
+    # STOP flag appears so the morning window can hand GPU0 back to inference.
+    _STOP_FLAG = os.environ.get("ARCIS_STOP_FLAG", "")
+
+    class StopOnFlagCallback(TrainerCallback):
+        def _maybe_stop(self, control):
+            if _STOP_FLAG and os.path.exists(_STOP_FLAG):
+                control.should_save = True
+                control.should_training_stop = True
+            return control
+
+        def on_step_end(self, args, state, control, **kwargs):
+            return self._maybe_stop(control)
+
+        def on_evaluate(self, args, state, control, **kwargs):
+            return self._maybe_stop(control)
 
     print(f"[TRAIN] CUDA: {torch.cuda.is_available()}, GPU: {torch.cuda.get_device_name(0)}")
     print(f"[TRAIN] Free VRAM: {torch.cuda.mem_get_info()[0]/1e9:.1f}GB")
@@ -154,10 +181,14 @@ def main():
         bnb_4bit_use_double_quant=True,
     )
 
+    # GPU0 pin (dual-GPU re-cutover, MAJOR-5): device_map={"": 0} forces the
+    # whole model onto cuda:0 (the 3090). "auto" could spill onto GPU1 (3060).
+    # CUDA_VISIBLE_DEVICES=0 in the parent env already masks to one device, so
+    # local index 0 is the 3090.
     model = AutoModelForCausalLM.from_pretrained(
         "Qwen/Qwen3-8B",
         quantization_config=bnb_config,
-        device_map="auto",
+        device_map={"": 0},
         torch_dtype=torch.bfloat16,
     )
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
@@ -236,6 +267,7 @@ def main():
             model=model,
             train_dataset=ds,
             args=sft_config,
+            callbacks=[StopOnFlagCallback()],
         )
         trainer.train()
         print(f"  {name} complete: {len(ds)} examples")
@@ -808,31 +840,15 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
     print("[TRAINING] Running fine-tuning script...")
 
-    # Step 3: Run as subprocess
+    # Step 3: Run as subprocess (GPU0-pinned, stop-aware).
     train_env = _training_subprocess_env()
-    try:
-        result = subprocess.run(
-            [sys.executable, str(script_path)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=train_env,
-            timeout=7200,  # 2 hour timeout
-        )
-    except subprocess.TimeoutExpired:
-        print("[TRAINING] ERROR: Fine-tuning timed out after 2 hours")
+    # MAJOR-5: confirm GPU0 is the 3090 immediately before launch, else abort loud.
+    _assert_gpu0_identity()
+    returncode = _launch_and_wait_training([sys.executable, str(script_path)], train_env)
+    if returncode is None or returncode != 0:
+        print("[TRAINING] ERROR: Training subprocess did not complete successfully "
+              f"(returncode={returncode}).")
         return None
-    except Exception as e:
-        print(f"[TRAINING] ERROR: Failed to run training script: {e}")
-        return None
-
-    if result.returncode != 0:
-        print(f"[TRAINING] ERROR: Training script failed:")
-        print(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
-        return None
-
-    print(result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout)
 
     # Step 4: Find GGUF and register in Ollama
     gguf_path = _find_gguf("training_data")
@@ -1060,11 +1076,130 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
 
 def _training_subprocess_env() -> dict[str, str]:
-    """Environment for Windows-safe UTF-8 training subprocesses."""
+    """Environment for Windows-safe UTF-8 training subprocesses.
+
+    Pins training to GPU0 (the 24 GB RTX 3090) via CUDA_VISIBLE_DEVICES=0 and
+    CUDA_DEVICE_ORDER=PCI_BUS_ID. CVD=0 is also the secondary signal T4's
+    `_is_tracked_training_proc` checks before authorizing a bounded stop.
+    """
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    env["CUDA_VISIBLE_DEVICES"] = "0"
+    env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    # Absolute STOP-flag path so the subprocess's inlined StopOnFlagCallback
+    # watches the same file as training_control / scheduler.overnight.
+    env["ARCIS_STOP_FLAG"] = training_stop.STOP_FLAG
     return env
+
+
+def _assert_gpu0_identity() -> None:
+    """MAJOR-5 launch preflight: abort loud if GPU0 is not the RTX 3090.
+
+    Runs `nvidia-smi --query-gpu=index,name,uuid --format=csv,noheader`, parses
+    it, and raises RuntimeError unless CUDA index 0 is the 3090 (name substring
+    or configured UUID). NEVER train on the 12 GB 3060 and OOM.
+    """
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=index,name,uuid", "--format=csv,noheader"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"MAJOR-5 preflight: nvidia-smi failed (rc={result.returncode}) — "
+            f"refusing to launch training without GPU identity confirmation: "
+            f"{result.stdout}{result.stderr}"
+        )
+    gpu0 = None
+    for line in result.stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            idx = int(parts[0])
+        except ValueError:
+            continue
+        if idx == 0:
+            gpu0 = {"name": parts[1], "uuid": parts[2]}
+            break
+    if gpu0 is None:
+        raise RuntimeError("MAJOR-5 preflight: nvidia-smi reported no GPU at index 0")
+    if _TRAIN_GPU0_UUID:
+        if gpu0["uuid"] != _TRAIN_GPU0_UUID:
+            raise RuntimeError(
+                f"MAJOR-5 IDENTITY FLIP: index0 uuid {gpu0['uuid']!r} != configured "
+                f"{_TRAIN_GPU0_UUID!r}. Aborting launch — would train on the wrong card."
+            )
+    elif _TRAIN_GPU0_NAME_SUBSTR not in gpu0["name"]:
+        raise RuntimeError(
+            f"MAJOR-5 IDENTITY FLIP: index0 is {gpu0['name']!r} (expected RTX 3090). "
+            "Aborting launch — would train on the 12 GB 3060 and OOM. "
+            "Resolve BIOS/driver index assignment before proceeding."
+        )
+
+
+def _wait_for_training_proc(
+    proc, timeout_s: int = 7200, poll_interval: float = 2.0,
+) -> int | None:
+    """Block until the training subprocess exits; honor the overnight STOP flag.
+
+    Polls proc.poll(); if training_stop.is_stop_requested() flips True, hands
+    off to training_control.stop_training_bounded(...) for a bounded cooperative
+    -then-hard stop. Enforces a timeout_s ceiling. MUST NOT return until the
+    subprocess has exited (or a stop/timeout has driven termination) — downstream
+    canary/holdout logic assumes training completed on return.
+    """
+    deadline = time.monotonic() + max(0, timeout_s)
+    while True:
+        rc = proc.poll()
+        if rc is not None:
+            return rc
+        if training_stop.is_stop_requested():
+            logger.warning("[TRAINING] STOP flag observed — bounded-stopping training subprocess.")
+            training_control.stop_training_bounded(min(300, timeout_s))
+            return proc.poll()
+        if time.monotonic() >= deadline:
+            logger.error("[TRAINING] Training exceeded %ss ceiling — bounded-stopping.", timeout_s)
+            training_control.stop_training_bounded(min(300, timeout_s))
+            return proc.poll()
+        time.sleep(poll_interval)
+
+
+def _write_training_pid(pid: int) -> None:
+    """Record the training subprocess PID at training_control.TRAINING_PID_FILE.
+
+    Single source of truth shared with T4's stop logic (do NOT hardcode a
+    relative logs/training.pid — it resolves wrong under LocalSystem cwd).
+    """
+    pid_file = training_control.TRAINING_PID_FILE
+    try:
+        os.makedirs(os.path.dirname(pid_file), exist_ok=True)
+        with open(pid_file, "w", encoding="utf-8") as f:
+            f.write(str(pid))
+    except OSError as exc:
+        logger.warning("[TRAINING] Could not write training pidfile %s: %s", pid_file, exc)
+
+
+def _launch_and_wait_training(cmd: list[str], env: dict[str, str]) -> int | None:
+    """Popen the training cmd pinned to GPU0, record the PID, then stop-aware wait.
+
+    Uses BELOW_NORMAL_PRIORITY_CLASS on Windows so inference stays responsive.
+    Writes the PID to TRAINING_PID_FILE AFTER Popen so T4's stop logic can find
+    it. Returns the subprocess returncode (never returns before exit/stop).
+    """
+    creationflags = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    proc = subprocess.Popen(cmd, env=env, creationflags=creationflags)
+    _write_training_pid(proc.pid)
+    try:
+        return _wait_for_training_proc(proc, timeout_s=7200)
+    finally:
+        # Clear our pidfile best-effort so a recycled PID can't mislead T4 later.
+        try:
+            os.remove(training_control.TRAINING_PID_FILE)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
 
 def _resolve_returns_for_gate(

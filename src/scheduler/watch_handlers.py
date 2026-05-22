@@ -44,14 +44,14 @@ def _is_overnight_window(watch: "WatchLoop", now: datetime) -> bool:
 # ── Overnight schedule — 14 handlers ────────────────────────────────────
 
 
-def maybe_morning_vram_handoff(watch: "WatchLoop", now: datetime) -> None:
-    """5:15 AM weekdays — unload Ollama, clear VRAM for pre-market inference."""
+def maybe_morning_training_stop(watch: "WatchLoop", now: datetime) -> None:
+    """5:15 AM weekdays — stop the overnight GPU0 training subprocess."""
     if not _is_overnight_window(watch, now):
         return
     if (now.weekday() < 5 and now.hour == 5 and now.minute >= 15
-            and not watch._morning_handoff_done):
-        if watch._safe_run("morning VRAM handoff", watch._run_morning_handoff):
-            watch._morning_handoff_done = True
+            and not watch._morning_training_stop_done):
+        if watch._safe_run("morning training stop", watch._run_morning_training_stop):
+            watch._morning_training_stop_done = True
 
 
 def maybe_post_close_capture(watch: "WatchLoop", now: datetime) -> None:
@@ -65,7 +65,7 @@ def maybe_post_close_capture(watch: "WatchLoop", now: datetime) -> None:
 
 
 def maybe_overnight_training_collection(watch: "WatchLoop", now: datetime) -> None:
-    """6:00 PM weekdays — collect training examples before the VRAM handoff at 6:50."""
+    """6:00 PM weekdays — collect training examples before the evening training launch."""
     if not _is_overnight_window(watch, now):
         return
     if (now.weekday() < 5 and now.hour == 18 and watch.training_enabled
@@ -75,14 +75,23 @@ def maybe_overnight_training_collection(watch: "WatchLoop", now: datetime) -> No
             watch._overnight_training_collection_done = True
 
 
-def maybe_evening_vram_handoff(watch: "WatchLoop", now: datetime) -> None:
-    """6:50 PM weekdays — unload Ollama, launch overnight training subprocess."""
+def _in_evening_training_window(now: datetime) -> bool:
+    """True iff now (tz-aware ET) is in the 18:30-04:00 ET launch window.
+
+    The window wraps past midnight, so it matches >= 18:30 OR < 04:00.
+    """
+    after_1830 = now.hour > 18 or (now.hour == 18 and now.minute >= 30)
+    before_0400 = now.hour < 4
+    return after_1830 or before_0400
+
+
+def maybe_evening_training_launch(watch: "WatchLoop", now: datetime) -> None:
+    """18:30-04:00 ET, market closed — launch the overnight GPU0 training run."""
     if not _is_overnight_window(watch, now):
         return
-    if (now.weekday() < 5 and now.hour == 18 and now.minute >= 50
-            and not watch._vram_handoff_done):
-        if watch._safe_run("evening VRAM handoff", watch._run_evening_handoff):
-            watch._vram_handoff_done = True
+    if _in_evening_training_window(now) and not watch._evening_training_done:
+        if watch._safe_run("evening training launch", watch._run_evening_training_launch):
+            watch._evening_training_done = True
 
 
 def maybe_stress_test(watch: "WatchLoop", now: datetime) -> None:
@@ -251,10 +260,10 @@ def _send_stats_pulse(label: str) -> None:
 # ── Canonical handler lists — consumed by WatchLoop._register_default_handlers ──
 
 OVERNIGHT_HANDLERS = [
-    maybe_morning_vram_handoff,
+    maybe_morning_training_stop,
     maybe_post_close_capture,
     maybe_overnight_training_collection,
-    maybe_evening_vram_handoff,
+    maybe_evening_training_launch,
     maybe_stress_test,
     maybe_data_collection,
     maybe_news_ingestion,
@@ -281,9 +290,23 @@ def maybe_walkforward_reconciler(watch: "WatchLoop", now: datetime) -> None:
     )
 
 
+def maybe_market_open_training_stop(watch: "WatchLoop", now: datetime) -> None:
+    """>= 09:25 ET hard-ceiling safety net — stop training before market open.
+
+    Daytime handler: fires regardless of overnight mode so a loop restarted
+    after 09:20 (with the done-flag freshly False) still trips the ceiling and
+    stops any GPU0 training that overran the morning stop.
+    """
+    if (now.hour, now.minute) >= (9, 25) and not watch._market_open_stop_done:
+        if watch._safe_run("market-open training stop",
+                           watch._run_market_open_training_stop):
+            watch._market_open_stop_done = True
+
+
 DAYTIME_HANDLERS = [
     maybe_stats_pulse,
     maybe_walkforward_reconciler,
+    maybe_market_open_training_stop,
 ]
 
 ALL_HANDLERS = OVERNIGHT_HANDLERS + DAYTIME_HANDLERS
