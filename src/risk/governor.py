@@ -513,6 +513,27 @@ def check_tier_transition(config: dict, db_path: str = DB_PATH) -> dict | None:
     return None
 
 
+# Strategy gate names emitted by RiskGovernor.check_trade, in declaration
+# order (the check['name'] string for each non-framework gate). Excludes the
+# two framework checks input_surface/governor_disabled. Used as the oracle
+# for the capability registry's gate DECISIONs and Convention C; keep in sync
+# with the "name": "..." literals in check_trade (a static source-scan test
+# enforces this).
+GOVERNOR_GATES = (
+    "traffic_light",
+    "event_risk",
+    "deterministic_audit",
+    "emergency_halt",
+    "daily_loss",
+    "position_size",
+    "max_positions",
+    "sector_concentration",
+    "correlation",
+    "volatility_halt",
+    "duplicate",
+)
+
+
 class RiskGovernor:
     """Hard risk limits enforced before every trade.
 
