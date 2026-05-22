@@ -5,6 +5,7 @@ Houses the anti-masking machinery that lets the simulator distinguish
 these observers to assert fail-conservative invariants.
 """
 
+from src.simulation.lifecycle.oracle.capital import CapitalLedger
 from src.simulation.lifecycle.oracle.error_observer import SwallowedErrorObserver
 
-__all__ = ["SwallowedErrorObserver"]
+__all__ = ["CapitalLedger", "SwallowedErrorObserver"]
