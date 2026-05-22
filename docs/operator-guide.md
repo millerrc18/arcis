@@ -343,9 +343,9 @@ The methodology gate (Stage 2 prerequisite) is live as of Sprint 2 — implement
 │                                           ├─► Render sync ──────► Cloud Postgres (every 5 min)       │
 │                                           └─► Build score / HSHS / dashboard refresh                  │
 │                                                                                                       │
-│   Ollama daemon ─────────────────►  Qwen3-8B fine-tune (arcis:v1.0.0) on GPU                         │
-│   (separate process,                  Watchdog (scripts/ollama_watchdog.ps1) auto-restarts on death  │
-│    poll-restarted by watchdog)                                                                        │
+│   Ollama daemon ─────────────────►  Qwen3-8B fine-tune (arcis:v1.0.0) on GPU1 (RTX 3060, static)    │
+│   (NSSM service ArcisOllamaWatchdog   GPU1 permanently resident — no VRAM handoff.                   │
+│    via src/scheduler/ollama_watchdog.py; Watchdog auto-restarts on death)                             │
 │                                                                                                       │
 │   SQLite DB  C:\arcis\data\ai_research_desk.sqlite3  (~1 GB, 70 schema-registered tables)            │
 │                                                                                                       │
@@ -406,9 +406,7 @@ In parallel, the bracket monitor runs every 5 min:
 
 **Overnight (16:35 ET – 07:00 ET)**
 - Data collection sweep — fresh fundamentals, news, macros (runs 7 days/week per CLAUDE.md)
-- VRAM handoff — Ollama unloads, training process can claim GPU
-- Training cycle (when corpus + outcomes ready) — retrains on accumulated trade outcomes
-- VRAM handoff back — training releases, Ollama reloads before pre-market
+- Training cycle (when corpus + outcomes ready) — retrains on accumulated trade outcomes (GPU0/RTX 3090 only; Ollama stays resident on GPU1 — no VRAM handoff required)
 
 ### 0.5 The data lifecycle
 
@@ -670,11 +668,12 @@ DATABASE_URL=$(python -c "import yaml; cfg=yaml.safe_load(open('config/settings.
 **Prerequisite: Ollama watchdog MUST be running** (see §7 "Ollama watchdog"). Without it, a single Ollama crash will silently produce template-fallback entries that pollute training data — see §5 "Corpus producing template fallbacks".
 
 ```bash
-# 0. Start the watchdog (one-time per machine boot, see §7 for WMI variant)
-scripts\start_ollama_watchdog.bat
+# 0. Ensure the watchdog NSSM service is running (one-time per machine boot)
+nssm start ArcisOllamaWatchdog
+# (Service is installed via scripts/install_service.ps1 install — see §7)
 
 # 1. Initial launch (Stage 1) — NUM_PARALLEL=2 is the validated stable config
-#    on the RTX 3060 (12 GiB VRAM). At --num-parallel 4 the runner CUDA-OOMs.
+#    on the RTX 3060 (12 GiB VRAM, GPU1). At --num-parallel 4 the runner CUDA-OOMs.
 #    See §5 "Ollama crashes" for VRAM math.
 python scripts/generate_llm_corpus.py \
   --corpus-id stage1-001 \
@@ -757,8 +756,8 @@ python -m ruff format src/ tests/
 | `C:\arcis\halcyon-lab\logs\ollama-daemon.out` | Captured stdout from Ollama daemon |
 | `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl` | Generated corpus entries (append-only) |
 | `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl.bak.<N>` | Manual backups — `.bak.<line-count>` convention before any destructive trim |
-| `C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1` | Ollama watchdog (poll /api/tags, restart, capture stderr, circuit-breaker) |
-| `C:\arcis\halcyon-lab\scripts\start_ollama_watchdog.bat` | Convenience launcher for the watchdog |
+| `C:\arcis\halcyon-lab\src\scheduler\ollama_watchdog.py` | Ollama watchdog (poll /api/tags, restart, capture stderr, circuit-breaker) — runs as NSSM service `ArcisOllamaWatchdog` |
+| `C:\arcis\halcyon-lab\scripts\install_service.ps1` | Installs both `ArcisWatchLoop` and `ArcisOllamaWatchdog` NSSM services (`install` subcommand) |
 | `C:\arcis\halcyon-lab\.venv\` | Python virtualenv (gitignored) |
 | `C:\arcis\halcyon-lab\.env` | Secrets (gitignored) |
 | `C:\arcis\halcyon-lab\.claude\worktrees\` | Agent worktrees (auto-managed; safe to bulk-prune merged) |
@@ -1389,9 +1388,8 @@ python -m src.main validate-schema --fix
 python -c "import sqlite3; c=sqlite3.connect('file:C:/arcis/data/ai_research_desk.sqlite3?mode=ro',uri=True); c.execute('PRAGMA quick_check').fetchone()"
 # Should print ('ok',). Anything else → §6 "Corrupted SQLite WAL after power loss".
 
-# 6. Restart Ollama watchdog (will start Ollama itself).
-$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
-Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+# 6. Restart Ollama watchdog service (will start/restart Ollama itself).
+nssm restart ArcisOllamaWatchdog
 
 # 7. Restart watch loop.
 python -m src.main startup
@@ -1516,27 +1514,23 @@ grep -c "fallback to template" C:/arcis/halcyon-lab/logs/corpus-stage1-001.err
 
 Background-monitor that polls `http://127.0.0.1:11434/api/tags` every 30s and auto-restarts Ollama on death. Closes the diagnostic gap from running `Start-Process -WindowStyle Hidden` (which discards stderr); the watchdog redirects stderr to `logs/ollama-daemon.err` so the next CUDA OOM is operator-visible.
 
-**Start (operator at console / RDP):**
-```bash
-scripts\start_ollama_watchdog.bat
-```
-Logs accumulate at `logs/ollama-watchdog.log`. Tail to monitor.
-
-**Start (SSH-disconnect-safe):** use the WMI pattern in "SSH-safe process launch" below with this command:
+**Start / restart:**
 ```powershell
-$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
-Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+nssm start ArcisOllamaWatchdog
+# or, if already running:
+nssm restart ArcisOllamaWatchdog
 ```
+Service is installed via `scripts/install_service.ps1 install` (run once from an elevated PowerShell, see §Cutover Runbook Step 2). Logs accumulate at `logs/ollama-watchdog.log`. Tail to monitor.
 
 **Verify it's working:**
 ```powershell
-Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | Format-List ProcessId, CreationDate
+nssm status ArcisOllamaWatchdog
 Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 5
 ```
 
 **Stop the watchdog:**
 ```powershell
-Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+nssm stop ArcisOllamaWatchdog
 ```
 
 **Circuit breaker:** 3 restarts in any rolling 10-minute window pauses the watchdog for 5 minutes and dumps last 10 lines of `daemon.err` to the watchdog log. Indicates persistent driver/hardware issue (not transient OOM). Investigate before resuming the corpus.
@@ -1568,10 +1562,9 @@ Get-CimInstance Win32_Process -Filter "ProcessId=$($result.ProcessId)" | Select-
    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
    ```
 
-2. **Watchdog**:
+2. **Watchdog** — the `ArcisOllamaWatchdog` NSSM service already runs in Session 0 and survives SSH disconnect. Use NSSM directly:
    ```powershell
-   $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
-   Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+   nssm restart ArcisOllamaWatchdog
    ```
 
 **To stop a WMI-launched process:** `Stop-Process -Id <pid> -Force`. The WMI launch was just a means of detachment; once running, it's a normal process.
@@ -1818,7 +1811,7 @@ Red flags to investigate before market open:
 | **T-A1, T-B3, etc.** | Sprint task identifiers (T = Task). e.g., Sprint 1.A Wave 2/3 had T-A1 (live_prices time column), T-B3 (backtester subtract_trading_days), etc. |
 | **Walkforward** | `src/evaluation/walkforward.py` — anchored cross-validation. R1-R8 rigor requirements per pre-reg addendum |
 | **Watch loop** | Main runtime daemon (`src/scheduler/watch.py::WatchLoop`). Single instance per host (PID lockfile) |
-| **(Ollama) Watchdog** | `scripts/ollama_watchdog.ps1` — separate from the watch loop. Polls `/api/tags` every 30s, auto-restarts Ollama on death, captures daemon stderr to `logs/ollama-daemon.err` for crash diagnostics. Required before any corpus generation run. See §7 |
+| **(Ollama) Watchdog** | `src/scheduler/ollama_watchdog.py` — Python module running as NSSM service `ArcisOllamaWatchdog`. Separate from the watch loop. Polls `/api/tags` every 30s, auto-restarts Ollama on death, captures daemon stderr to `logs/ollama-daemon.err` for crash diagnostics. GPU1-pinned (RTX 3060). Installed via `scripts/install_service.ps1 install`. See §7 |
 | **Worktree** | Independent git working directory sharing the same `.git` repo. Used for parallel agent isolation |
 | **Template-fallback entry** | A corpus entry written by `packet_writer.py` when the LLM call failed (Ollama unreachable / parse failure / etc.). Discriminator: response < 1500 chars AND starts with rigid `<TICKER> is in a [strong\|weak]? (uptrend\|downtrend\|neutral)` prefix. Currently shares `model_version="arcis:v1.0.0"` with real LLM entries — a forthcoming packet_writer change will add distinct tagging. Real LLM responses are 2400-3000 chars and start with natural-language analysis |
 | **WMI launch / Session 0** | `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=...}`. Launches a process detached from the calling session — survives SSH disconnect. Process lands in Session 0 (services), no GUI. Use for corpus + watchdog + any long-running ops process. See §7 |
@@ -3277,3 +3270,324 @@ Confirm disabled via `[6/6] Services` startup output —
 ---
 
 End of Walk-Forward Validation Gate section.
+
+---
+
+## Dual-GPU Cutover Runbook (#94 — operator-gated Phase 3)
+
+> **DO NOT execute any step in this section until you are ready to run the full cutover.**
+> This is a Phase 3 operator-gated procedure. All code was landed in Waves 1–3 of sprint #94;
+> this section documents the live activation sequence and the two-path rollback.
+> Read the entire section — including both rollback paths — before starting Step 1.
+
+### Background
+
+Sprint #94 implements a static GPU partition:
+
+- **GPU0 (RTX 3090, 24 GB)** — training only (`src/training/trainer.py` pins via `CUDA_VISIBLE_DEVICES=0`)
+- **GPU1 (RTX 3060, 12 GB)** — Ollama inference only (`ArcisOllamaWatchdog` pins via `CUDA_VISIBLE_DEVICES=1`)
+
+The overnight VRAM handoff pattern (Ollama unloads → training claims GPU → Ollama reloads) is **replaced** by training-lifecycle watch-loop handlers (`training_start`, `training_stop`) that co-exist with a permanently-resident Ollama on GPU1. The watchdog (`src/scheduler/ollama_watchdog.py`) is now a Python NSSM service (`ArcisOllamaWatchdog`) instead of a PowerShell script, and carries the GPU1 env-pin in its NSSM `AppEnvironmentExtra`.
+
+Key new components landed in Waves 1–3:
+
+| Component | What it does |
+|---|---|
+| `ArcisOllamaWatchdog` NSSM service | Owns Ollama lifecycle; GPU1-pinned; crash-escalation with `AppThrottle=30s` + `AppRestartDelay=15s` |
+| `src/scheduler/ollama_watchdog.py` | Python watchdog replacing `scripts/ollama_watchdog.ps1` |
+| `scripts/install_service.ps1` `install` | Installs BOTH `ArcisWatchLoop` and `ArcisOllamaWatchdog` |
+| `scripts/gpu_placement_smoke.py` | Two-phase gate: identity (index0=3090, index1=3060) + placement (Ollama VRAM on GPU1) |
+| `src/training/trainer.py` GPU0 pin + identity preflight | Guards against BIOS/driver index flip before launch |
+| `src/scheduler/watch.py` no-DependOnService guard | Watch loop has no SCM dependency on `ArcisOllamaWatchdog`; avoids SCM cache wedge |
+| `gpu_health_*` telemetry | Replaces `vram_handoff_*` metric names; 30-day dual-read bridge live |
+| `src/scheduler/runtime_liveness_monitor.py` | Periodic liveness ticks for `ArcisOllamaWatchdog`; detects silent crashes |
+
+### Cutover sequence
+
+Run every step in order. Do not skip or reorder.
+
+#### Step 1 — Merge dual-GPU branch to main
+
+Merge the dual-GPU sprint (#94) PR to main first. Simulation #1162 / sprint #97 is held — it rebases AFTER the dual-GPU merge lands. See [MINOR-2 below](#minor-2-sim-11621097-later-rebase-note) for the semantic rebase guidance.
+
+Verify the merge landed:
+
+```powershell
+git -C C:\arcis\halcyon-lab log --oneline -5
+```
+
+#### Step 2 — Install ArcisOllamaWatchdog via install_service.ps1
+
+Run from an **elevated** (Administrator) PowerShell session:
+
+```powershell
+cd C:\arcis\halcyon-lab
+.\scripts\install_service.ps1 install
+```
+
+The `install` command runs two sub-functions in sequence:
+
+1. `Invoke-Install` — installs `ArcisWatchLoop` (the main watch-loop service) with `AppExit Default Restart` + `AppRestartDelay 10s`.
+2. `Invoke-WatchdogInstall` — installs `ArcisOllamaWatchdog` with:
+   - Executable: `.venv\Scripts\python.exe -m src.scheduler.ollama_watchdog`
+   - `AppEnvironmentExtra`: `OLLAMA_MODELS=C:\Users\mille\.ollama\models`, `CUDA_VISIBLE_DEVICES=1`, `CUDA_DEVICE_ORDER=PCI_BUS_ID`
+   - `AppExit Default Restart` + `AppThrottle 30000` + `AppRestartDelay 15000`
+   - **No `DependOnService`** — avoids the SCM cache wedge (2026-05-22 incident: removing a `DependsOn` target without clearing the dependency wedged the SCM cache, causing a 13-min loop-down)
+
+If `ArcisOllamaWatchdog` already exists (e.g., re-running after a partial install), uninstall first:
+
+```powershell
+nssm stop ArcisOllamaWatchdog
+nssm remove ArcisOllamaWatchdog confirm
+.\scripts\install_service.ps1 install
+```
+
+Verify the service started:
+
+```powershell
+nssm status ArcisOllamaWatchdog
+# Expected: SERVICE_RUNNING
+```
+
+#### Step 3 — Disable GPU0 Ollama autostart
+
+The watchdog now owns Ollama startup. Remove the user-level Ollama autostart entry so the watchdog launches a fresh GPU1-pinned Ollama without racing a pre-existing GPU0 Ollama:
+
+```powershell
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Ollama" -ErrorAction SilentlyContinue
+```
+
+Verify the key is gone (should return nothing):
+
+```powershell
+Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "Ollama" -ErrorAction SilentlyContinue
+```
+
+If a stale Ollama process is still running on GPU0 from the previous autostart, kill it before proceeding:
+
+```powershell
+Get-Process -Name "ollama*" -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+Wait ~5 seconds for Ollama to stop, then allow the watchdog to launch a fresh GPU1-pinned instance.
+
+#### Step 4 — Run gpu_placement_smoke.py (HARD GATE — must PASS before proceeding)
+
+```powershell
+cd C:\arcis\halcyon-lab
+.venv\Scripts\python.exe scripts/gpu_placement_smoke.py
+```
+
+The script runs two phases:
+
+**Phase 1 — Identity check (MAJOR-5):**
+- Queries `nvidia-smi --query-gpu=index,name,uuid`
+- Asserts `index0` is an RTX **3090** (24 GB) and `index1` is an RTX **3060** (12 GB)
+- A BIOS/driver reseat can silently flip these indices; training on the 12 GB card OOMs
+
+**Phase 2 — Placement check:**
+- Launches `ollama serve` with `CUDA_VISIBLE_DEVICES=1` + `CUDA_DEVICE_ORDER=PCI_BUS_ID`
+- Waits for Ollama to load the model, then queries `nvidia-smi --query-compute-apps=gpu_index,...`
+- Asserts Ollama VRAM is on GPU1 (the 3060), NOT on GPU0
+
+Expected passing output:
+
+```
+[PASS] Phase 1 — Identity OK: GPU0=NVIDIA GeForce RTX 3090, GPU1=NVIDIA GeForce RTX 3060
+[INFO] Launched ollama serve on GPU1 (pid=...), waiting 8s ...
+[PASS] Phase 2 — Placement OK: Ollama on GPU1. Entry: {...}
+```
+
+**If either phase FAILS — STOP. Do not proceed to Step 5.** Diagnose the failure:
+
+- Phase 1 identity failure → check BIOS PCIe slot assignment; physical GPU reseating may have flipped the PCI_BUS_ID order
+- Phase 2 placement failure → confirm `CUDA_VISIBLE_DEVICES=1` is set in the watchdog's NSSM `AppEnvironmentExtra` (`nssm dump ArcisOllamaWatchdog` to inspect); confirm no other Ollama process is already loaded on GPU0
+
+#### Step 5 — Restart ArcisWatchLoop
+
+> **Respect the 21:30–22:30 ET no-restart window.** A mid-cycle restart forces a redundant overnight re-launch from scratch. If the clock is in that window, wait until 22:31 ET before issuing this command.
+
+```powershell
+nssm restart ArcisWatchLoop
+```
+
+If the service stays in `SERVICE_PAUSED` after restart:
+
+```powershell
+sc.exe continue ArcisWatchLoop
+```
+
+#### Step 6 — Verify live
+
+After the watch loop restarts, confirm GPU assignment via:
+
+```powershell
+nvidia-smi --query-gpu=index,name,uuid --format=csv
+# Expected: index 0 = RTX 3090, index 1 = RTX 3060
+
+nvidia-smi --query-compute-apps=gpu_index,pid,process_name,used_memory --format=csv,noheader
+# Expected: Ollama (or ollama_llama_server) process on index 1 only
+#           No ollama process on index 0
+```
+
+Watch-loop startup log should show:
+
+```
+[training] GPU identity preflight: GPU0=RTX 3090 (24 GB) PASS
+[training] GPU0 pinned for training (CUDA_VISIBLE_DEVICES=0)
+```
+
+And `ArcisOllamaWatchdog` log (`data/logs/ollama_watchdog.out.log`) should show Ollama responding on GPU1.
+
+#### Step 7 — Monitor
+
+After cutover, monitor these signals over the first overnight cycle:
+
+1. **`gpu_health_*` telemetry** — the watch loop emits `gpu_health_gpu0_util_pct`, `gpu_health_gpu1_util_pct`, and related counters (replacing the retired `vram_handoff_*` names). The 30-day dual-read bridge forwards any `vram_handoff_*` reads to `gpu_health_*` for continuity with any dashboards that haven't been fully migrated yet.
+
+2. **First overnight training launch** — confirm training subprocess is on GPU0:
+   ```powershell
+   nvidia-smi --query-compute-apps=gpu_index,pid,process_name,used_memory --format=csv,noheader
+   # Expected during training: python process on index 0 (RTX 3090)
+   #                           ollama process on index 1 (RTX 3060) — unchanged
+   ```
+
+3. **Morning training stop** — confirm GPU0 returns to idle after training completes. The `training_stop` handler writes `logs/training.pid` cleanup and clears the STOP flag at `dirname(DB_PATH)/STOP_OVERNIGHT`.
+
+4. **Runtime liveness monitor first ticks** — `src/scheduler/runtime_liveness_monitor.py` emits periodic liveness events for `ArcisOllamaWatchdog`. Check `logs/arcis.log` for `[liveness] ArcisOllamaWatchdog: OK` entries during the post-cutover intraday window.
+
+5. **`nssm status ArcisOllamaWatchdog`** — should remain `SERVICE_RUNNING` continuously. An `AppThrottle=30s` escalation log entry in the Windows Event Log indicates the watchdog is crash-looping; investigate Ollama stderr at `data/logs/ollama_watchdog.err.log`.
+
+---
+
+### MAJOR-1 — Two-path rollback
+
+> Choose your path based on whether a training subprocess is currently in flight. Rollback is "clean" ONLY when no training subprocess is running; if training is in flight, you MUST complete the mid-overnight teardown (Path B) before executing the clean rollback steps.
+
+#### Path A — Clean rollback (no training subprocess in flight)
+
+Use when: training has already completed (or never started), Ollama is idle on GPU1, no active `training.pid` file.
+
+1. **Stop ArcisOllamaWatchdog:**
+   ```powershell
+   nssm stop ArcisOllamaWatchdog
+   nssm remove ArcisOllamaWatchdog confirm
+   ```
+
+2. **Re-enable GPU0 Ollama autostart:**
+   ```powershell
+   Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
+       -Name "Ollama" -Value '"C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe"'
+   ```
+   Adjust the path to match the installed Ollama executable location on your machine.
+
+3. **Revert the dual-GPU merge (create a revert commit on main):**
+   ```bash
+   git revert <merge-commit-sha> --no-edit
+   # If the merge was a squash-commit, use:
+   # git revert <squash-commit-sha> --no-edit
+   git push origin main
+   ```
+
+4. **Restart ArcisWatchLoop** (respect the 21:30–22:30 ET no-restart window):
+   ```powershell
+   nssm restart ArcisWatchLoop
+   ```
+
+5. **Verify the old watchdog pattern (PowerShell-based) is back** by checking `scripts/ollama_watchdog.ps1` is present and the old VRAM handoff logic is restored in `src/scheduler/watch.py`.
+
+#### Path B — Mid-overnight rollback (training subprocess IN FLIGHT)
+
+> **This pre-revert teardown is MANDATORY when training is running. Execute ALL steps in order before proceeding to the Path A clean rollback steps.**
+
+Use when: an active `logs/training.pid` file exists, `nvidia-smi` shows a Python compute-app on GPU0 (RTX 3090), or the overnight window is currently active (16:35–07:00 ET).
+
+**Pre-revert teardown — run BEFORE reverting the code:**
+
+1. **Call `stop_training_bounded()`** to request a clean stop:
+
+   If the Python REPL or CLI is available on the new code:
+   ```python
+   from src.training.training_stop import stop_training_bounded
+   stop_training_bounded()
+   ```
+
+   If the new code is no longer accessible (e.g., you have already started reverting), fall back to the manual PID path:
+
+   ```powershell
+   # Read the tracked PID
+   $pid_file = "C:\arcis\halcyon-lab\logs\training.pid"
+   if (Test-Path $pid_file) {
+       $training_pid = [int](Get-Content $pid_file -Raw).Trim()
+       Write-Host "Training PID: $training_pid"
+       # Validate it is actually a training process (_is_tracked_training_proc predicate):
+       # The PID file is written only by src/training/trainer.py after the subprocess launches.
+       # Confirm the process name is python.exe before terminating.
+       $proc = Get-Process -Id $training_pid -ErrorAction SilentlyContinue
+       if ($proc -and $proc.ProcessName -match "python") {
+           Stop-Process -Id $training_pid -Force
+           Write-Host "Terminated training PID $training_pid"
+       } else {
+           Write-Host "PID $training_pid is not a live python process — skipping terminate"
+       }
+   } else {
+       Write-Host "No training.pid file found — training may have already completed"
+   }
+   ```
+
+2. **Delete `logs/training.pid`:**
+   ```powershell
+   Remove-Item "C:\arcis\halcyon-lab\logs\training.pid" -ErrorAction SilentlyContinue
+   ```
+
+3. **Clear the STOP flag at BOTH paths** — this is critical:
+
+   The new code (Wave 1–3) uses the ABSOLUTE path: `dirname(DB_PATH)/STOP_OVERNIGHT`
+   (e.g., `C:\arcis\data\STOP_OVERNIGHT`).
+
+   The old code (pre-#94) uses the RELATIVE path: `data/STOP_OVERNIGHT`
+   (i.e., `C:\arcis\halcyon-lab\data\STOP_OVERNIGHT`).
+
+   After a revert, the watch loop runs the OLD code, which only checks the relative path.
+   Leaving either flag set will wedge the next overnight training launch.
+
+   ```powershell
+   # Clear the absolute-path STOP flag (new code location)
+   Remove-Item "C:\arcis\data\STOP_OVERNIGHT" -ErrorAction SilentlyContinue
+
+   # Clear the relative-path STOP flag (old code location, after revert)
+   Remove-Item "C:\arcis\halcyon-lab\data\STOP_OVERNIGHT" -ErrorAction SilentlyContinue
+   ```
+
+4. **Confirm GPU0 is idle:**
+   ```powershell
+   nvidia-smi --query-compute-apps=gpu_index,pid,process_name,used_memory --format=csv,noheader
+   ```
+   Expected: no Python compute-app on index 0. If a training process is still listed on GPU0, wait 30 seconds and retry. Do not proceed to the revert until GPU0 shows idle.
+
+5. **Now proceed with Path A (clean rollback), starting at step 1.**
+
+---
+
+### MINOR-2 — Sim #1162/#97 later-rebase note
+
+When simulation sprint #1162 / sprint #97 later rebases onto the dual-GPU merge, the rebase will encounter semantic conflicts in two test files:
+
+- `tests/test_watch_handlers.py`
+- `tests/scheduler/test_schedule_health_report.py`
+
+These files contain assertions referencing the old `vram_handoff` metric names and the old VRAM handoff handler behavior. After rebasing:
+
+1. **Perform a SEMANTIC review** — do not simply accept "ours" or "theirs" blindly. The old `vram_handoff_*` assertions need to be rewritten to reference the new `gpu_health_*` handler names and telemetry keys introduced in sprint #94 (T10, T13).
+
+2. **Run the post-rebase guard:**
+   ```bash
+   grep -r "vram_handoff" tests/
+   ```
+   This MUST return **ZERO hits** in the merged tree. Any remaining `vram_handoff` reference in `tests/` indicates an incompletely resolved semantic conflict.
+
+3. If hits remain: locate each remaining reference, determine whether it should be updated to `gpu_health_*` or deleted (if the test itself was superseded by a new test), and update accordingly before merging.
+
+---
+
+End of Dual-GPU Cutover Runbook section.

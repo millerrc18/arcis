@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Sprint #94 — Dual-GPU re-cutover (static partition: GPU0=training, GPU1=Ollama)
+
+Replaces the overnight VRAM handoff pattern with a permanent static GPU partition.
+Training (`src/training/trainer.py`) is pinned to GPU0 (RTX 3090, 24 GB) via `CUDA_VISIBLE_DEVICES=0`.
+Ollama inference is pinned to GPU1 (RTX 3060, 12 GB) via the new `ArcisOllamaWatchdog` NSSM service.
+
+- **Static GPU partition** — GPU0 reserved for training, GPU1 reserved for Ollama; partition is enforced by env-pin in both trainer and watchdog, not by a runtime handoff protocol
+- **ArcisOllamaWatchdog NSSM service** (`src/scheduler/ollama_watchdog.py`) — replaces the PowerShell watchdog script; installed via `scripts/install_service.ps1 install`; carries `CUDA_VISIBLE_DEVICES=1`, `CUDA_DEVICE_ORDER=PCI_BUS_ID`, `OLLAMA_MODELS` in `AppEnvironmentExtra`; crash-escalation via `AppThrottle=30s` + `AppRestartDelay=15s`; no `DependOnService` (avoids SCM cache wedge)
+- **Training-lifecycle handlers** (`training_start`, `training_stop`) replace the retired VRAM handoff handlers (`request_vram_for_training`, `release_vram_after_training`) in the watch-loop scheduler
+- **Telemetry rename** — `vram_handoff_*` metric keys renamed to `gpu_health_*`; 30-day dual-read bridge emits both names for dashboard continuity during transition
+- **GPU identity preflight** (MAJOR-5) — trainer asserts `index0==RTX 3090` via `nvidia-smi` before launching a training subprocess; exits before CUDA init if the identity check fails (guards against BIOS/driver index flip after physical reseating)
+- **`scripts/gpu_placement_smoke.py`** — two-phase operator-runnable gate: Phase 1 identity check (index0=3090, index1=3060), Phase 2 placement check (Ollama VRAM on GPU1 only); must PASS before live cutover proceeds
+- **Runtime liveness monitor** (`src/scheduler/runtime_liveness_monitor.py`) — periodic liveness ticks for `ArcisOllamaWatchdog`; detects silent crashes between watchdog poll cycles
+- **No-DependOnService startup guard** — watch loop startup does not declare SCM `DependOnService` on `ArcisOllamaWatchdog`; ordering is handled at install time only
+- **Operator-gated cutover runbook** — full live activation sequence, GPU identity/placement verification, and two-path rollback (clean + mid-overnight pre-revert teardown) documented in `docs/operator-guide.md` §"Dual-GPU Cutover Runbook"
+
+Cutover is operator-gated (Phase 3); code is landed but NOT yet live. See the runbook in `docs/operator-guide.md` for the activation sequence.
+
 ## [v0.36.49] — 2026-05-22 — Capability registry refresh (19 → 80) + anti-drift CI guards
 
 The capability registry (the platform's live capability ledger at `GET /api/system/index`)
