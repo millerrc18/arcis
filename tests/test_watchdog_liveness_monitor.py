@@ -282,26 +282,73 @@ class TestFailSoft:
                 )
 
     def test_tick_does_not_raise_when_metric_check_raises(self):
-        """A broken metric read must not propagate — tick must complete silently."""
+        """A broken metric read must not propagate — tick must complete silently.
+
+        This test is non-vacuous: tick 1 establishes _watchdog_last_known_running=True
+        (sc returns True), then tick 2 drives sc to return False, entering the
+        not-RUNNING branch and actually invoking _ollama_watchdog_metric_fresh.
+        The RuntimeError raised there must be swallowed by the impl's try/except.
+        If the try/except were removed, this test would fail.
+        """
         wl = _make_watch_loop()
 
         with (
             patch(
                 "src.scheduler.watch._sc_query_running",
-                return_value=True,
+                side_effect=[True, False],
             ),
-            patch("src.scheduler.watch.safe_send") as mock_safe_send,
+            patch("src.scheduler.watch.safe_send"),
             patch(
                 "src.scheduler.watch.WatchLoop._ollama_watchdog_metric_fresh",
                 side_effect=RuntimeError("DB unavailable"),
             ),
         ):
+            # Tick 1: sc returns True → _watchdog_last_known_running = True
+            wl.tick_watchdog_liveness()
+
+            # Reset cadence gate so tick 2 runs immediately
+            wl._watchdog_liveness_last_check = None
+
+            # Tick 2: sc returns False → prev is True → enters alarm branch →
+            # _ollama_watchdog_metric_fresh is called → raises RuntimeError →
+            # must be swallowed (fail-soft)
             try:
                 wl.tick_watchdog_liveness()
             except Exception as exc:
                 pytest.fail(
                     f"tick_watchdog_liveness raised when metric check errored: {exc}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Test 5b — Cold-start: first tick is not-RUNNING, no alarm (prev is None)
+# ---------------------------------------------------------------------------
+
+class TestColdStartNoAlarm:
+    def test_cold_start_not_running_no_alarm(self):
+        """Fresh WatchLoop (_watchdog_last_known_running is None), first tick
+        returns is_running=False → prev is None → guard `if prev is True` is False
+        → NO alarm. This pins the `if prev is True` semantics: if a future
+        refactor changes it to `if prev` (truthy), a cold-start where the watchdog
+        was never up would spuriously alarm. This test catches that regression.
+        """
+        wl = _make_watch_loop()
+
+        assert wl._watchdog_last_known_running is None
+
+        with (
+            patch(
+                "src.scheduler.watch._sc_query_running",
+                return_value=False,
+            ),
+            patch("src.scheduler.watch.safe_send") as mock_safe_send,
+            patch(
+                "src.scheduler.watch.WatchLoop._ollama_watchdog_metric_fresh",
+                return_value=False,
+            ),
+        ):
+            wl.tick_watchdog_liveness()
+            mock_safe_send.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
