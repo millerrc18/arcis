@@ -39,7 +39,7 @@ Function groups (32+ functions organized by category):
 
   Overnight & scheduling:
     notify_overnight_complete, notify_overnight_training_complete,
-    notify_vram_handoff, notify_scoring_summary, notify_schedule_health
+    notify_gpu_health, notify_scoring_summary, notify_schedule_health
 
   Periodic reports:
     notify_daily_summary, notify_eod_report, notify_data_asset_report,
@@ -620,11 +620,6 @@ def notify_gpu_health(direction: str, success: bool, detail: str = "") -> bool:
     if detail:
         msg += f"\n{detail}"
     return send_telegram(msg)
-
-
-def notify_vram_handoff(direction: str, success: bool, detail: str = "") -> bool:
-    """Alert: VRAM transition between Ollama and PyTorch. Compat shim → notify_gpu_health."""
-    return notify_gpu_health(direction=direction, success=success, detail=detail)
 
 
 def notify_overnight_training_complete(tasks_completed: int, tasks_total: int,
@@ -1417,7 +1412,6 @@ _EVENT_MAP_MUTABLE: dict = {
     "overnight_complete": notify_overnight_complete,
     "overnight_training_complete": notify_overnight_training_complete,
     "gpu_health": notify_gpu_health,
-    "vram_handoff": notify_vram_handoff,
     "scoring_summary": notify_scoring_summary,
     "schedule_health": notify_schedule_health,
     # Periodic reports

@@ -94,8 +94,13 @@ jobs:
           #         (8) + T16 CompatRow indexing (6); CLAUDE.md SQLite-only floor
           #         5400, this floor 5100 because PG-aware sweep loses ~300 to
           #         the chronic-failure class on CI hosted runners)
+          #   5188 (#94 dual-GPU re-cutover 2026-05-22: net −49+137=+88. Deleted 49
+          #         vram_manager tests (T14, 5 files); added 137 new behavioral tests
+          #         across the watchdog/training-control/startup-guard/liveness/
+          #         gpu-pin/handler-registration suites. Same +88 delta applied to
+          #         the CLAUDE.md SQLite-only floor (5300->5388).)
           # Bump when full-sweep grows past the previous floor.
-          EXPECTED=5100
+          EXPECTED=5188
           echo "Tests passed: $ACTUAL (floor: $EXPECTED)"
           if [ -z "$ACTUAL" ]; then
             echo "Could not extract test count from pytest output" >&2
