@@ -4,7 +4,12 @@ Verifies:
 1. _latest_gpu_health_ok reads BOTH old and new metric keys within 30-day window
 2. notify_gpu_health is callable and registered under 'gpu_health' dispatch key
 3. GPU_HEALTH constant == "gpu_health"
-4. Compat: 'vram_handoff' dispatch key + notify_vram_handoff still resolve
+
+Note: the vram_handoff compat shims (notify_vram_handoff, the 'vram_handoff'
+dispatch key, and the VRAM_HANDOFF constant) were contracted in #94 T15 after
+T11/T14 removed their callers. The 30-day dual-read over the old
+vram_handoff_* metric-key STRINGS (reports.py) is the only intentional bridge
+that remains, exercised by the dual-read tests below.
 """
 
 import sqlite3
@@ -52,11 +57,6 @@ def _make_conn_with_rows(rows: list[tuple[str, str, float]]) -> sqlite3.Connecti
 def test_gpu_health_constant():
     from src.utils.activity_logger import GPU_HEALTH
     assert GPU_HEALTH == "gpu_health"
-
-
-def test_vram_handoff_constant_still_present():
-    from src.utils.activity_logger import VRAM_HANDOFF
-    assert VRAM_HANDOFF == "vram_handoff"
 
 
 # ---------------------------------------------------------------------------
@@ -223,32 +223,7 @@ def test_notify_gpu_health_failure_message():
 
 
 # ---------------------------------------------------------------------------
-# 9. Compat: 'vram_handoff' dispatch key + notify_vram_handoff still resolve
-# ---------------------------------------------------------------------------
-
-def test_vram_handoff_dispatch_key_still_present():
-    """Backward-compat: 'vram_handoff' key must still be in _EVENT_MAP."""
-    from src.notifications.telegram import _EVENT_MAP
-    assert "vram_handoff" in _EVENT_MAP
-
-
-def test_notify_vram_handoff_still_callable():
-    """notify_vram_handoff must still be importable and callable."""
-    from src.notifications.telegram import notify_vram_handoff
-    assert callable(notify_vram_handoff)
-
-
-def test_notify_vram_handoff_still_works():
-    """notify_vram_handoff shim still delegates to send_telegram."""
-    from src.notifications.telegram import notify_vram_handoff
-    with patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send:
-        result = notify_vram_handoff(direction="training", success=True)
-    assert mock_send.called
-    assert result is True
-
-
-# ---------------------------------------------------------------------------
-# 10. reports.py uses _latest_gpu_health_ok (not old name) at the call site
+# 9. reports.py uses _latest_gpu_health_ok (not old name) at the call site
 # ---------------------------------------------------------------------------
 
 def test_reports_calls_gpu_health_not_vram_handoff():

@@ -38,7 +38,7 @@ def test_collect_schedule_health_uses_live_metrics(tmp_db):
         conn.execute(
             "INSERT INTO schedule_metrics (metric_date, metric_name, metric_value, details) "
             "VALUES (?, ?, ?, ?)",
-            ("2026-05-01", "vram_handoff_training_ok", 1.0, '{"result":"ok"}'),
+            ("2026-05-01", "gpu_health_training_ok", 1.0, '{"result":"ok"}'),
         )
         conn.commit()
 
