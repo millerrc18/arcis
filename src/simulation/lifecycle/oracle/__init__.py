@@ -7,5 +7,6 @@ these observers to assert fail-conservative invariants.
 
 from src.simulation.lifecycle.oracle.capital import CapitalLedger
 from src.simulation.lifecycle.oracle.error_observer import SwallowedErrorObserver
+from src.simulation.lifecycle.oracle.invariants import InvariantResult, Oracle
 
-__all__ = ["CapitalLedger", "SwallowedErrorObserver"]
+__all__ = ["CapitalLedger", "SwallowedErrorObserver", "Oracle", "InvariantResult"]
