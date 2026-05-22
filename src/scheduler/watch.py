@@ -379,6 +379,13 @@ class WatchLoop(HandlerRegistryMixin):
         # Tick: alert silence detector (T14 D5, 5-min cadence)
         self._last_alert_silence_time: datetime | None = None
 
+        # T18: Runtime watchdog-liveness monitor (60s cadence).
+        # _watchdog_last_known_running: None = never checked (no prior state).
+        # Edge-triggered: alarm fires only on RUNNING→not-RUNNING transition.
+        # Re-arms on recovery (not-RUNNING→RUNNING clears armed state).
+        self._watchdog_liveness_last_check: datetime | None = None
+        self._watchdog_last_known_running: bool | None = None
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -1093,6 +1100,84 @@ class WatchLoop(HandlerRegistryMixin):
         except Exception as exc:
             logger.error("[ALERT_SILENCE] tick_alert_silence failed: %s", exc)
             self._backoff["alert_silence"] = self._backoff.get("alert_silence", 0) + 1
+
+    # ── T18: Runtime watchdog-liveness monitor ──────────────────────────────
+
+    def _ollama_watchdog_metric_fresh(self, db_path: str = DB_PATH) -> bool:
+        """Return True if today's gpu_health_ollama_ok metric is positive.
+
+        Reads the schedule_metrics table for a row with metric_name =
+        'gpu_health_ollama_ok' and metric_date = today (ET). Returns True
+        when the value is > 0, False when absent or zero. Never raises.
+        """
+        try:
+            today = datetime.now(ET).strftime("%Y-%m-%d")
+            with connect_db(db_path) as conn:
+                row = conn.execute(
+                    "SELECT metric_value FROM schedule_metrics "
+                    "WHERE metric_date = ? AND metric_name = ?",
+                    (today, "gpu_health_ollama_ok"),
+                ).fetchone()
+            if row is None:
+                return False
+            return float(row[0] or 0) > 0
+        except Exception:
+            return False
+
+    def tick_watchdog_liveness(self) -> None:
+        """Tick: runtime liveness monitor for ArcisOllamaWatchdog (~60s cadence).
+
+        Authoritative signal: _sc_query_running("ArcisOllamaWatchdog").
+        Corroborating signal: gpu_health_ollama_ok metric freshness.
+
+        Edge-triggered: emits a loud Telegram alarm via safe_send ONLY on a
+        RUNNING→not-RUNNING transition (or fresh→stale corroboration). Re-arms
+        on recovery so a subsequent outage re-alerts.
+
+        Fail-soft: never raises. A broken alarm path must not break the tick.
+        Cadence gate: ~60s, tracked by _watchdog_liveness_last_check.
+        """
+        now = datetime.now()
+        if (
+            self._watchdog_liveness_last_check is not None
+            and (now - self._watchdog_liveness_last_check).total_seconds() < 60
+        ):
+            return
+
+        try:
+            is_running = _sc_query_running("ArcisOllamaWatchdog")
+        except Exception:
+            is_running = False
+
+        self._watchdog_liveness_last_check = now
+
+        prev = self._watchdog_last_known_running
+
+        if is_running:
+            # Recovery path: was not-RUNNING (or first check) → now RUNNING.
+            # Update state; no alarm on recovery itself.
+            self._watchdog_last_known_running = True
+        else:
+            # Not running — check for transition
+            if prev is True:
+                # RUNNING → not-RUNNING: edge-triggered alarm
+                try:
+                    metric_ok = self._ollama_watchdog_metric_fresh()
+                    corroboration = "" if metric_ok else " (metric also stale)"
+                    safe_send(
+                        "system_event",
+                        event="WATCHDOG DOWN",
+                        detail=(
+                            f"ArcisOllamaWatchdog is NOT RUNNING{corroboration}. "
+                            "NSSM may have silently given up. Manual inspection required."
+                        ),
+                        severity="critical",
+                    )
+                except Exception:
+                    pass
+            self._watchdog_last_known_running = False
+
+    # ── end T18 ──────────────────────────────────────────────────────────────
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
@@ -2143,6 +2228,12 @@ class WatchLoop(HandlerRegistryMixin):
                 # Tick: alert silence detector (T14 D5, 5-min cadence)
                 if self._safe_run("alert silence", self.tick_alert_silence):
                     pass  # cadence managed by _last_alert_silence_time
+
+                # Tick: runtime watchdog-liveness monitor (T18, ~60s cadence)
+                # Emits a loud alarm on RUNNING→not-RUNNING transition.
+                # Fail-soft — never blocks the trading path.
+                if self._safe_run("watchdog liveness", self.tick_watchdog_liveness):
+                    pass  # cadence managed by _watchdog_liveness_last_check
 
                 time.sleep(60)
 
