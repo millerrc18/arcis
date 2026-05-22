@@ -44,11 +44,11 @@ def test_list_prints_all_handler_names(capsys):
     assert printed == _expected_names()
 
 
-def test_list_prints_sixteen_names(capsys):
+def test_list_prints_seventeen_names(capsys):
     module = _load_dispatcher()
     module.main(["--list"])
     printed = [ln.strip() for ln in capsys.readouterr().out.splitlines() if ln.strip()]
-    assert len(printed) == 16, f"expected 16 handler names, got {len(printed)}: {printed}"
+    assert len(printed) == 17, f"expected 17 handler names, got {len(printed)}: {printed}"
 
 
 def test_unknown_handler_exits_nonzero():
