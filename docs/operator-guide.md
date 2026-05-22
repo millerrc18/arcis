@@ -343,9 +343,9 @@ The methodology gate (Stage 2 prerequisite) is live as of Sprint 2 — implement
 │                                           ├─► Render sync ──────► Cloud Postgres (every 5 min)       │
 │                                           └─► Build score / HSHS / dashboard refresh                  │
 │                                                                                                       │
-│   Ollama daemon ─────────────────►  Qwen3-8B fine-tune (arcis:v1.0.0) on GPU                         │
-│   (separate process,                  Watchdog (scripts/ollama_watchdog.ps1) auto-restarts on death  │
-│    poll-restarted by watchdog)                                                                        │
+│   Ollama daemon ─────────────────►  Qwen3-8B fine-tune (arcis:v1.0.0) on GPU1 (RTX 3060, static)    │
+│   (NSSM service ArcisOllamaWatchdog   GPU1 permanently resident — no VRAM handoff.                   │
+│    via src/scheduler/ollama_watchdog.py; Watchdog auto-restarts on death)                             │
 │                                                                                                       │
 │   SQLite DB  C:\arcis\data\ai_research_desk.sqlite3  (~1 GB, 70 schema-registered tables)            │
 │                                                                                                       │
@@ -406,9 +406,7 @@ In parallel, the bracket monitor runs every 5 min:
 
 **Overnight (16:35 ET – 07:00 ET)**
 - Data collection sweep — fresh fundamentals, news, macros (runs 7 days/week per CLAUDE.md)
-- VRAM handoff — Ollama unloads, training process can claim GPU
-- Training cycle (when corpus + outcomes ready) — retrains on accumulated trade outcomes
-- VRAM handoff back — training releases, Ollama reloads before pre-market
+- Training cycle (when corpus + outcomes ready) — retrains on accumulated trade outcomes (GPU0/RTX 3090 only; Ollama stays resident on GPU1 — no VRAM handoff required)
 
 ### 0.5 The data lifecycle
 
@@ -670,11 +668,12 @@ DATABASE_URL=$(python -c "import yaml; cfg=yaml.safe_load(open('config/settings.
 **Prerequisite: Ollama watchdog MUST be running** (see §7 "Ollama watchdog"). Without it, a single Ollama crash will silently produce template-fallback entries that pollute training data — see §5 "Corpus producing template fallbacks".
 
 ```bash
-# 0. Start the watchdog (one-time per machine boot, see §7 for WMI variant)
-scripts\start_ollama_watchdog.bat
+# 0. Ensure the watchdog NSSM service is running (one-time per machine boot)
+nssm start ArcisOllamaWatchdog
+# (Service is installed via scripts/install_service.ps1 install — see §7)
 
 # 1. Initial launch (Stage 1) — NUM_PARALLEL=2 is the validated stable config
-#    on the RTX 3060 (12 GiB VRAM). At --num-parallel 4 the runner CUDA-OOMs.
+#    on the RTX 3060 (12 GiB VRAM, GPU1). At --num-parallel 4 the runner CUDA-OOMs.
 #    See §5 "Ollama crashes" for VRAM math.
 python scripts/generate_llm_corpus.py \
   --corpus-id stage1-001 \
@@ -757,8 +756,8 @@ python -m ruff format src/ tests/
 | `C:\arcis\halcyon-lab\logs\ollama-daemon.out` | Captured stdout from Ollama daemon |
 | `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl` | Generated corpus entries (append-only) |
 | `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl.bak.<N>` | Manual backups — `.bak.<line-count>` convention before any destructive trim |
-| `C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1` | Ollama watchdog (poll /api/tags, restart, capture stderr, circuit-breaker) |
-| `C:\arcis\halcyon-lab\scripts\start_ollama_watchdog.bat` | Convenience launcher for the watchdog |
+| `C:\arcis\halcyon-lab\src\scheduler\ollama_watchdog.py` | Ollama watchdog (poll /api/tags, restart, capture stderr, circuit-breaker) — runs as NSSM service `ArcisOllamaWatchdog` |
+| `C:\arcis\halcyon-lab\scripts\install_service.ps1` | Installs both `ArcisWatchLoop` and `ArcisOllamaWatchdog` NSSM services (`install` subcommand) |
 | `C:\arcis\halcyon-lab\.venv\` | Python virtualenv (gitignored) |
 | `C:\arcis\halcyon-lab\.env` | Secrets (gitignored) |
 | `C:\arcis\halcyon-lab\.claude\worktrees\` | Agent worktrees (auto-managed; safe to bulk-prune merged) |
@@ -1389,9 +1388,8 @@ python -m src.main validate-schema --fix
 python -c "import sqlite3; c=sqlite3.connect('file:C:/arcis/data/ai_research_desk.sqlite3?mode=ro',uri=True); c.execute('PRAGMA quick_check').fetchone()"
 # Should print ('ok',). Anything else → §6 "Corrupted SQLite WAL after power loss".
 
-# 6. Restart Ollama watchdog (will start Ollama itself).
-$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
-Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+# 6. Restart Ollama watchdog service (will start/restart Ollama itself).
+nssm restart ArcisOllamaWatchdog
 
 # 7. Restart watch loop.
 python -m src.main startup
@@ -1516,27 +1514,23 @@ grep -c "fallback to template" C:/arcis/halcyon-lab/logs/corpus-stage1-001.err
 
 Background-monitor that polls `http://127.0.0.1:11434/api/tags` every 30s and auto-restarts Ollama on death. Closes the diagnostic gap from running `Start-Process -WindowStyle Hidden` (which discards stderr); the watchdog redirects stderr to `logs/ollama-daemon.err` so the next CUDA OOM is operator-visible.
 
-**Start (operator at console / RDP):**
-```bash
-scripts\start_ollama_watchdog.bat
-```
-Logs accumulate at `logs/ollama-watchdog.log`. Tail to monitor.
-
-**Start (SSH-disconnect-safe):** use the WMI pattern in "SSH-safe process launch" below with this command:
+**Start / restart:**
 ```powershell
-$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
-Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+nssm start ArcisOllamaWatchdog
+# or, if already running:
+nssm restart ArcisOllamaWatchdog
 ```
+Service is installed via `scripts/install_service.ps1 install` (run once from an elevated PowerShell, see §Cutover Runbook Step 2). Logs accumulate at `logs/ollama-watchdog.log`. Tail to monitor.
 
 **Verify it's working:**
 ```powershell
-Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | Format-List ProcessId, CreationDate
+nssm status ArcisOllamaWatchdog
 Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 5
 ```
 
 **Stop the watchdog:**
 ```powershell
-Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+nssm stop ArcisOllamaWatchdog
 ```
 
 **Circuit breaker:** 3 restarts in any rolling 10-minute window pauses the watchdog for 5 minutes and dumps last 10 lines of `daemon.err` to the watchdog log. Indicates persistent driver/hardware issue (not transient OOM). Investigate before resuming the corpus.
@@ -1568,10 +1562,9 @@ Get-CimInstance Win32_Process -Filter "ProcessId=$($result.ProcessId)" | Select-
    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
    ```
 
-2. **Watchdog**:
+2. **Watchdog** — the `ArcisOllamaWatchdog` NSSM service already runs in Session 0 and survives SSH disconnect. Use NSSM directly:
    ```powershell
-   $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
-   Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+   nssm restart ArcisOllamaWatchdog
    ```
 
 **To stop a WMI-launched process:** `Stop-Process -Id <pid> -Force`. The WMI launch was just a means of detachment; once running, it's a normal process.
@@ -1818,7 +1811,7 @@ Red flags to investigate before market open:
 | **T-A1, T-B3, etc.** | Sprint task identifiers (T = Task). e.g., Sprint 1.A Wave 2/3 had T-A1 (live_prices time column), T-B3 (backtester subtract_trading_days), etc. |
 | **Walkforward** | `src/evaluation/walkforward.py` — anchored cross-validation. R1-R8 rigor requirements per pre-reg addendum |
 | **Watch loop** | Main runtime daemon (`src/scheduler/watch.py::WatchLoop`). Single instance per host (PID lockfile) |
-| **(Ollama) Watchdog** | `scripts/ollama_watchdog.ps1` — separate from the watch loop. Polls `/api/tags` every 30s, auto-restarts Ollama on death, captures daemon stderr to `logs/ollama-daemon.err` for crash diagnostics. Required before any corpus generation run. See §7 |
+| **(Ollama) Watchdog** | `src/scheduler/ollama_watchdog.py` — Python module running as NSSM service `ArcisOllamaWatchdog`. Separate from the watch loop. Polls `/api/tags` every 30s, auto-restarts Ollama on death, captures daemon stderr to `logs/ollama-daemon.err` for crash diagnostics. GPU1-pinned (RTX 3060). Installed via `scripts/install_service.ps1 install`. See §7 |
 | **Worktree** | Independent git working directory sharing the same `.git` repo. Used for parallel agent isolation |
 | **Template-fallback entry** | A corpus entry written by `packet_writer.py` when the LLM call failed (Ollama unreachable / parse failure / etc.). Discriminator: response < 1500 chars AND starts with rigid `<TICKER> is in a [strong\|weak]? (uptrend\|downtrend\|neutral)` prefix. Currently shares `model_version="arcis:v1.0.0"` with real LLM entries — a forthcoming packet_writer change will add distinct tagging. Real LLM responses are 2400-3000 chars and start with natural-language analysis |
 | **WMI launch / Session 0** | `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=...}`. Launches a process detached from the calling session — survives SSH disconnect. Process lands in Session 0 (services), no GUI. Use for corpus + watchdog + any long-running ops process. See §7 |
