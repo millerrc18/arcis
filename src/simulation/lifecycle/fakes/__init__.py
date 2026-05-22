@@ -13,6 +13,10 @@ from src.simulation.lifecycle.fakes.trading_client import (
     FakePosition,
     FakeTradingClient,
 )
+from src.simulation.lifecycle.fakes.trainer import (
+    FakeTrainerPidfile,
+    fake_trainer_subprocess,
+)
 
 __all__ = [
     "FakeLLM",
@@ -20,4 +24,6 @@ __all__ = [
     "FakeOrder",
     "FakePosition",
     "FakeTradingClient",
+    "FakeTrainerPidfile",
+    "fake_trainer_subprocess",
 ]
