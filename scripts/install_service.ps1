@@ -51,11 +51,14 @@ $ErrorActionPreference = 'Stop'
 
 # Resolve the repo root from this script's location — scripts/ sits at
 # repo root, so ..\ from the script directory is the project root.
-$RepoRoot  = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$PythonExe = Join-Path $RepoRoot '.venv\Scripts\python.exe'
-$LogDir    = Join-Path $RepoRoot 'data\logs'
-$StdoutLog = Join-Path $LogDir  'service.out.log'
-$StderrLog = Join-Path $LogDir  'service.err.log'
+$RepoRoot        = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$PythonExe       = Join-Path $RepoRoot '.venv\Scripts\python.exe'
+$LogDir          = Join-Path $RepoRoot 'data\logs'
+$StdoutLog       = Join-Path $LogDir  'service.out.log'
+$StderrLog       = Join-Path $LogDir  'service.err.log'
+$WdStdoutLog     = Join-Path $LogDir  'ollama_watchdog.out.log'
+$WdStderrLog     = Join-Path $LogDir  'ollama_watchdog.err.log'
+$WatchdogService = 'ArcisOllamaWatchdog'
 
 function Assert-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -147,8 +150,57 @@ function Invoke-Status {
     Write-Host "Logs    : $StdoutLog"
 }
 
+function Invoke-WatchdogInstall {
+    Assert-Admin
+    $nssm = Resolve-Nssm
+
+    if (-not (Test-Path $PythonExe)) {
+        Write-Error "Python not found at $PythonExe — create the venv first (python -m venv .venv)."
+        exit 1
+    }
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+
+    Write-Host "Installing service '$WatchdogService' ..."
+    & $nssm install $WatchdogService $PythonExe '-m' 'src.scheduler.ollama_watchdog'
+    if ($LASTEXITCODE -ne 0) { Write-Error "nssm install failed ($LASTEXITCODE)"; exit $LASTEXITCODE }
+
+    & $nssm set $WatchdogService AppDirectory   $RepoRoot
+    & $nssm set $WatchdogService Description    'Arcis Ollama lifecycle owner — GPU1-pinned inference server watchdog.'
+    & $nssm set $WatchdogService Start           SERVICE_AUTO_START
+    & $nssm set $WatchdogService AppStdout       $WdStdoutLog
+    & $nssm set $WatchdogService AppStderr       $WdStderrLog
+    & $nssm set $WatchdogService AppRotateFiles  1
+    & $nssm set $WatchdogService AppRotateOnline 1
+    & $nssm set $WatchdogService AppRotateBytes  10485760      # 10 MB per rotation
+
+    # GPU1 pin + correct model-store path under LocalSystem.
+    # CUDA_DEVICE_ORDER=PCI_BUS_ID makes index 1 deterministic regardless
+    # of driver enumeration order.  OLLAMA_MODELS overrides the LocalSystem
+    # default (~/.ollama resolves to the systemprofile, not the operator home).
+    & $nssm set $WatchdogService AppEnvironmentExtra `
+        "OLLAMA_MODELS=C:\Users\mille\.ollama\models" `
+        "CUDA_VISIBLE_DEVICES=1" `
+        "CUDA_DEVICE_ORDER=PCI_BUS_ID"
+
+    # MAJOR-2 crash-escalation: explicit Restart policy + throttle window so
+    # a recurring crash surfaces via NSSM's escalation rather than silently
+    # exhausting the default throttle and going dark.  AppThrottle (ms) is the
+    # minimum inter-restart interval; paired with T18's runtime monitor.
+    & $nssm set $WatchdogService AppExit         Default Restart
+    & $nssm set $WatchdogService AppThrottle     30000
+    & $nssm set $WatchdogService AppRestartDelay 15000
+
+    # No SCM service dependency — an SCM dependency wedge caused a 13-min
+    # loop-down on 2026-05-22.  Start ordering is handled at install time only.
+
+    & $nssm start $WatchdogService
+    if ($LASTEXITCODE -ne 0) { Write-Error "nssm start failed ($LASTEXITCODE)"; exit $LASTEXITCODE }
+
+    Write-Host "Installed. Logs: $WdStdoutLog" -ForegroundColor Green
+}
+
 switch ($Command) {
-    'install'   { Invoke-Install }
+    'install'   { Invoke-Install; Invoke-WatchdogInstall }
     'uninstall' { Invoke-Uninstall }
     'restart'   { Invoke-Restart }
     'status'    { Invoke-Status }
