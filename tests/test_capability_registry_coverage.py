@@ -101,7 +101,7 @@ def test_all_handlers_are_plain_maybe_functions():
 def test_all_handlers_stripped_names_have_no_collisions():
     """maybe_-strip produces no duplicate ACTION names across ALL_HANDLERS.
 
-    DA-minor hardening: 16 handlers must produce 16 distinct stripped names.
+    DA-minor hardening: 17 handlers must produce 17 distinct stripped names.
     """
     stripped = [_expected_action_name(h) for h in ALL_HANDLERS]
     unique = set(stripped)
@@ -125,11 +125,16 @@ def test_every_watch_handler_is_a_registered_action():
     )
 
 
-def test_action_count_increased_by_16():
-    """Exactly 16 new scheduler ACTIONs are registered (one per ALL_HANDLERS handler)."""
+def test_action_count_increased_by_17():
+    """Exactly 17 new scheduler ACTIONs are registered (one per ALL_HANDLERS handler).
+
+    Net change for the dual-GPU re-cutover (T10+T12): the 2 VRAM-handoff
+    handlers were replaced by 3 training-lifecycle handlers (evening launch,
+    morning stop, market-open stop), so 16 -> 17.
+    """
     scheduler_actions = [a for a in list_actions() if a.category == "scheduler"]
-    assert len(scheduler_actions) == 16, (
-        f"Expected 16 scheduler category ACTIONs; found {len(scheduler_actions)}: "
+    assert len(scheduler_actions) == 17, (
+        f"Expected 17 scheduler category ACTIONs; found {len(scheduler_actions)}: "
         f"{sorted(a.name for a in scheduler_actions)}"
     )
 

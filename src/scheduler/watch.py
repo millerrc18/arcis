@@ -59,6 +59,11 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
+# Cooperative-then-hard stop budget for the GPU0 training subprocess. Generous
+# enough for the in-loop StopOnFlagCallback to checkpoint and exit cleanly
+# before stop_training_bounded escalates to a hard terminate (MAJOR-3).
+_TRAINING_STOP_TIMEOUT_S = 120
+
 
 class DBLogHandler(logging.Handler):
     """Log handler that writes structured entries to log_entries SQLite table.
@@ -288,10 +293,12 @@ class WatchLoop(HandlerRegistryMixin):
         self._daily_scored = 0
         self._tg_last_update_id = 0
 
-        # VRAM handoff flags — RTX 3060 12GB shared between Ollama (inference)
-        # and PyTorch (training). Evening handoff unloads Ollama, morning reloads it.
-        self._vram_handoff_done = False
-        self._morning_handoff_done = False
+        # Training-lifecycle flags (dual-GPU re-cutover) — GPU0 trains overnight
+        # concurrently with Ollama inference on GPU1; no VRAM handoff. Evening
+        # launches training; morning + market-open ceiling stop it.
+        self._evening_training_done = False
+        self._morning_training_stop_done = False
+        self._market_open_stop_done = False
 
         # Pre-market pipeline flags
         self._premarket_features_done = False
@@ -415,10 +422,11 @@ class WatchLoop(HandlerRegistryMixin):
         self._enrichment_precache_done = False
         self._1min_bar_collection_done = False
         self._pre_market_done = False
-        # Scoring + VRAM handoffs
+        # Scoring + training-lifecycle flags (daily reset)
         self._daily_scored = 0
-        self._vram_handoff_done = False
-        self._morning_handoff_done = False
+        self._evening_training_done = False
+        self._morning_training_stop_done = False
+        self._market_open_stop_done = False
         # Pre-market pipeline
         self._premarket_features_done = False
         self._premarket_training_done = False
@@ -2488,18 +2496,22 @@ class WatchLoop(HandlerRegistryMixin):
         elapsed = (now - self._last_scan_time).total_seconds() / 60
         return max(0, self.scan_interval - elapsed)
 
-    # ── VRAM Handoff Methods ─────────────────────────────────────────
+    # ── Training-Lifecycle Methods (dual-GPU) ────────────────────────
 
-    def _run_evening_handoff(self):
-        """6:50 PM ET — Unload Ollama, launch overnight training subprocess."""
-        from src.scheduler.overnight import run_evening_handoff
-        self._vram_manager = run_evening_handoff(
-            vram_manager=getattr(self, '_vram_manager', None))
+    def _run_evening_training_launch(self):
+        """18:30-04:00 ET, market closed — launch the overnight GPU0 training run."""
+        from src.training.trainer import run_fine_tune
+        run_fine_tune()
 
-    def _run_morning_handoff(self):
-        """5:15 AM ET — Kill training subprocess, reload Ollama."""
-        from src.scheduler.overnight import run_morning_handoff
-        run_morning_handoff(vram_manager=getattr(self, '_vram_manager', None))
+    def _run_morning_training_stop(self):
+        """5:15 AM ET — stop the overnight GPU0 training subprocess (bounded)."""
+        from src.training import training_control
+        training_control.stop_training_bounded(_TRAINING_STOP_TIMEOUT_S)
+
+    def _run_market_open_training_stop(self):
+        """>= 09:25 ET hard-ceiling safety net — stop GPU0 training (bounded)."""
+        from src.training import training_control
+        training_control.stop_training_bounded(_TRAINING_STOP_TIMEOUT_S)
 
     # ── AI Council ────────────────────────────────────────────────
 

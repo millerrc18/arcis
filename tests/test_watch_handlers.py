@@ -51,10 +51,11 @@ def _make_watch(
         _is_market_open=lambda now: is_market_open,
         _model_version_changed=lambda: model_version_changed,
         # done-flags — all False at start
-        _morning_handoff_done=False,
+        _morning_training_stop_done=False,
         _post_close_done=False,
         _overnight_training_collection_done=False,
-        _vram_handoff_done=False,
+        _evening_training_done=False,
+        _market_open_stop_done=False,
         _stress_test_done=False,
         _data_collection_done=False,
         _news_ingestion_done=False,
@@ -67,10 +68,11 @@ def _make_watch(
         _premarket_news_done=False,
         _premarket_candidates_done=False,
         # _run_* methods — MagicMock so we can assert .called / .call_count
-        _run_morning_handoff=MagicMock(name="_run_morning_handoff"),
+        _run_morning_training_stop=MagicMock(name="_run_morning_training_stop"),
         _run_post_close_capture=MagicMock(name="_run_post_close_capture"),
         _run_overnight_training_collection=MagicMock(name="_run_overnight_training_collection"),
-        _run_evening_handoff=MagicMock(name="_run_evening_handoff"),
+        _run_evening_training_launch=MagicMock(name="_run_evening_training_launch"),
+        _run_market_open_training_stop=MagicMock(name="_run_market_open_training_stop"),
         _run_stress_test=MagicMock(name="_run_stress_test"),
         _run_data_collection=MagicMock(name="_run_data_collection"),
         _run_news_ingestion=MagicMock(name="_run_news_ingestion"),
@@ -117,25 +119,133 @@ def test_handlers_noop_when_market_is_open():
 # ── Handler-by-handler contract tests ────────────────────────────────
 
 
-def test_maybe_morning_vram_handoff_fires_at_515_weekday():
+def test_maybe_morning_training_stop_fires_in_window():
     w = _make_watch()
-    watch_handlers.maybe_morning_vram_handoff(w, MON(5, 15))
-    assert w._morning_handoff_done is True
-    w._run_morning_handoff.assert_called_once()
+    watch_handlers.maybe_morning_training_stop(w, MON(5, 15))
+    assert w._morning_training_stop_done is True
+    w._run_morning_training_stop.assert_called_once()
 
 
-def test_maybe_morning_vram_handoff_skips_weekend():
+def test_maybe_morning_training_stop_respects_done_flag():
     w = _make_watch()
-    watch_handlers.maybe_morning_vram_handoff(w, SAT(5, 15))
-    assert w._morning_handoff_done is False
-    w._run_morning_handoff.assert_not_called()
+    w._morning_training_stop_done = True
+    watch_handlers.maybe_morning_training_stop(w, MON(5, 15))
+    w._run_morning_training_stop.assert_not_called()
 
 
-def test_maybe_morning_vram_handoff_respects_done_flag():
+def test_maybe_morning_training_stop_before_window():
     w = _make_watch()
-    w._morning_handoff_done = True
-    watch_handlers.maybe_morning_vram_handoff(w, MON(5, 15))
-    w._run_morning_handoff.assert_not_called()
+    watch_handlers.maybe_morning_training_stop(w, MON(4, 0))
+    w._run_morning_training_stop.assert_not_called()
+
+
+def test_maybe_evening_training_launch_fires_in_window_when_closed():
+    w = _make_watch(is_market_open=False)
+    watch_handlers.maybe_evening_training_launch(w, MON(18, 50))
+    w._run_evening_training_launch.assert_called_once()
+    assert w._evening_training_done is True
+
+
+def test_maybe_evening_training_launch_skips_when_market_open():
+    """Even inside the 18:30-04:00 window, must not launch if market is open."""
+    w = _make_watch(is_market_open=True)
+    watch_handlers.maybe_evening_training_launch(w, MON(18, 50))
+    w._run_evening_training_launch.assert_not_called()
+    assert w._evening_training_done is False
+
+
+def test_maybe_evening_training_launch_fires_after_midnight():
+    """Window wraps past midnight — 02:00 ET is still inside 18:30-04:00."""
+    w = _make_watch(is_market_open=False)
+    watch_handlers.maybe_evening_training_launch(w, MON(2, 0))
+    w._run_evening_training_launch.assert_called_once()
+
+
+def test_maybe_evening_training_launch_before_window():
+    w = _make_watch(is_market_open=False)
+    watch_handlers.maybe_evening_training_launch(w, MON(18, 0))
+    w._run_evening_training_launch.assert_not_called()
+
+
+def test_maybe_evening_training_launch_respects_done_flag():
+    w = _make_watch(is_market_open=False)
+    w._evening_training_done = True
+    watch_handlers.maybe_evening_training_launch(w, MON(18, 50))
+    w._run_evening_training_launch.assert_not_called()
+
+
+def test_maybe_market_open_training_stop_fires_at_925():
+    w = _make_watch()
+    watch_handlers.maybe_market_open_training_stop(w, MON(9, 25))
+    w._run_market_open_training_stop.assert_called_once()
+    assert w._market_open_stop_done is True
+
+
+def test_maybe_market_open_training_stop_fires_after_925():
+    w = _make_watch()
+    watch_handlers.maybe_market_open_training_stop(w, MON(10, 30))
+    w._run_market_open_training_stop.assert_called_once()
+
+
+def test_maybe_market_open_training_stop_before_925():
+    w = _make_watch()
+    watch_handlers.maybe_market_open_training_stop(w, MON(9, 24))
+    w._run_market_open_training_stop.assert_not_called()
+
+
+def test_maybe_market_open_training_stop_respects_done_flag():
+    w = _make_watch()
+    w._market_open_stop_done = True
+    watch_handlers.maybe_market_open_training_stop(w, MON(9, 30))
+    w._run_market_open_training_stop.assert_not_called()
+
+
+def test_maybe_market_open_training_stop_fresh_restart_at_920_still_fires_at_925():
+    """A loop restarted at 09:20 has _market_open_stop_done=False, so the
+    09:25 safety net still fires once the clock reaches the ceiling."""
+    w = _make_watch()
+    watch_handlers.maybe_market_open_training_stop(w, MON(9, 20))
+    w._run_market_open_training_stop.assert_not_called()
+    assert w._market_open_stop_done is False
+    watch_handlers.maybe_market_open_training_stop(w, MON(9, 26))
+    w._run_market_open_training_stop.assert_called_once()
+    assert w._market_open_stop_done is True
+
+
+def test_evening_launch_uses_holidays_is_market_open(monkeypatch):
+    """Market-closed gate must route through holidays.is_market_open, not a
+    re-implemented weekday/hour check. We assert _is_market_open is consulted."""
+    calls: list[datetime] = []
+
+    def is_open(now):
+        calls.append(now)
+        return False
+
+    w = _make_watch()
+    w._is_market_open = is_open
+    watch_handlers.maybe_evening_training_launch(w, MON(18, 50))
+    assert calls, "_is_market_open (holidays-backed) was never consulted"
+    w._run_evening_training_launch.assert_called_once()
+
+
+def test_training_handlers_are_tz_aware_dst_boundary():
+    """ET datetimes around the DST spring-forward boundary keep the 18:30 and
+    09:25 boundaries fixed in wall-clock ET (tz-aware, not a fixed UTC offset).
+
+    2026 DST begins Sun Mar 8. Mon Mar 9 18:50 ET (EDT, UTC-4) must still be
+    inside the evening window, and Mon Mar 9 09:25 ET must still trip the
+    market-open ceiling — same wall-clock behavior as a standard-time day.
+    """
+    edt_evening = datetime(2026, 3, 9, 18, 50, tzinfo=ET)
+    assert edt_evening.utcoffset().total_seconds() == -4 * 3600
+    w = _make_watch(is_market_open=False)
+    watch_handlers.maybe_evening_training_launch(w, edt_evening)
+    w._run_evening_training_launch.assert_called_once()
+
+    edt_open = datetime(2026, 3, 9, 9, 25, tzinfo=ET)
+    w2 = _make_watch()
+    watch_handlers.maybe_market_open_training_stop(w2, edt_open)
+    w2._run_market_open_training_stop.assert_called_once()
 
 
 def test_maybe_post_close_capture_fires_at_1730_weekday():
@@ -161,12 +271,6 @@ def test_maybe_overnight_training_collection_fires_at_18():
     w = _make_watch(training_enabled=True)
     watch_handlers.maybe_overnight_training_collection(w, MON(18, 0))
     w._run_overnight_training_collection.assert_called_once()
-
-
-def test_maybe_evening_vram_handoff_fires_at_1850_weekday():
-    w = _make_watch()
-    watch_handlers.maybe_evening_vram_handoff(w, MON(18, 50))
-    w._run_evening_handoff.assert_called_once()
 
 
 def test_maybe_stress_test_only_fires_when_model_version_changed():
@@ -298,8 +402,8 @@ def test_dispatch_sync_fires_overnight_handlers_at_correct_times(monkeypatch):
 
     # All overnight _run_* methods must exist on WatchLoop; stub them.
     for attr in (
-        "_run_morning_handoff", "_run_post_close_capture",
-        "_run_overnight_training_collection", "_run_evening_handoff",
+        "_run_morning_training_stop", "_run_post_close_capture",
+        "_run_overnight_training_collection", "_run_evening_training_launch",
         "_run_stress_test", "_run_data_collection", "_run_news_ingestion",
         "_run_enrichment_precache", "_run_1min_bar_collection",
         "_run_pre_market_refresh", "_send_premarket_brief",
@@ -312,10 +416,10 @@ def test_dispatch_sync_fires_overnight_handlers_at_correct_times(monkeypatch):
 
     # Walk a Monday minute-by-minute across every target time and dispatch.
     schedule = [
-        (MON(5, 15), "morning VRAM handoff"),
+        (MON(5, 15), "morning training stop"),
         (MON(17, 30), "post-close capture"),
         (MON(18, 0), "overnight training collection"),
-        (MON(18, 50), "evening VRAM handoff"),
+        (MON(18, 50), "evening training launch"),
         (MON(19, 0), "stress test (model change)"),
         (MON(21, 30), "data collection"),
         (MON(22, 0), "news ingestion"),
@@ -435,8 +539,8 @@ def test_dispatch_sync_handlers_are_idempotent_across_ticks(monkeypatch):
     monkeypatch.setattr(loop, "_is_market_open", lambda now: False)
     monkeypatch.setattr(loop, "_model_version_changed", lambda: False)
     for attr in (
-        "_run_morning_handoff", "_run_post_close_capture",
-        "_run_overnight_training_collection", "_run_evening_handoff",
+        "_run_morning_training_stop", "_run_post_close_capture",
+        "_run_overnight_training_collection", "_run_evening_training_launch",
         "_run_stress_test", "_run_data_collection", "_run_news_ingestion",
         "_run_enrichment_precache", "_run_1min_bar_collection",
         "_run_pre_market_refresh", "_send_premarket_brief",
