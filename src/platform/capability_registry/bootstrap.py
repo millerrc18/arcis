@@ -49,8 +49,27 @@ CAPABILITY_MODULES: tuple[str, ...] = (
     "src.shadow_trading.reconcile_state",
     "src.attribution.logger",
     "src.platform.capability_registry.audit_registration",
+    # Systems — data-collection en-bloc (18 *_collector.py modules)
+    "src.data_collection.capability_registration",
+    # Actions — scheduler watch-loop handlers en-bloc (16 ALL_HANDLERS)
+    "src.scheduler.handler_registration",
+    # Decisions + System — governor gates en-bloc (11 gate_ DECISIONs +
+    # risk_governor SYSTEM + decision_drawdown_adjusted_risk)
+    "src.risk.gate_decisions",
     # Decisions — en-bloc file (see evaluation doc §8.1)
     "src.platform.capability_registry.decisions",
+    # Execution / exits family — T5 keep-set (3 entries)
+    "src.shadow_trading.capability_registration",
+    # LLM scorer — T6 keep-set part 1 (llm_scorer SYSTEM)
+    "src.llm.capability_registration",
+    # Council engine + build_decision_packet — T6 keep-set part 2
+    "src.council.capability_registration",
+    # Training pipeline family — T7 keep-set (3 entries)
+    "src.training.capability_registration",
+    # Evaluation / audit family — T8 keep-set (3 entries)
+    "src.evaluation.capability_registration",
+    # Notifications / attribution family — T9 keep-set (2 entries)
+    "src.notifications.capability_registration",
 )
 
 
