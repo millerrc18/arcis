@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [v0.36.49] — 2026-05-22 — Capability registry refresh (19 → 80) + anti-drift CI guards
+
+The capability registry (the platform's live capability ledger at `GET /api/system/index`)
+had frozen in mid-April at 19 entries while ~95 subsystems went unregistered, with only a
+frozen `assert total >= 18` as a guard — so drift was invisible.
+
+- Refreshed the ledger to **80 fully-wired entries**: 18 data collectors (SYSTEMs with
+  table-freshness health-checks), 16 watch-loop handlers (ACTIONs with a real
+  `scripts/run_watch_handler.py` CLI kickoff + Draft-7 input schemas), 11 governor gates
+  (DECISIONs) + `risk_governor` SYSTEM + drawdown DECISION, and 14 trimmed heterogeneous
+  family entries (execution/exits, scan→LLM→council, training, evaluation/audit,
+  notifications/attribution).
+- Added **5 hard structural anti-drift CI guards** that derive the expected set from live
+  code (so a new feature skipping registration fails CI): A (ALL_HANDLERS→ACTIONs),
+  B (collectors→SYSTEMs), C (GOVERNOR_GATES→DECISIONs via definition-enumeration),
+  D (every `@register_*`/`register_*(` module is in CAPABILITY_MODULES — both forms),
+  E (per-capability-package presence guard). The frozen `>= 18` floor is raised to `>= 80`.
+- The ~11 deferred modules are recorded in `docs/audits/2026-05-21-capability-registry/deferred_backlog.md`.
+
+Built via the design→code multi-agent pipeline (feasibility PASS, devil's-advocate CONCERNS
+resolved); merged after two independent Opus QA reviews both returned SOUND.
+
 ## [v0.36.48] — 2026-05-21 — Startup auto-migrates the LOCAL cutover Postgres (not dead Render)
 
 Root-cause fix for the 2026-05-21 incident where `notifications_sent` +
