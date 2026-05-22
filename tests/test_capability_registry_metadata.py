@@ -166,6 +166,44 @@ def test_introduced_in_fields_look_like_tags():
         )
 
 
+# Registry-refresh metadata extension (Task 10): the 61 entries added in the
+# refresh carry introduced_in == "v0.36.49"; every such entry must also carry
+# the refresh review date so the 180-day staleness clock starts fresh for them.
+# The 19 pre-existing entries keep last_reviewed_date == 2026-04-18 (constraint:
+# do NOT bump the existing 19 — design spec §10).
+_REFRESH_INTRODUCED_IN = "v0.36.49"
+_REFRESH_REVIEW_DATE = date(2026, 5, 21)
+
+
+def test_refreshed_entries_carry_refresh_review_date():
+    refreshed = [e for e in all_entries() if e.introduced_in == _REFRESH_INTRODUCED_IN]
+    assert refreshed, (
+        f"Expected refresh entries (introduced_in={_REFRESH_INTRODUCED_IN!r}); "
+        "found none — bootstrap may not have populated the new families."
+    )
+    wrong = [
+        (e.name, e.last_reviewed_date)
+        for e in refreshed
+        if e.last_reviewed_date != _REFRESH_REVIEW_DATE
+    ]
+    assert not wrong, (
+        f"Refresh entries must carry last_reviewed_date={_REFRESH_REVIEW_DATE}: {wrong}"
+    )
+
+
+def test_collector_systems_are_data_collection_category():
+    """Every collector SYSTEM (introduced in the refresh) is data-collection."""
+    collector_systems = [
+        s for s in list_systems()
+        if s.introduced_in == _REFRESH_INTRODUCED_IN and s.name.endswith("_collector")
+    ]
+    assert collector_systems, "Expected refresh collector SYSTEMs; found none"
+    wrong = [s.name for s in collector_systems if s.category != "data-collection"]
+    assert not wrong, (
+        f"Collector SYSTEMs must have category=='data-collection': {wrong}"
+    )
+
+
 def test_action_kickoff_endpoint_looks_like_path_or_command():
     for action in list_actions():
         ep = action.kickoff_endpoint

@@ -78,15 +78,15 @@ def test_bootstrap_is_clean_in_final_state():
     )
 
 
-def test_18_capabilities_registered():
+def test_at_least_80_capabilities_registered():
     total = (
         len(list_actions())
         + len(list_states())
         + len(list_systems())
         + len(list_decisions())
     )
-    assert total >= 18, (
-        f"Sprint 1B target is 18 capabilities; found {total}. "
+    assert total >= 80, (
+        f"Registry-refresh target is 80 capabilities; found {total}. "
         "Audit bootstrap.CAPABILITY_MODULES and each module's decorators."
     )
 
@@ -125,7 +125,7 @@ def test_system_index_endpoint_round_trip(tmp_path, monkeypatch):
     assert "states" in body
     assert "systems" in body
     assert "decisions" in body
-    assert body["counts"]["total"] >= 18
+    assert body["counts"]["total"] >= 80
 
     # Every state entry has a live block (possibly unavailable — test env
     # doesn't have Alpaca creds or Ollama).
