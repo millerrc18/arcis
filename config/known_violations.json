@@ -217,6 +217,11 @@
       "file": "src/utils/db.py",
       "lines": 1131,
       "rationale": "Sprint 5 \u00a7J5/\u00a7J6 Phase 0: central engine-impedance wrapper. T0.1 CompatRow+_RowFactoryCursor (87L), T0.3 _resolve_conflict_target (32L), T0.8 configure_sqlite_for_production+_sqlite_only_connect re-export (40L), T0.2 _rewrite_question_to_pct quote-and-percent-aware tokenizer + PostgresConnectionWrapper rewrite integration (173L), T0.4 engine_aware_upsert with _REPLACE_SEMANTICS dispatch (~215L: _require_classified_replace + _transactional_delete_insert + _pg_replace_in_place + _dispatch_pg + _dispatch_sqlite + engine_aware_upsert + audit dict), T0.5 engine_aware_table_list + engine_aware_column_info (~93L), T0.6 engine_aware_index_list + engine_aware_foreign_keys (~145L, pg_indexes + information_schema.referential_constraints with PRAGMA-shape output). Pre-Sprint-5 baseline was 149. Spec section 2.X mandates 'All wrapper changes land in src/utils/db.py (no new files in this layer)' \u2014 splitting into siblings would violate the architectural decision. T0.9 conftest fixtures + T0.11 connect_db_with_pg_retry (~40L) remain. + T0.11 connect_db_with_pg_retry (~40L): bounded-retry helper for PG transient OperationalError with M3 fast-exit (watchdog.txt write + sys.exit(1)) on max_attempts exhaustion; sys/time/pathlib imports added at module top. Grown from 1023 to 1131 by sp5-followup PRs (#1059 _scalar + #1060 _RowFactoryCursor.__iter__). Refactor deferred to post-Sprint-5 when migration is complete and helpers can be split by concern (compat layer vs. helpers vs. shim)."
+    },
+    {
+      "file": "src/simulation/lifecycle/scenario.py",
+      "lines": 583,
+      "rationale": "#97 T9 KEYSTONE \u2014 organic open\u2192exit\u2192reconcile ScenarioRunner. 583 lines (183 over the 400 limit) introduced as the organic lifecycle driver: ScenarioResult dataclass + ScenarioRunner.{__init__, run, _setup, _teardown, _install_sim_bridges, _drive_one_cycle, _drive_oco_exit, _drive_reconcile_when_gone, _find_held_leg, _fetch_shadow_trade_rows, _checkpoint} + module helpers (_extract_dsn, _extract_price, _UrlDsnConnAdapter). The driver's tick-A/tick-B cycle, setup/teardown, organic-patch install, and bridge-shim logic are tightly coupled around shared install ordering and try/finally invariants \u2014 a real split into scenario_setup.py + scenario_drive.py + scenario_bridges.py would force the install order across file boundaries, increasing the risk of leak-class regressions that the try/finally currently prevents. Real refactor deferred to a follow-up sprint after the gate is in production and the install-order invariants are stable."
     }
   ],
   "oversized_functions": [
@@ -1400,6 +1405,18 @@
       "function": "apply_codemod",
       "lines": 71,
       "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 71 lines, 11 over the 60-line limit. Out of dual-GPU scope — defer the real split to the utils owner."
+    },
+    {
+      "file": "src/simulation/lifecycle/scenario.py",
+      "function": "_install_sim_bridges",
+      "lines": 74,
+      "rationale": "#97 T9 KEYSTONE — applies 4 sim bridges (versioning.init_training_tables + versioning.get_active_model_name + journal.store.initialize_database + FakeTradingClient._build_legs) that compensate for prod helpers which crash when ARCIS_DB_PATH is None in the sim worktree, plus the pydantic-aware _build_legs replacement that handles take_profit/stop_loss objects from alpaca-py SDK MarketOrderRequest. The 74 lines (14 over the 60-line limit) are dominated by: 4 lines of import, ~6 lines of capture closure, ~30 lines of the _pydantic_aware_build_legs function-as-replacement (which must construct FakeOrder objects with the exact attribute set the executor expects), and ~30 lines of setattr/undo wiring with try/except rollback. Splitting would require either passing the originals dict across helpers (decoupling capture from undo) or extracting _pydantic_aware_build_legs to a sibling module (decoupling from the FakeTradingClient surface it patches). The pydantic-aware shim is tightly bound to alpaca-py SDK shape and FakeOrder construction details; extracting it loses the locality of the patch contract. Real split deferred until the bridge set stabilizes (currently 4 shims; T11/T12 follow-ups will add more)."
+    },
+    {
+      "file": "src/simulation/lifecycle/wiring.py",
+      "function": "install_organic_patches",
+      "lines": 94,
+      "rationale": "#97 T5/T7/T9/preflight-QA — the central organic-patch installer. 94 lines (34 over the 60-line limit) is dominated by: ~12 lines of docstring enumerating each of the 10 patched module-level symbols with the spec section / finding that motivated it (so future readers can trace each setattr to its rationale), ~12 lines for the originals capture dict (one tuple per patched symbol — must precede ANY setattr so undo can roll back), ~6 lines for the undo() closure, ~10 lines for the setattr block wrapped in try/except → undo() + raise (the leak-resistance contract from spec §2.5 teardown discipline), and ~30+ lines of inline comments explaining the lambda signatures (e.g., '_get_trading_client uses (*a, **kw) to accept positional desk calls' — preflight QA caught this surface contract). Splitting would either (a) introduce a per-patch helper that obscures the install ordering (and ordering matters — capture-then-setattr-then-rollback-on-fail is the leak-resistance invariant), or (b) extract the 10 symbols into a config dict, which loses the static type-safety of the explicit references. The function is a sequential setattr block with no branching; refactoring would add complexity, not remove it. Real split deferred — if further T11/T12 sim seams are added, that's the natural time to re-evaluate."
     }
   ],
   "missing_docstring_headers": [

@@ -27,6 +27,7 @@ import src.config as _config_module
 import src.data_ingestion.market_data as _market_data_mod
 import src.journal.store as _journal_store_mod
 import src.llm.packet_writer as _packet_writer_mod
+import src.risk.price_utils as _price_utils_mod
 import src.shadow_trading.alpaca_adapter as _alpaca_mod
 import src.shadow_trading.executor as _executor_mod
 import src.trading.broker_factory as _broker_factory_mod
@@ -134,7 +135,9 @@ def install_organic_patches(
 ) -> Callable[[], None]:
     """Apply 5 monkeypatches and return an undo() closure.
 
-    Patches applied:
+    Patches applied (10 module-level symbols across 9 modules; the patch
+    count grew past the original spec's 4 as T7+T9 surfaced additional
+    seam gaps — each addition is grounded in a documented finding):
       1. alpaca_adapter._get_trading_client → lambda returning fake_tc
       2. market_data.fetch_ohlcv → fake_md.fetch_ohlcv
          market_data.fetch_spy_benchmark → fake_md.fetch_spy_benchmark
@@ -161,6 +164,15 @@ def install_organic_patches(
          executor.py:1702-1705. Returning a fixed sim price lets the exit
          loop proceed to the OCO leg-fill check. The exit decision is
          actually driven by the fake's fill_leg, not by current_price.
+      8. risk.price_utils._get_current_price_safe → lambda ticker: 100.0
+         (preflight QA #1 finding: risk/governor.py:915 does a function-
+         local `from src.risk.price_utils import _get_current_price_safe`
+         which BYPASSES patch #7 (rebinding executor's re-export doesn't
+         reach the price_utils source-of-truth). Patching price_utils
+         directly covers all lazy `from src.risk.price_utils import ...`
+         call sites — including risk/governor's sector-exposure helper —
+         without affecting the global stdlib uuid pattern (price_utils
+         is the canonical seam; executor's re-export is back-compat).
 
     Each install_organic_patches call creates a FRESH _DeterministicUuidStub
     (counter starts at 1), so two seeded sim runs that drive the same number
@@ -181,6 +193,7 @@ def install_organic_patches(
         (_journal_store_mod, "uuid"): _journal_store_mod.uuid,
         (_broker_factory_mod, "get_live_broker"): _broker_factory_mod.get_live_broker,
         (_executor_mod, "_get_current_price_safe"): _executor_mod._get_current_price_safe,
+        (_price_utils_mod, "_get_current_price_safe"): _price_utils_mod._get_current_price_safe,
     }
 
     def undo() -> None:
@@ -203,6 +216,7 @@ def install_organic_patches(
         setattr(_journal_store_mod, "uuid", uuid_stub)
         setattr(_broker_factory_mod, "get_live_broker", lambda *a, **kw: None)
         setattr(_executor_mod, "_get_current_price_safe", lambda ticker: 100.0)
+        setattr(_price_utils_mod, "_get_current_price_safe", lambda ticker: 100.0)
     except Exception:
         undo()
         raise

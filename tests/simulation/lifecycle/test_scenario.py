@@ -30,7 +30,9 @@ import src.config as config_module
 import src.data_ingestion.market_data as _market_data_mod
 import src.journal.store as _journal_store_mod
 import src.llm.packet_writer as _packet_writer_mod
+import src.risk.price_utils as _price_utils_mod
 import src.shadow_trading.alpaca_adapter as _alpaca_mod
+import src.shadow_trading.executor as _executor_mod
 import src.trading.broker_factory as broker_factory
 import src.universe.sp100 as _sp100_mod
 from src.schema.postgres import create_all_tables
@@ -224,7 +226,14 @@ def test_reconcile_when_gone_yields_zero_orphans(pg_conn):
 
 
 def test_teardown_restores_all_patches_and_cache(pg_conn):
-    """After a full run, all 5+ patched symbols restored, _config_cache None, brokers reset."""
+    """After a full run, ALL 10 patched module-level symbols restored, _config_cache None, brokers reset.
+
+    Captures pristine originals for all 10 module-level symbols wiring.install_organic_patches
+    rebinds — including the T9 add-ons (broker_factory.get_live_broker +
+    executor._get_current_price_safe) and the preflight-QA add-on
+    (price_utils._get_current_price_safe). A future regression where any of these
+    patches leaks past teardown must be caught here.
+    """
     # Capture pristine originals BEFORE the runner.
     pristine = {
         (_alpaca_mod, "_get_trading_client"): _alpaca_mod._get_trading_client,
@@ -234,6 +243,9 @@ def test_teardown_restores_all_patches_and_cache(pg_conn):
         (_packet_writer_mod, "is_llm_available"): _packet_writer_mod.is_llm_available,
         (_sp100_mod, "get_sp100_universe"): _sp100_mod.get_sp100_universe,
         (_journal_store_mod, "uuid"): _journal_store_mod.uuid,
+        (broker_factory, "get_live_broker"): broker_factory.get_live_broker,
+        (_executor_mod, "_get_current_price_safe"): _executor_mod._get_current_price_safe,
+        (_price_utils_mod, "_get_current_price_safe"): _price_utils_mod._get_current_price_safe,
     }
 
     # Seed residual state — teardown must clean.
