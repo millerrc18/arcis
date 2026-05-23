@@ -47,7 +47,7 @@ ANNOTATIONS = {
     "render.yaml": "Render deployment configuration",
     "pyrightconfig.json": "Python type-checking config",
     "requirements.txt": "Core Python dependencies",
-    "requirements-training.txt": "Training-specific deps (PEFT, TRL, BitsAndBytes)",
+    "training/requirements.txt": "Training-specific deps (PEFT, TRL, BitsAndBytes) — relocated from repo root in v0.36.55 (#101) so GitHub's auto dependency-submission stops choking on the unsloth git+URL pin",
     "requirements-cloud.txt": "Render cloud deployment deps",
     # Top-level dirs
     "config/": "YAML settings, known violations, guardrail baselines",

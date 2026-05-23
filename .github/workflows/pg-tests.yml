@@ -64,7 +64,8 @@ jobs:
         # entry-point scripts. Key includes Python minor version so a future
         # 3.13 bump won't poison this cache. hashFiles uses ONLY
         # requirements.txt — requirements-cloud.txt (server-only) and
-        # requirements-training.txt (training-only + volatile unsloth git+URL)
+        # training/requirements.txt (training-only + volatile unsloth git+URL,
+        # relocated from repo-root requirements-training.txt in v0.36.55/#101)
         # are not installed in this CI job, so hashing them would force
         # unnecessary cold-cache rebuilds.
         id: pkg-cache

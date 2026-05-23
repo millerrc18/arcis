@@ -17,7 +17,9 @@ What it writes:
 Prerequisites:
     - CUDA-capable GPU with sufficient VRAM (RTX 3060 12GB minimum)
     - Ollama should be stopped before training to free VRAM (handled by VRAM handoff)
-    - requirements-training.txt dependencies installed (PEFT, TRL, BitsAndBytes)
+    - training/requirements.txt dependencies installed (PEFT, TRL, BitsAndBytes)
+      (relocated from requirements-training.txt at repo root in v0.36.55/#101
+      so GitHub auto dep-submission stops scanning the unsloth git+URL)
 """
 
 import logging

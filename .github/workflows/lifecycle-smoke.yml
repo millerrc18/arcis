@@ -105,9 +105,12 @@ jobs:
         #                 specific)
         #   hashFiles   — ONLY requirements.txt. NOT requirements-cloud.txt
         #                 (server-only deps, not installed in these CI jobs)
-        #                 and NOT requirements-training.txt (the unsloth
-        #                 git+URL is volatile + breaks parsers and is also
-        #                 not installed here). Per-PR diff analysis showed
+        #                 and NOT training/requirements.txt (relocated from
+        #                 repo-root requirements-training.txt in v0.36.55/#101
+        #                 — the unsloth git+URL is volatile + breaks the
+        #                 GitHub auto dependency-submission parser; relocating
+        #                 OUT of repo-root scan range was the root-cause fix).
+        #                 Also not installed here. Per-PR diff analysis showed
         #                 hashing the training file would force unnecessary
         #                 cold-cache rebuilds.
         id: pkg-cache

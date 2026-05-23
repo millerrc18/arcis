@@ -4,7 +4,9 @@ The callback bridges the absolute STOP flag (training_stop) into a HuggingFace
 Trainer loop: when the flag is set, the next on_step_end / on_evaluate requests
 a clean checkpoint + training stop. When unset, control is left untouched.
 
-`transformers` lives in `requirements-training.txt`, not the base
+`transformers` lives in `training/requirements.txt` (relocated from repo-root
+`requirements-training.txt` in v0.36.55 / #101 to stop GitHub auto
+dep-submission from choking on the unsloth git+URL pin), not the base
 `requirements.txt` that `.github/workflows/pg-tests.yml` installs. Module-level
 `pytest.importorskip` keeps these tests runnable on training boxes (where
 the dep is installed) while skipping cleanly on CI hosted runners. Pre-existing

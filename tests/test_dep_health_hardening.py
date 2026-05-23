@@ -209,11 +209,14 @@ def test_torch_declared_somewhere_in_requirements():
     text = _read("requirements.txt")
     extra = ""
     try:
-        extra = _read("requirements-training.txt")
+        # Relocated from `requirements-training.txt` at repo root to
+        # `training/requirements.txt` in v0.36.55 (#101) so GitHub's auto
+        # dependency-submission stops choking on the unsloth git+URL pin.
+        extra = _read("training/requirements.txt")
     except FileNotFoundError:
         pass
     assert ("torch" in text) or ("torch" in extra), (
-        "torch missing from requirements.txt and requirements-training.txt (#600)"
+        "torch missing from requirements.txt and training/requirements.txt (#600)"
     )
 
 
