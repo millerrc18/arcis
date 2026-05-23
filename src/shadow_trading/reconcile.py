@@ -80,6 +80,18 @@ _TRANSIENT_EMPTY_FETCH_THRESHOLD = 3
 _RECENT_CLOSE_WINDOW_HOURS = 24
 
 
+# Exit reasons that mark a close as SYNTHETIC (platform-fabricated, not broker-
+# executed). The lifecycle simulator's invariant 3 (zero_synthetic_closes) reads
+# this set so the oracle and prod source-of-truth stay in lock-step. Add new
+# synthetic reasons HERE — a CI test (tests/simulation/lifecycle/test_oracle.py)
+# asserts the literal strings used in this module are covered by this set.
+SYNTHETIC_EXIT_REASONS = frozenset({
+    "reconciled_stale",   # _resolve_stuck / stale-position close
+    "resolved_stuck",     # _resolve_stuck_pnl marker
+    "synthetic",          # explicit synthetic-close marker
+})
+
+
 def _has_recent_close(db_path, ticker, now, window_hours, desk=None, source="paper"):
     """True if `ticker` has an alpaca shadow_trade closed within `window_hours`.
 

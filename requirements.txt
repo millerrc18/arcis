@@ -52,3 +52,8 @@ pandas_market_calendars>=4.0,<6.0
 # FileLock prevents the scheduler reconciler and auto_fire_walkforward from
 # spawning concurrent walkforward subprocesses for the same strategy_id.
 filelock>=3.0,<4.0
+
+# Task 4 (lifecycle-sim): freezegun pins datetime/time/pandas clock sources to
+# the simulator's VirtualClock (src/simulation/lifecycle/clock.py freeze_at).
+# Test-only — not imported by production code paths.
+freezegun>=1.5,<2.0

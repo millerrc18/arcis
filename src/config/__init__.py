@@ -59,7 +59,8 @@ from dotenv import load_dotenv
 #     absent because `.env` is gitignored). Nothing inherited from
 #     the parent repo. Worktree env-isolation is restored.
 _ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(dotenv_path=_ENV_PATH, override=False)
+if os.environ.get("ARCIS_DISABLE_DOTENV") != "1":
+    load_dotenv(dotenv_path=_ENV_PATH, override=False)
 
 # Central database path constant — must be set via ARCIS_DB_PATH env var.
 # This is the single source of truth for the SQLite path. Every module
