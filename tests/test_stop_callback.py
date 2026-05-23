@@ -3,13 +3,23 @@
 The callback bridges the absolute STOP flag (training_stop) into a HuggingFace
 Trainer loop: when the flag is set, the next on_step_end / on_evaluate requests
 a clean checkpoint + training stop. When unset, control is left untouched.
+
+`transformers` lives in `requirements-training.txt`, not the base
+`requirements.txt` that `.github/workflows/pg-tests.yml` installs. Module-level
+`pytest.importorskip` keeps these tests runnable on training boxes (where
+the dep is installed) while skipping cleanly on CI hosted runners. Pre-existing
+v0.36.50 (#94) CI gap surfaced by v0.36.54 billing-unblock — guard added to
+unblock pg-tests floor enforcement.
 """
 
 from unittest.mock import patch
 
-from transformers import TrainerControl
+import pytest
 
-from src.training.stop_callback import StopOnFlagCallback
+transformers = pytest.importorskip("transformers")
+TrainerControl = transformers.TrainerControl
+
+from src.training.stop_callback import StopOnFlagCallback  # noqa: E402
 
 
 def _control():
