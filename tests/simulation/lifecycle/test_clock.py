@@ -121,3 +121,96 @@ def test_freeze_at_tracks_clock_after_advance_in_new_block():
     with freeze_at(clock):
         assert datetime.now(ET) == clock.now()
         assert datetime.now(ET) == _start() + timedelta(seconds=60)
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION-LOCK: freezegun covers both scheduler namespaces (T4, #97 §2.3/§4.4)
+# ---------------------------------------------------------------------------
+# freezegun's freeze_time rebinds module-level `from datetime import datetime`
+# symbols in every already-imported module.  This test asserts that:
+#   (a) src.scheduler.watch.datetime   and
+#   (b) src.scheduler.universe_scanner.datetime
+# are both frozen to clock.now() inside freeze_at(clock) WITHOUT any shim.
+#
+# If a future refactor removes the freezegun dep or introduces a shim that
+# inadvertently breaks the module-rebind, this test will turn red.
+# ---------------------------------------------------------------------------
+
+
+import src.scheduler.watch as _watch_mod
+import src.scheduler.universe_scanner as _scanner_mod
+
+
+def test_freeze_at_regression_lock_watch_and_scanner_namespaces():
+    """freezegun rebinds both scheduler module datetime symbols to clock.now()."""
+    import datetime as _real_datetime_mod
+    _real_dt_class = _real_datetime_mod.datetime
+
+    clock = VirtualClock(datetime(2026, 5, 22, 14, 30, 0, tzinfo=ET))
+    target = clock.now()
+
+    # ── Inside the context: both namespaces read clock.now() ──────────────
+    with freeze_at(clock):
+        watch_now = _watch_mod.datetime.now(ET)
+        scanner_now = _scanner_mod.datetime.now(ET)
+
+        assert watch_now == target, (
+            f"src.scheduler.watch.datetime.now(ET) = {watch_now!r}, "
+            f"expected clock.now() = {target!r}"
+        )
+        assert scanner_now == target, (
+            f"src.scheduler.universe_scanner.datetime.now(ET) = {scanner_now!r}, "
+            f"expected clock.now() = {target!r}"
+        )
+
+        # Both symbols inside the context are freezegun's FakeDatetime, not the
+        # original class — confirming the rebind is live.  _watch_mod.datetime
+        # IS the FakeDatetime class, so check __name__ directly (not type()).
+        assert _watch_mod.datetime.__name__ == "FakeDatetime", (
+            "watch.datetime should be FakeDatetime inside freeze_at"
+        )
+        assert _scanner_mod.datetime.__name__ == "FakeDatetime", (
+            "universe_scanner.datetime should be FakeDatetime inside freeze_at"
+        )
+
+    # ── After the context exits: originals are restored ───────────────────
+    assert _watch_mod.datetime is _real_dt_class, (
+        "watch.datetime was not restored to the original datetime class after freeze_at"
+    )
+    assert _scanner_mod.datetime is _real_dt_class, (
+        "universe_scanner.datetime was not restored after freeze_at"
+    )
+
+
+def test_freeze_at_regression_lock_no_shim_needed(monkeypatch):
+    """Prove freezegun alone suffices — no FrozenDatetime shim required.
+
+    clock.py contains no shim.  We verify this property explicitly:
+    even if we remove any hypothetical shim hook from the module namespace,
+    freeze_at still freezes both scheduler namespaces via freezegun's own
+    module-level rebind.  This guards against a future refactor that adds
+    a shim and accidentally becomes the only thing keeping the namespaces
+    frozen.
+    """
+    import src.simulation.lifecycle.clock as _clock_mod
+
+    # Verify no shim attribute exists (clock.py should be shim-free).
+    assert not hasattr(_clock_mod, "FrozenDatetime"), (
+        "clock.py must not contain a FrozenDatetime shim — it is redundant "
+        "with freezegun's module-level rebind (spec §2.3)"
+    )
+
+    clock = VirtualClock(datetime(2026, 5, 22, 10, 0, 0, tzinfo=ET))
+    target = clock.now()
+
+    with freeze_at(clock):
+        watch_now = _watch_mod.datetime.now(ET)
+        scanner_now = _scanner_mod.datetime.now(ET)
+
+        assert watch_now == target, (
+            f"Without shim: watch_now={watch_now!r} != clock.now()={target!r}"
+        )
+        assert scanner_now == target, (
+            f"Without shim: scanner_now={scanner_now!r} != clock.now()={target!r}"
+        )
+
