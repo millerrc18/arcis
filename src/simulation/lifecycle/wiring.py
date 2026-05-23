@@ -28,6 +28,8 @@ import src.data_ingestion.market_data as _market_data_mod
 import src.journal.store as _journal_store_mod
 import src.llm.packet_writer as _packet_writer_mod
 import src.shadow_trading.alpaca_adapter as _alpaca_mod
+import src.shadow_trading.executor as _executor_mod
+import src.trading.broker_factory as _broker_factory_mod
 import src.universe.sp100 as _sp100_mod
 from src.config import load_config
 
@@ -144,6 +146,21 @@ def install_organic_patches(
          determinism for inv9 equality — the stub replaces store's local
          `uuid` reference with a counter-based deterministic minter, leaving
          the global stdlib uuid module untouched).
+      6. trading.broker_factory.get_live_broker → lambda: None (T9 spec
+         gap: executor.check_and_manage_open_trades calls live_broker.
+         get_all_positions(), which reaches alpaca_adapter_live's
+         _get_live_trading_client — NOT covered by patch #1 (paper-only).
+         Returning None makes the executor's `if live_broker:` branches
+         (executor.py:1664 et al.) short-circuit to paper-only. The
+         simulator's broker state is the PAPER fake_tc by design; the live
+         broker is not part of the lifecycle being certified.
+      7. shadow_trading.executor._get_current_price_safe → lambda ticker:
+         100.0 (T9 spec gap: real impl tries to call market data with a
+         signature the fake doesn't support, returns None, which makes
+         check_and_manage_open_trades skip OCO exit detection at
+         executor.py:1702-1705. Returning a fixed sim price lets the exit
+         loop proceed to the OCO leg-fill check. The exit decision is
+         actually driven by the fake's fill_leg, not by current_price.
 
     Each install_organic_patches call creates a FRESH _DeterministicUuidStub
     (counter starts at 1), so two seeded sim runs that drive the same number
@@ -162,6 +179,8 @@ def install_organic_patches(
         (_packet_writer_mod, "is_llm_available"): _packet_writer_mod.is_llm_available,
         (_sp100_mod, "get_sp100_universe"): _sp100_mod.get_sp100_universe,
         (_journal_store_mod, "uuid"): _journal_store_mod.uuid,
+        (_broker_factory_mod, "get_live_broker"): _broker_factory_mod.get_live_broker,
+        (_executor_mod, "_get_current_price_safe"): _executor_mod._get_current_price_safe,
     }
 
     def undo() -> None:
@@ -182,6 +201,8 @@ def install_organic_patches(
         setattr(_packet_writer_mod, "is_llm_available", lambda: True)
         setattr(_sp100_mod, "get_sp100_universe", lambda: universe)
         setattr(_journal_store_mod, "uuid", uuid_stub)
+        setattr(_broker_factory_mod, "get_live_broker", lambda *a, **kw: None)
+        setattr(_executor_mod, "_get_current_price_safe", lambda ticker: 100.0)
     except Exception:
         undo()
         raise
