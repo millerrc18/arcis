@@ -102,9 +102,18 @@ jobs:
         # the core lifecycle suite is the regression net around it. T9 organic
         # runner writes via real prod scan path, so PG is required.
         #
-        # --timeout=300: the full-gate organic runs (multi-tick scan +
-        # check_and_manage_open_trades + reconcile + oracle) routinely take
-        # 120-200s on a hosted runner. 300s gives 50% headroom.
+        # --timeout=600: the run_smoke organic runs (multi-tick scan +
+        # check_and_manage_open_trades + reconcile + oracle) take 200-500s
+        # on hosted runners (slower than local). 600s = 10 min ceiling.
+        #
+        # -k "not full_gate": the 4 test_run_full_gate_* tests are the
+        # AUTHORITATIVE nightly tier (multi-day, all faults, all invariants).
+        # They run in .github/workflows/pg-tests.yml's lifecycle-full-gate
+        # job (schedule-only, NOT per-PR). Their pytest.mark.skipif checks
+        # _pg_5434_up() — that returns True here because we provision the
+        # service block, but the tests are designed for the heavyweight
+        # nightly schedule, not the per-PR fast tier. Filter them out so
+        # per-PR runs stay fast.
         #
         # --ignore=test_trainer_stub.py: known pre-existing env-drift issue
         # in #94's dual-GPU trainer stub. test_trainer_stub.py imports
@@ -114,7 +123,7 @@ jobs:
         # and posixpath.join raises TypeError. These tests are about the
         # fake trainer subprocess, NOT the lifecycle gate; #94 owner can
         # restructure the module-level read in a follow-up.
-        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=300 --ignore=tests/simulation/lifecycle/test_trainer_stub.py
+        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=600 -k "not full_gate" --ignore=tests/simulation/lifecycle/test_trainer_stub.py
 
       - name: Smoke verdict (run_smoke direct invocation)
         # Direct call so the rendered, non-authoritative verdict is visible in
