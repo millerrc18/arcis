@@ -41,7 +41,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('install', 'uninstall', 'restart', 'status')]
+    [ValidateSet('install', 'install-watchdog', 'uninstall', 'restart', 'status')]
     [string]$Command,
 
     [string]$ServiceName = 'ArcisWatchLoop'
@@ -200,8 +200,12 @@ function Invoke-WatchdogInstall {
 }
 
 switch ($Command) {
-    'install'   { Invoke-Install; Invoke-WatchdogInstall }
-    'uninstall' { Invoke-Uninstall }
-    'restart'   { Invoke-Restart }
-    'status'    { Invoke-Status }
+    'install'          { Invoke-Install; Invoke-WatchdogInstall }
+    # v0.36.53: install ONLY the watchdog (for dual-GPU re-cutover scenarios
+    # where ArcisWatchLoop already exists — `install` would collide on the
+    # first nssm install and exit before reaching the watchdog).
+    'install-watchdog' { Invoke-WatchdogInstall }
+    'uninstall'        { Invoke-Uninstall }
+    'restart'          { Invoke-Restart }
+    'status'           { Invoke-Status }
 }

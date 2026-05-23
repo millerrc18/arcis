@@ -3342,6 +3342,12 @@ nssm remove ArcisOllamaWatchdog confirm
 .\scripts\install_service.ps1 install
 ```
 
+**If `ArcisWatchLoop` ALREADY EXISTS** (the typical dual-GPU re-cutover scenario — the watch loop has been running on the pre-cutover topology), the `install` subcommand will collide on `nssm install ArcisWatchLoop` and exit before installing the watchdog. Use the `install-watchdog` subcommand (added in v0.36.53) to install ONLY the watchdog without touching the existing watch-loop service:
+
+```powershell
+.\scripts\install_service.ps1 install-watchdog
+```
+
 Verify the service started:
 
 ```powershell

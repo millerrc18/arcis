@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [v0.36.53] — 2026-05-23 — Cutover follow-ups: boundary tests + install-watchdog subcommand + runbook addendum
+
+Post-cutover cleanup of three loose ends from the v0.36.50→.51→.52 hotfix chain. **No functional/runtime change to the live system** — these are test-coverage closures, an ergonomic CLI addition, and a doc fix. Filed as a hotfix per the operator's per-fix versioning standard.
+
+- **Boundary-touch regression tests for the v0.36.52 fix.** `tests/test_ollama_watchdog.py` had `safe_send` mocked as a bare `MagicMock`, so the kwarg-shape bug it caused (`message=` vs `event=`/`detail=`) couldn't have been caught by any of the 25 existing tests. Added `test_emit_unhealthy_uses_correct_safe_send_kwargs` (asserts `event`, `detail` present; `message` absent; `force=True` retained) — same intent as the QA on PR #1165 flagged. Also added `test_init_expected_model_tag_fallback_chain` (parametrized across all four branches: explicit override → `llm.expected_model_tag` → `llm.model` → `arcis:v1.0.0` default), so future refactors of the fallback chain can't silently drop a branch. Closes the *third* iteration of the mock-coverage-gap pattern (gpu_index, model-tag default, safe_send kwargs) — the QA from PR #1162 originally called this out as "boundary-touch test per integration surface" and it deserved closing.
+- **`install-watchdog` subcommand for `scripts/install_service.ps1`.** The `install` subcommand runs `Invoke-Install` (ArcisWatchLoop) AND `Invoke-WatchdogInstall` (ArcisOllamaWatchdog) in sequence; if `ArcisWatchLoop` already exists (every dual-GPU re-cutover scenario), `nssm install` exits non-zero on the first command and the script bails before reaching the watchdog. The new `install-watchdog` subcommand installs ONLY the watchdog. The original `install` is unchanged for fresh boxes.
+- **`docs/operator-guide.md` Step 2 addendum.** Documents the `ArcisWatchLoop`-already-exists case explicitly, alongside the existing `ArcisOllamaWatchdog`-already-exists recovery. Future operators running the cutover on a live system get a clearer path.
+
 ## [v0.36.52] — 2026-05-23 — Hotfix: ArcisOllamaWatchdog model-tag default + safe_send kwargs
 
 Second hotfix unblocking the operator-gated dual-GPU cutover. After installing the watchdog from v0.36.50 code, two bugs in `src/scheduler/ollama_watchdog.py` caused a tight crash loop and silent alert failures.
