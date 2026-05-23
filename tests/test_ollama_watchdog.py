@@ -562,3 +562,84 @@ def test_main_entrypoint_exists():
     # Check that __main__ block or main() function exists
     import src.scheduler.ollama_watchdog as mod
     assert hasattr(mod, "main"), "main() entrypoint must exist"
+
+
+# ---------------------------------------------------------------------------
+# v0.36.53 regression locks: pin the boundary behavior that mocked tests
+# previously hid (the mock-coverage-gap pattern flagged by PR #1165 QA + the
+# repeating cutover-hotfix series). Closes the gap the v0.36.52 hotfix
+# couldn't, because safe_send remained a MagicMock with no kwarg-shape check.
+# ---------------------------------------------------------------------------
+
+def test_emit_unhealthy_uses_correct_safe_send_kwargs():
+    """Regression lock for v0.36.52: _emit_unhealthy must call safe_send with
+    the kwargs notify_system_event(event, detail='') accepts — NOT `message=`,
+    which was the v0.36.50 bug that crash-looped the watchdog on every poll.
+    Mocking safe_send entirely (the original test pattern) hides this exact
+    bug; pinning the kwarg names with assert_called_once + a kwargs check
+    forces a future refactor to keep the signature aligned."""
+    wd = _make_watchdog()
+    with patch("src.scheduler.ollama_watchdog.upsert_daily_metric"):
+        with patch("src.scheduler.ollama_watchdog.safe_send") as mock_safe_send:
+            wd._emit_unhealthy("missing_model_tag")
+
+    mock_safe_send.assert_called_once()
+    args, kwargs = mock_safe_send.call_args
+    assert args == ("system_event",), f"expected event_type='system_event', got {args}"
+    # The v0.36.52 fix replaced `message=` with `event=` (notify_system_event's
+    # title arg) + added `detail=` (the body arg). `severity` is consumed by
+    # safe_send itself (popped at telegram.py:1609) so it MAY appear in kwargs.
+    assert "event" in kwargs, (
+        "missing `event=` kwarg — would silently break notify_system_event "
+        "(the v0.36.50 regression). notify_system_event(event, detail='') "
+        "does NOT accept message=."
+    )
+    assert "detail" in kwargs, "missing `detail=` kwarg (notify body)"
+    assert "message" not in kwargs, (
+        "`message=` is the v0.36.50 broken kwarg — must not reappear."
+    )
+    assert kwargs.get("force") is True, "force=True must remain (bypass policy gate)"
+
+
+@pytest.mark.parametrize(
+    "explicit_tag,cfg_expected,cfg_model,expected_resolved",
+    [
+        ("override-tag", "cfg-expected", "cfg-model", "override-tag"),  # explicit wins
+        (None, "cfg-expected", "cfg-model", "cfg-expected"),             # expected_model_tag wins
+        (None, None, "cfg-model", "cfg-model"),                          # llm.model fallback (v0.36.52)
+        (None, None, None, "arcis:v1.0.0"),                              # default floor
+    ],
+    ids=["explicit_wins", "expected_model_tag_wins", "llm_model_fallback", "default_floor"],
+)
+def test_init_expected_model_tag_fallback_chain(
+    explicit_tag, cfg_expected, cfg_model, expected_resolved
+):
+    """Regression lock for v0.36.52: OllamaWatchdog.__init__ resolves
+    expected_model_tag via the four-branch fallback chain (explicit override
+    -> llm.expected_model_tag -> llm.model -> _DEFAULT_MODEL_TAG). The
+    test-helper's mocked config previously covered only one path; this
+    parametrized test pins all four branches explicitly. Closes the
+    test-coverage gap PR #1165 QA flagged."""
+    from src.scheduler.ollama_watchdog import OllamaWatchdog
+
+    llm_cfg = {"base_url": "http://localhost:11434"}
+    if cfg_expected is not None:
+        llm_cfg["expected_model_tag"] = cfg_expected
+    if cfg_model is not None:
+        llm_cfg["model"] = cfg_model
+
+    with patch(
+        "src.scheduler.ollama_watchdog.load_config",
+        return_value={"llm": llm_cfg},
+    ):
+        with patch(
+            "src.scheduler.ollama_watchdog.resolve_ollama_exe",
+            return_value="ollama",
+        ):
+            wd = OllamaWatchdog(expected_model_tag=explicit_tag)
+
+    assert wd.expected_model_tag == expected_resolved, (
+        f"fallback chain mis-resolved: explicit={explicit_tag!r}, "
+        f"cfg.expected_model_tag={cfg_expected!r}, cfg.model={cfg_model!r}, "
+        f"got {wd.expected_model_tag!r}, expected {expected_resolved!r}"
+    )
