@@ -19,16 +19,45 @@ Tests: tests/simulation/lifecycle/test_wiring.py
 
 from __future__ import annotations
 
+import itertools
+import uuid as _uuid_module
 from typing import Callable
 
 import src.config as _config_module
 import src.data_ingestion.market_data as _market_data_mod
+import src.journal.store as _journal_store_mod
 import src.llm.packet_writer as _packet_writer_mod
 import src.shadow_trading.alpaca_adapter as _alpaca_mod
 import src.universe.sp100 as _sp100_mod
 from src.config import load_config
 
 _SIM_DSN_DEFAULT = "postgresql://test:test@127.0.0.1:5434/halcyon"
+
+
+class _DeterministicUuidStub:
+    """Module-shaped stub replacing journal.store's `uuid` reference (T7 §3.4).
+
+    journal.store does `import uuid` then `uuid.uuid4()` at line 132 (the
+    recommendation_id mint) and line 245 (trade_id fallback). Stdlib `uuid.uuid4()`
+    draws from os.urandom — NOT seedable, NOT freezable — so two seeded+frozen
+    sim runs produce DIFFERENT recommendation_ids, breaking inv9 determinism.
+
+    This stub replaces store's module-local `uuid` reference (NOT the global
+    stdlib uuid module) with a counter-based deterministic minter. Same install
+    cycle → counter starts at 1 → identical recommendation_id sequence across
+    runs. undo() restores store.uuid to the stdlib module.
+
+    The stub exposes uuid.UUID (for downstream isinstance checks) and uuid4().
+    Other uuid surface (uuid1, uuid5, etc.) is not stubbed — store doesn't use it.
+    """
+
+    UUID = _uuid_module.UUID
+
+    def __init__(self) -> None:
+        self._counter = itertools.count(1)
+
+    def uuid4(self):
+        return _uuid_module.UUID(int=next(self._counter), version=4)
 
 
 def _base_sim_dict(dsn: str) -> dict:
@@ -101,7 +130,7 @@ def install_organic_patches(
     fake_llm,
     universe: list[str],
 ) -> Callable[[], None]:
-    """Apply 4 monkeypatches and return an undo() closure.
+    """Apply 5 monkeypatches and return an undo() closure.
 
     Patches applied:
       1. alpaca_adapter._get_trading_client → lambda returning fake_tc
@@ -110,10 +139,21 @@ def install_organic_patches(
       3. packet_writer.generate → fake_llm.generate
          packet_writer.is_llm_available → lambda: True
       4. sp100.get_sp100_universe → lambda: universe
+      5. journal.store.uuid → _DeterministicUuidStub() (T7 §3.4 escalation:
+         the stdlib uuid.uuid4 isn't seedable, breaking recommendation_id
+         determinism for inv9 equality — the stub replaces store's local
+         `uuid` reference with a counter-based deterministic minter, leaving
+         the global stdlib uuid module untouched).
+
+    Each install_organic_patches call creates a FRESH _DeterministicUuidStub
+    (counter starts at 1), so two seeded sim runs that drive the same number
+    of log_recommendation calls produce identical recommendation_id sequences.
 
     All originals are captured via getattr BEFORE any setattr. undo() restores
     every original to is-identity (verified by test_wiring.py).
     """
+    uuid_stub = _DeterministicUuidStub()
+
     originals: dict[tuple, object] = {
         (_alpaca_mod, "_get_trading_client"): _alpaca_mod._get_trading_client,
         (_market_data_mod, "fetch_ohlcv"): _market_data_mod.fetch_ohlcv,
@@ -121,6 +161,7 @@ def install_organic_patches(
         (_packet_writer_mod, "generate"): _packet_writer_mod.generate,
         (_packet_writer_mod, "is_llm_available"): _packet_writer_mod.is_llm_available,
         (_sp100_mod, "get_sp100_universe"): _sp100_mod.get_sp100_universe,
+        (_journal_store_mod, "uuid"): _journal_store_mod.uuid,
     }
 
     def undo() -> None:
@@ -129,10 +170,10 @@ def install_organic_patches(
 
     # The setattrs are wrapped in try/except so a partial-patch failure mid-way
     # rolls back to the captured originals (no leakage). All targets are plain
-    # module-level functions, so setattr is extremely unlikely to raise — but the
-    # spec calls out leak-resistance as a requirement (§2.5 teardown discipline).
-    # _get_trading_client uses (*a, **kw) to accept positional `desk` calls
-    # (e.g., `_get_trading_client('equity_long')`) without TypeError.
+    # module-level attributes, so setattr is extremely unlikely to raise — but
+    # the spec calls out leak-resistance as a requirement (§2.5 teardown
+    # discipline). _get_trading_client uses (*a, **kw) to accept positional
+    # `desk` calls (e.g., `_get_trading_client('equity_long')`) without TypeError.
     try:
         setattr(_alpaca_mod, "_get_trading_client", lambda *a, **kw: fake_tc)
         setattr(_market_data_mod, "fetch_ohlcv", fake_md.fetch_ohlcv)
@@ -140,6 +181,7 @@ def install_organic_patches(
         setattr(_packet_writer_mod, "generate", fake_llm.generate)
         setattr(_packet_writer_mod, "is_llm_available", lambda: True)
         setattr(_sp100_mod, "get_sp100_universe", lambda: universe)
+        setattr(_journal_store_mod, "uuid", uuid_stub)
     except Exception:
         undo()
         raise
