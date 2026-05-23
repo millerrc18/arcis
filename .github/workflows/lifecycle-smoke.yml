@@ -45,6 +45,12 @@ jobs:
           --health-timeout 3s
           --health-retries 15
     env:
+      # ARCIS_DB_PATH is required by src/config/__init__.py at module-import
+      # time (raises if neither ARCIS_DB_PATH nor DATABASE_URL is set — see
+      # CLAUDE.md #642). The lifecycle/trainer_stub tests import
+      # training_stop which uses DB_PATH at module level — without this env
+      # var, collection raises TypeError: expected str, bytes or os.PathLike.
+      ARCIS_DB_PATH: /tmp/arcis_ci.sqlite3
       # PYTHONUTF8=1 prevents TRL/jinja codec issues on non-UTF-8 systems
       # (discovered 2026-05-10 during RTX 3090 training-readiness verify).
       PYTHONUTF8: '1'
@@ -64,7 +70,24 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout psycopg2-binary
+
+      - name: Bootstrap 5434 sim PG schema
+        # T9 organic runner reads/writes through PG. Without the schema, every
+        # test that calls run_smoke / run_full_gate / ScenarioRunner errors with
+        # UndefinedTable. Bootstrap creates the full registry on the
+        # postgres-test container before any test runs.
+        env:
+          PGPASSWORD: test
+        run: |
+          psql -h 127.0.0.1 -p 5434 -U test -d halcyon -c "SELECT 1;" \
+            && python -c "from src.simulation.lifecycle.bootstrap import SIM_DATABASE_URL; from src.schema.postgres import create_all_tables; create_all_tables(SIM_DATABASE_URL); print('schema bootstrapped')"
+
+      - name: Bootstrap SQLite production-path schema
+        # Mirrors pg-tests step 7. Tests that hit production-shape API surfaces
+        # call connect_db() which routes to ARCIS_DB_PATH SQLite; validate-schema
+        # --fix creates the registry tables.
+        run: python -m src.main validate-schema --fix
 
       - name: Run lifecycle smoke (entrypoints + core lifecycle suite)
         # The entrypoints test invokes run_smoke() end-to-end on the 5434 PG;
