@@ -51,9 +51,34 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # setup-python's built-in cache:'pip' caches the pip DOWNLOAD cache
+          # (~/.cache/pip). Complementary to the actions/cache@v4 step below
+          # which caches the INSTALLED packages (env.pythonLocation) — the
+          # two together give cold-miss ~60-90s + warm-hit ~5s.
           cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Cache installed packages
+        # env.pythonLocation is set by actions/setup-python to the install
+        # root. Caching it captures site-packages + .pth files +
+        # entry-point scripts. Key includes Python minor version so a future
+        # 3.13 bump won't poison this cache. hashFiles uses ONLY
+        # requirements.txt — requirements-cloud.txt (server-only) and
+        # requirements-training.txt (training-only + volatile unsloth git+URL)
+        # are not installed in this CI job, so hashing them would force
+        # unnecessary cold-cache rebuilds.
+        id: pkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-python3.12-pkgs-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
+        # On cache HIT, pip sees everything satisfied and exits in ~3-5s.
+        # On MISS, full install runs (~60-90s) and the cache is written
+        # on post-step. The install step also acts as a sanity check — if
+        # the cache is somehow stale or corrupted, pip idempotently
+        # installs whatever's missing.
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -156,6 +181,18 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Cache installed packages
+        # Same env.pythonLocation cache pattern as the pg-tests job above
+        # — shared key (no job-specific suffix) means the two jobs can
+        # share the same cache entry when their requirements.txt hash
+        # matches. cache: 'pip' above + this cache: warm-hit ~5s install.
+        id: pkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-python3.12-pkgs-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
         run: |
