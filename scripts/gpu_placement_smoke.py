@@ -131,12 +131,56 @@ def _launch_ollama_gpu1() -> subprocess.Popen:
     return proc
 
 
-def _query_compute_apps_indexed() -> list[dict]:
-    """Query nvidia-smi compute apps with GPU index in the output (index,pid,name,mem)."""
+def _query_gpu_index_by_uuid() -> dict[str, int]:
+    """Build a uuid -> index map from `nvidia-smi --query-gpu=index,name,uuid`.
+
+    Driver 596.36's `nvidia-smi --query-compute-apps` does NOT accept `gpu_index`
+    as a field (valid fields per `--help-query-compute-apps`: timestamp, gpu_name,
+    gpu_bus_id, gpu_serial, gpu_uuid, pid, process_name, used_memory). The original
+    smoke script used `gpu_index` directly and exited 1 on every run. Fix: query
+    `gpu_uuid` in compute-apps and cross-reference via this map. We reuse the same
+    `--query-gpu=index,name,uuid` shape as Phase 1's identity check so the test
+    fixtures stay shared (`_NVIDIASMI_QUERY_GPU_PASS`).
+    """
     result = subprocess.run(
         [
             "nvidia-smi",
-            "--query-compute-apps=gpu_index,pid,process_name,used_memory",
+            "--query-gpu=index,name,uuid",
+            "--format=csv,noheader",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"nvidia-smi --query-gpu (uuid map) failed (rc={result.returncode})"
+        )
+    mapping: dict[str, int] = {}
+    for line in result.stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            mapping[parts[2]] = int(parts[0])
+        except ValueError:
+            continue
+    return mapping
+
+
+def _query_compute_apps_indexed() -> list[dict]:
+    """Query nvidia-smi compute apps and resolve gpu_index via uuid map.
+
+    Returns dicts with keys: gpu_index, pid, name, mem — shape unchanged from
+    the caller's perspective (check_placement reads `gpu_index`). The actual
+    nvidia-smi query is now `gpu_uuid,pid,process_name,used_memory` (the
+    `gpu_index` field rejected by driver 596.36 is no longer used).
+    """
+    uuid_to_idx = _query_gpu_index_by_uuid()
+    result = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
             "--format=csv,noheader",
         ],
         capture_output=True,
@@ -154,9 +198,9 @@ def _query_compute_apps_indexed() -> list[dict]:
         parts = [p.strip() for p in line.split(",")]
         if len(parts) < 4:
             continue
-        try:
-            gpu_idx = int(parts[0])
-        except ValueError:
+        uuid = parts[0]
+        gpu_idx = uuid_to_idx.get(uuid)
+        if gpu_idx is None:
             continue
         apps.append({
             "gpu_index": gpu_idx,

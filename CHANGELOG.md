@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [v0.36.51] — 2026-05-23 — Hotfix: gpu_placement_smoke.py field bug (driver 596.36 compat)
+
+Unblocks the operator-gated dual-GPU cutover. Phase 2 of the smoke gate queried `nvidia-smi --query-compute-apps=gpu_index,...`, but `gpu_index` is **not** a valid field for `--query-compute-apps` on driver 596.36 (per `--help-query-compute-apps`; valid fields are `timestamp, gpu_name, gpu_bus_id, gpu_serial, gpu_uuid, pid, process_name, used_memory`). Every cutover attempt failed with `Field "gpu_index" is not a valid field to query.` — `_query_compute_apps_indexed()` raised `RuntimeError` and `run_smoke()` exited 1.
+
+- **`scripts/gpu_placement_smoke.py`** — `_query_compute_apps_indexed()` now queries `gpu_uuid` (a valid field on every driver) and cross-references to GPU index via a new helper `_query_gpu_index_by_uuid()`. The helper reuses the same `--query-gpu=index,name,uuid` shape that Phase 1's identity check already runs, so no new mock fixtures are required for the identity-PASS path. `check_placement()`'s API is unchanged — it still consumes dicts with a resolved `gpu_index` key.
+- **`tests/test_gpu_placement_smoke.py`** — the two compute-apps mock fixtures (`_NVIDIASMI_COMPUTE_APPS_GPU1`, `_NVIDIASMI_COMPUTE_APPS_GPU0`) now lead with the matching UUID (`GPU-bbbb-2222` / `GPU-aaaa-1111`) instead of the integer index. The three test cases (PASS / identity-flip / placement-fail) still drive `subprocess.run` via the same `_fake_run` branch logic.
+
+**Why this slipped past #94's 6+ reviews:** every unit test in `tests/test_gpu_placement_smoke.py` patches `subprocess.run` with canned outputs. The mocked tests asserted the script *parses* nvidia-smi output correctly, but never asserted the *query string itself* is valid against a real driver — a classic mock-coverage gap. The bug only surfaced when the operator tried to run the script during the live cutover.
+
 ## [v0.36.50] — 2026-05-22 — Dual-GPU re-cutover (static partition: GPU0=training, GPU1=Ollama)
 
 Replaces the overnight VRAM handoff pattern with a permanent static GPU partition.
