@@ -135,7 +135,12 @@ def build_tree(root: Path, prefix: str = "", max_depth: int = 3, current_depth: 
     for i, d in enumerate(dirs):
         is_last_dir = (i == len(dirs) - 1 and not files)
         connector = "└── " if is_last_dir else "├── "
-        rel = str(d.relative_to(ROOT)) + "/"
+        # .as_posix() not str() — Path.relative_to() returns backslash on
+        # Windows ('training\\requirements.txt') which fails the ANNOTATIONS
+        # lookup (keys are forward-slash, canonical POSIX). Bug surfaced on
+        # the v0.36.55 (#101) training-reqs relocation, but the fix
+        # generalizes to ALL future nested-path annotations.
+        rel = d.relative_to(ROOT).as_posix() + "/"
         annotation = ANNOTATIONS.get(rel, "")
 
         # Add file count for src/ modules
@@ -153,7 +158,8 @@ def build_tree(root: Path, prefix: str = "", max_depth: int = 3, current_depth: 
     for i, f in enumerate(files):
         is_last = (i == len(files) - 1)
         connector = "└── " if is_last else "├── "
-        rel = str(f.relative_to(ROOT))
+        # See dir-loop comment above re: as_posix() vs str().
+        rel = f.relative_to(ROOT).as_posix()
         annotation = ANNOTATIONS.get(rel, "")
         suffix = f"  ← {annotation}" if annotation else ""
         lines.append(f"{prefix}{connector}{f.name}{suffix}")
