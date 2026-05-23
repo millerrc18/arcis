@@ -36,7 +36,10 @@ def _make_watchdog(base_url="http://localhost:11434", exe="ollama"):
     """Return an OllamaWatchdog with a patched exe, no config load."""
     from src.scheduler.ollama_watchdog import OllamaWatchdog
 
-    with patch("src.scheduler.ollama_watchdog.load_config", return_value={"llm": {"base_url": base_url}}):
+    # v0.36.52: explicit llm.model in mock config so the new fallback chain in
+    # OllamaWatchdog.__init__ resolves to "halcyon-v1" (the tag the tests'
+    # /api/tags fixtures return) rather than the hardcoded default.
+    with patch("src.scheduler.ollama_watchdog.load_config", return_value={"llm": {"base_url": base_url, "model": "halcyon-v1"}}):
         with patch("src.scheduler.ollama_watchdog.resolve_ollama_exe", return_value=exe):
             wd = OllamaWatchdog(base_url=base_url)
     wd._exe = exe

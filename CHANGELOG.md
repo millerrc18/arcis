@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [v0.36.52] — 2026-05-23 — Hotfix: ArcisOllamaWatchdog model-tag default + safe_send kwargs
+
+Second hotfix unblocking the operator-gated dual-GPU cutover. After installing the watchdog from v0.36.50 code, two bugs in `src/scheduler/ollama_watchdog.py` caused a tight crash loop and silent alert failures.
+
+- **Wrong default model tag.** `_DEFAULT_MODEL_TAG = "halcyon-v1"` was stale from before the platform's `arcis:v1.0.0` rebrand. The actual model store contains `arcis:v1.0.0`, `halcyon-v1.0.0:latest`, `halcyonlatest:latest` — none of them match `halcyon-v1`. The watchdog's MAJOR-4 invariant check (`/api/tags` must contain the expected tag) failed every poll, the watchdog restarted Ollama every cycle, and `_emit_unhealthy(missing_model_tag)` fired continuously. Fix: `__init__` now uses a fallback chain — explicit override → `llm.expected_model_tag` config → **`llm.model` config (DRY with the LLM client)** → hardcoded default, with the default bumped to `arcis:v1.0.0` as a last-resort floor. The watchdog now tracks whatever model the LLM client uses, without requiring a separate config key.
+- **`safe_send` kwarg mismatch.** `_emit_unhealthy` called `safe_send("system_event", message=..., severity=..., force=True)`, but `notify_system_event(event, detail="")` accepts neither `message=` nor `severity=`. (Severity *is* consumed by `safe_send` itself — popped at `telegram.py:1609` — but `message=` is forwarded to `notify_system_event` and raises `TypeError`.) The watchdog's alerts were silently failing every poll. Fix: replace `message=` with `event=` (the title kwarg `notify_system_event` accepts) and pass `detail=detail` (the body kwarg).
+
+**Why both slipped past #94's 6+ reviews:** `tests/test_ollama_watchdog.py` mocked `load_config` to return `{"llm": {"base_url": ...}}` with no `model` key, so the test path also hit `_DEFAULT_MODEL_TAG = "halcyon-v1"` and matched the test's mocked `/api/tags` — circularly green. `safe_send` was mocked with `MagicMock`, so the kwarg shape was never validated against the real signature. Same mock-coverage-gap shape as v0.36.51's `gpu_index` field bug.
+
+Test helper updated: `_make_watchdog()` now includes `"model": "halcyon-v1"` in its mock config so the new fallback chain resolves to the same tag the existing `/api/tags` fixtures use — no test-case changes needed.
+
 ## [v0.36.51] — 2026-05-23 — Hotfix: gpu_placement_smoke.py field bug (driver 596.36 compat)
 
 Unblocks the operator-gated dual-GPU cutover. Phase 2 of the smoke gate queried `nvidia-smi --query-compute-apps=gpu_index,...`, but `gpu_index` is **not** a valid field for `--query-compute-apps` on driver 596.36 (per `--help-query-compute-apps`; valid fields are `timestamp, gpu_name, gpu_bus_id, gpu_serial, gpu_uuid, pid, process_name, used_memory`). Every cutover attempt failed with `Field "gpu_index" is not a valid field to query.` — `_query_compute_apps_indexed()` raised `RuntimeError` and `run_smoke()` exited 1.
