@@ -24,6 +24,7 @@ Tests: tests/simulation/lifecycle/test_fake_market_llm.py
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from typing import Callable, Optional
 
 import numpy as np
@@ -44,6 +45,11 @@ def _identity_bar_hook(bar: BarRow) -> BarRow:
 class FakeMarketData:
     """Seeded OHLCV generator standing in for cache.fetch_cached_ohlcv."""
 
+    # Fixed deterministic window anchor — identical across instances so same-seed
+    # instances produce frame-equal results from fetch_ohlcv / fetch_spy_benchmark.
+    _WINDOW_START = "2025-01-02"
+    _WINDOW_END = "2025-12-31"
+
     def __init__(
         self,
         *,
@@ -54,6 +60,7 @@ class FakeMarketData:
         self._seed = seed
         self._base_price = base_price
         self._bar_hook = bar_hook or _identity_bar_hook
+        self.calls: Counter = Counter()
 
     def _stream_seed(self, ticker: str, start: str, end: str) -> int:
         """Derive a stable per-(seed, ticker, window) integer seed."""
@@ -84,3 +91,16 @@ class FakeMarketData:
         frame = pd.DataFrame(rows, index=dates, columns=_OHLCV_COLUMNS)
         frame.index.name = "Date"
         return frame
+
+    def fetch_ohlcv(self, universe: list[str]) -> dict[str, pd.DataFrame]:
+        """Return OHLCV bars for every ticker in universe (adapts fetch_cached_ohlcv)."""
+        self.calls["fetch_ohlcv"] += 1
+        return {
+            ticker: self.fetch_cached_ohlcv(ticker, self._WINDOW_START, self._WINDOW_END)
+            for ticker in universe
+        }
+
+    def fetch_spy_benchmark(self) -> pd.DataFrame:
+        """Return non-empty SPY OHLCV bars (Close>0, never empty)."""
+        self.calls["fetch_spy"] += 1
+        return self.fetch_cached_ohlcv("SPY", self._WINDOW_START, self._WINDOW_END)

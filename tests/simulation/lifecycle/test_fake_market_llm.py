@@ -107,3 +107,82 @@ def test_llm_generate_returns_canned_packet_text():
     assert "<why_now>" in text and "<metadata>" in text
     # same seed → identical canned text
     assert FakeLLM(seed=8, n_candidates=1).generate("prompt", "system") == text
+
+
+# ── FakeMarketData.fetch_ohlcv ───────────────────────────────────────────
+
+
+def test_fetch_ohlcv_returns_dict_keyed_by_universe():
+    md = FakeMarketData(seed=42)
+    universe = ["AAPL", "MSFT", "NVDA"]
+    result = md.fetch_ohlcv(universe)
+    assert isinstance(result, dict)
+    assert set(result.keys()) == set(universe)
+
+
+def test_fetch_ohlcv_each_frame_nonempty_with_ohlcv_columns():
+    md = FakeMarketData(seed=1)
+    universe = ["AAPL", "GOOG"]
+    result = md.fetch_ohlcv(universe)
+    for ticker, df in result.items():
+        assert isinstance(df, pd.DataFrame), f"{ticker} value is not a DataFrame"
+        assert len(df) > 0, f"{ticker} DataFrame is empty"
+        assert list(df.columns) == _OHLCV_COLUMNS, f"{ticker} columns mismatch"
+
+
+def test_fetch_ohlcv_close_always_positive():
+    md = FakeMarketData(seed=77)
+    universe = ["SPY", "AAPL", "TSLA"]
+    result = md.fetch_ohlcv(universe)
+    for ticker, df in result.items():
+        assert (df["Close"] > 0).all(), f"{ticker} has Close <= 0"
+
+
+def test_fetch_ohlcv_same_seed_frame_equal():
+    universe = ["AAPL", "MSFT"]
+    md_a = FakeMarketData(seed=13)
+    md_b = FakeMarketData(seed=13)
+    result_a = md_a.fetch_ohlcv(universe)
+    result_b = md_b.fetch_ohlcv(universe)
+    for ticker in universe:
+        pd.testing.assert_frame_equal(result_a[ticker], result_b[ticker])
+
+
+def test_fetch_ohlcv_counter_increments():
+    md = FakeMarketData(seed=5)
+    assert md.calls["fetch_ohlcv"] == 0
+    md.fetch_ohlcv(["AAPL"])
+    assert md.calls["fetch_ohlcv"] == 1
+    md.fetch_ohlcv(["AAPL", "MSFT"])
+    assert md.calls["fetch_ohlcv"] == 2
+
+
+# ── FakeMarketData.fetch_spy_benchmark ──────────────────────────────────
+
+
+def test_fetch_spy_benchmark_nonempty():
+    md = FakeMarketData(seed=0)
+    spy = md.fetch_spy_benchmark()
+    assert isinstance(spy, pd.DataFrame)
+    assert not spy.empty
+
+
+def test_fetch_spy_benchmark_close_positive():
+    md = FakeMarketData(seed=0)
+    spy = md.fetch_spy_benchmark()
+    assert (spy["Close"] > 0).all()
+
+
+def test_fetch_spy_benchmark_same_seed_frame_equal():
+    md_a = FakeMarketData(seed=99)
+    md_b = FakeMarketData(seed=99)
+    pd.testing.assert_frame_equal(md_a.fetch_spy_benchmark(), md_b.fetch_spy_benchmark())
+
+
+def test_fetch_spy_counter_increments():
+    md = FakeMarketData(seed=3)
+    assert md.calls["fetch_spy"] == 0
+    md.fetch_spy_benchmark()
+    assert md.calls["fetch_spy"] == 1
+    md.fetch_spy_benchmark()
+    assert md.calls["fetch_spy"] == 2
