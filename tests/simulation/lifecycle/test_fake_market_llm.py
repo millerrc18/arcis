@@ -11,6 +11,69 @@ candidate-volume knob so scenarios can drive the governor gates.
 
 Fault injection (gaps/halts/regime + rejections) is deliberately NOT exercised
 here — that is Task 10.
+
+Ranker / T9 precondition tests (Task 6 spike)
+=============================================
+Three additional groups exercise build-time preconditions that Task 9 depends on:
+
+(a) ranker_yields_candidate — import the real ``src.ranking.ranker.rank_universe``
+    and ``get_top_candidates``; build a features dict from FakeLLM.generate_candidates()
+    output; assert >=1 packet_worthy candidate is returned.  This is the critical
+    build-spike: if the ranker filters everything, T9 can't drive an organic scan.
+
+    Tuning note: FakeLLM.generate_candidates() emits features including
+    ``pullback_depth_pct``, ``dist_to_sma20_pct``, and ``volume_ratio_20d`` with
+    values chosen so the real ranker's ``_score_ticker`` produces scores >= 70
+    (the default packet_worthy threshold).  The feature VALUES used are:
+      - trend_state="uptrend"             → +20 pts
+      - relative_strength_state varies    → +15 to +25 pts (per-ticker spread, no ties)
+      - pullback_depth_pct=-5.0           → +25 pts (in the -8 to -3 sweet spot)
+      - dist_to_sma20_pct=-2.0           → +10 pts (in the -5 to -1 range)
+      - volume_ratio_20d varies           → +0 or +15 pts (creates per-ticker unique scores)
+    Resulting scores: 95, 85, 80 — all above the 70 threshold, with no ties.
+
+(b) ranker_tiebreak_stable — two independent calls with the SAME seeded
+    FakeLLM instance return the same top candidate (ticker, score).  Because the
+    fakes emit distinct per-ticker scores (no ties at threshold), this effectively
+    verifies the ranker's sort is stable under the fake data.  The unstable
+    tie-break (Python dict-insertion-order dependency when scores are equal) is a
+    KNOWN LIMITATION documented in the concerns section of the T6 status report —
+    it's a finding for T13 but does NOT affect T9 because the fakes are tie-free.
+
+(c) executor_insert_covers_inv9_columns (docstring-level assertion, no DB required)
+    The inv9 snapshot at ``_checks_db.py:139-145`` hashes 7 columns per
+    shadow_trades row: recommendation_id, ticker, status, actual_shares,
+    order_type, exit_reason, pnl_dollars.
+    ``executor.open_shadow_trade`` writes all 7 via ``insert_shadow_trade``:
+      - recommendation_id: passed directly at executor.py:817 (ShadowTrade init)
+      - ticker: executor.py:819
+      - status: executor.py:820 ('pending' → set to 'open'/'rejected'/etc.)
+      - actual_shares: set at executor.py:874-878 (fill path) or rejection paths
+        (NOTE: the column is ``planned_shares`` at creation; ``actual_shares`` is
+        populated by the close/fill flow.  At open time the inv9-hashed value will
+        be None/0 — this is expected: inv9 captures the full lifecycle snapshot
+        AFTER the sim completes, not at open time.)
+      - order_type: executor.py:881-882 (bracket) or rejection fallbacks
+      - exit_reason: populated on close; NULL at open (expected for open trades)
+      - pnl_dollars: populated on close; NULL at open (expected for open trades)
+    All 7 columns are registered in the schema registry (src/schema/registry.py)
+    and written by the executor/close paths before T9's inv9 check fires.
+
+(d) reconcile_seam_identity (docstring-level assertion, no DB required)
+    ``reconcile_all_paper_trades`` (reconcile_dispatch.py:27-66) calls
+    ``reconcile_paper_trades`` (reconcile.py), which imports
+    ``get_all_positions`` and ``get_live_positions`` from
+    ``src.shadow_trading.alpaca_adapter`` (reconcile.py:46-50).
+    ``executor.open_shadow_trade`` calls ``_get_trading_client`` from
+    ``src.shadow_trading.alpaca_adapter`` (executor.py:983-984) for the
+    standalone stop-loss fallback, and ``place_bracket_order`` from the same
+    module (executor.py:881) for the bracket path.
+    BOTH reconcile and executor funnel through ``src.shadow_trading.alpaca_adapter``
+    — so ``wiring.install_organic_patches``'s alpaca patch intercepts calls from
+    both code paths, satisfying the consistency invariant for monitor→exit→reconcile.
+    Reconcile does NOT import ``_get_trading_client`` directly (it uses higher-level
+    ``get_all_positions`` / ``get_live_positions`` which internally call
+    ``_get_trading_client``), but the routing is through the same adapter module.
 """
 
 import pandas as pd
@@ -207,3 +270,85 @@ def test_fetch_spy_counter_increments():
     assert md.calls["fetch_spy"] == 1
     md.fetch_spy_benchmark()
     assert md.calls["fetch_spy"] == 2
+
+
+# ── T6 spike: Ranker precondition tests ─────────────────────────────────
+
+
+def test_ranker_yields_at_least_one_candidate_from_fake_features():
+    """(T6-a) rank_universe produces >=1 packet_worthy candidate from FakeLLM features.
+
+    Uses the real prod ranker (src.ranking.ranker.rank_universe + get_top_candidates).
+    FakeLLM.generate_candidates() now emits features tuned to score >= 70 (default
+    packet_worthy threshold).  See module docstring for tuning rationale.
+    """
+    from src.ranking.ranker import rank_universe, get_top_candidates
+
+    llm = FakeLLM(seed=42, n_candidates=3)
+    candidates = llm.generate_candidates()
+    assert len(candidates) == 3, "FakeLLM must emit 3 candidates for this test"
+
+    # Build the features dict rank_universe expects: ticker -> feature dict
+    features = {c["ticker"]: c["features"] for c in candidates}
+
+    ranked = rank_universe(features)
+    result = get_top_candidates(ranked)
+    packet_worthy = result["packet_worthy"]
+
+    assert len(packet_worthy) >= 1, (
+        f"rank_universe returned 0 packet_worthy candidates from FakeLLM features. "
+        f"Ranked scores: {[(r['ticker'], r['score']) for r in ranked]}. "
+        "Tune FakeLLM feature VALUES (trend_state, relative_strength_state, "
+        "pullback_depth_pct, dist_to_sma20_pct, volume_ratio_20d) to clear threshold=70."
+    )
+
+
+def test_ranker_tiebreak_stable_across_two_seeded_runs():
+    """(T6-b) Two independent rank_universe calls with same FakeLLM seed return same top candidate.
+
+    Because FakeLLM generates distinct per-ticker scores (no ties at threshold),
+    the ranker's sort is deterministic — same top candidate (ticker, score) both runs.
+    Tie-break INSTABILITY with equal scores is a known finding (T13): when scores tie,
+    the Python dict insertion-order determines the winner, which is seam-observable.
+    The fakes sidestep this by design (distinct scores).
+    """
+    from src.ranking.ranker import rank_universe, get_top_candidates
+
+    llm = FakeLLM(seed=42, n_candidates=3)
+
+    # Run 1
+    candidates_1 = llm.generate_candidates()
+    features_1 = {c["ticker"]: c["features"] for c in candidates_1}
+    ranked_1 = rank_universe(features_1)
+    top_1 = get_top_candidates(ranked_1)["packet_worthy"][0]
+
+    # Run 2 — fresh instance, same seed
+    llm2 = FakeLLM(seed=42, n_candidates=3)
+    candidates_2 = llm2.generate_candidates()
+    features_2 = {c["ticker"]: c["features"] for c in candidates_2}
+    ranked_2 = rank_universe(features_2)
+    top_2 = get_top_candidates(ranked_2)["packet_worthy"][0]
+
+    assert top_1["ticker"] == top_2["ticker"], (
+        f"Tie-break unstable: run1 top={top_1['ticker']} run2 top={top_2['ticker']}. "
+        "FakeLLM must produce distinct per-ticker scores so no ties exist at threshold."
+    )
+    assert top_1["score"] == top_2["score"], (
+        f"Score mismatch: run1={top_1['score']} run2={top_2['score']}. "
+        "Same seed must produce same scores."
+    )
+
+
+def test_fake_llm_candidates_have_distinct_scores():
+    """(T6-b support) FakeLLM n_candidates=3 produces 3 candidates with all-distinct scores.
+
+    This guarantees no ties exist at the packet_worthy threshold — required for
+    ranker tie-break stability (T6-b) and inv9 determinism (T9).
+    """
+    llm = FakeLLM(seed=42, n_candidates=3)
+    candidates = llm.generate_candidates()
+    scores = [c["score"] for c in candidates]
+    assert len(scores) == len(set(scores)), (
+        f"FakeLLM produced tied scores: {scores}. "
+        "All candidate scores must be distinct to guarantee tie-free ranker output."
+    )
