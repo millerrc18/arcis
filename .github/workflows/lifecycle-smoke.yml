@@ -51,6 +51,14 @@ jobs:
       # training_stop which uses DB_PATH at module level — without this env
       # var, collection raises TypeError: expected str, bytes or os.PathLike.
       ARCIS_DB_PATH: /tmp/arcis_ci.sqlite3
+      # ALPACA_API_KEY/SECRET stubs let place_bracket_order's precondition
+      # check pass so the patched alpaca_adapter._get_trading_client (wiring
+      # patch #1) is actually CALLED. Without these, executor raises
+      # PaperTradingError before reaching the fake trading client, causing
+      # ProvenanceError("submit_order never invoked"). The fake doesn't
+      # validate these — any non-empty string works.
+      ALPACA_API_KEY: sim-noop
+      ALPACA_API_SECRET: sim-noop
       # PYTHONUTF8=1 prevents TRL/jinja codec issues on non-UTF-8 systems
       # (discovered 2026-05-10 during RTX 3090 training-readiness verify).
       PYTHONUTF8: '1'
