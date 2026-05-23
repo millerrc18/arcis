@@ -41,6 +41,22 @@ def _base_sim_dict(dsn: str) -> dict:
     }
 
 
+def _assert_sim_dsn(dsn: str) -> None:
+    """Hard prod-isolation guard — reject any DSN missing the :5434/ sim port.
+
+    The simulator MUST NEVER touch a prod DB (CLAUDE.md sacred-rule territory).
+    Per spec §4.5, the sim runs against an ephemeral PG on port 5434 (the
+    docker-compose.test.yml local fixture). This guard refuses any DSN that
+    doesn't carry the :5434/ signature — convention alone is too weak.
+    """
+    if ":5434/" not in dsn:
+        raise ValueError(
+            f"Sim DSN must contain ':5434/' (5434 = ephemeral test PG port); "
+            f"got: {dsn!r}. Refusing to prime a non-sim DSN — the simulator "
+            f"NEVER touches prod (spec §4.5, CLAUDE.md prod-isolation rule)."
+        )
+
+
 def prime_config(dsn: str, overrides: dict | None = None) -> dict:
     """Clear the config cache, prime load_config() with the sim dict, return it.
 
@@ -49,7 +65,10 @@ def prime_config(dsn: str, overrides: dict | None = None) -> dict:
     use_grammar_enforcement=False, and the 5434 sim DSN.
 
     The overrides dict is merged on top for test parameterization.
+
+    Raises ValueError if dsn is not a 5434 sim DSN (prod-isolation guard).
     """
+    _assert_sim_dsn(dsn)
     _config_module._config_cache = None
     primed: dict = _base_sim_dict(dsn)
     if overrides:
@@ -66,7 +85,10 @@ def build_watch_config(dsn: str, overrides: dict | None = None) -> dict:
     and any ScanContext must be primed with this dict for the LLM-enabled gate to fire.
 
     Returns the same key shape as prime_config; does NOT touch _config_cache.
+
+    Raises ValueError if dsn is not a 5434 sim DSN (prod-isolation guard).
     """
+    _assert_sim_dsn(dsn)
     cfg: dict = _base_sim_dict(dsn)
     if overrides:
         cfg.update(overrides)
@@ -101,15 +123,25 @@ def install_organic_patches(
         (_sp100_mod, "get_sp100_universe"): _sp100_mod.get_sp100_universe,
     }
 
-    setattr(_alpaca_mod, "_get_trading_client", lambda **kw: fake_tc)
-    setattr(_market_data_mod, "fetch_ohlcv", fake_md.fetch_ohlcv)
-    setattr(_market_data_mod, "fetch_spy_benchmark", fake_md.fetch_spy_benchmark)
-    setattr(_packet_writer_mod, "generate", fake_llm.generate)
-    setattr(_packet_writer_mod, "is_llm_available", lambda: True)
-    setattr(_sp100_mod, "get_sp100_universe", lambda: universe)
-
     def undo() -> None:
         for (module, attr), original in originals.items():
             setattr(module, attr, original)
+
+    # The setattrs are wrapped in try/except so a partial-patch failure mid-way
+    # rolls back to the captured originals (no leakage). All targets are plain
+    # module-level functions, so setattr is extremely unlikely to raise — but the
+    # spec calls out leak-resistance as a requirement (§2.5 teardown discipline).
+    # _get_trading_client uses (*a, **kw) to accept positional `desk` calls
+    # (e.g., `_get_trading_client('equity_long')`) without TypeError.
+    try:
+        setattr(_alpaca_mod, "_get_trading_client", lambda *a, **kw: fake_tc)
+        setattr(_market_data_mod, "fetch_ohlcv", fake_md.fetch_ohlcv)
+        setattr(_market_data_mod, "fetch_spy_benchmark", fake_md.fetch_spy_benchmark)
+        setattr(_packet_writer_mod, "generate", fake_llm.generate)
+        setattr(_packet_writer_mod, "is_llm_available", lambda: True)
+        setattr(_sp100_mod, "get_sp100_universe", lambda: universe)
+    except Exception:
+        undo()
+        raise
 
     return undo

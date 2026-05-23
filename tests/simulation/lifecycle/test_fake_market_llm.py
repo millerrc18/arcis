@@ -109,6 +109,27 @@ def test_llm_generate_returns_canned_packet_text():
     assert FakeLLM(seed=8, n_candidates=1).generate("prompt", "system") == text
 
 
+# ── FakeLLM.calls counter (T3 follow-up / T8 prereq, spec §2.4) ──────────
+
+
+def test_llm_generate_increments_calls_counter():
+    """Counter consumed by provenance guard (T8) — proves generate was invoked."""
+    llm = FakeLLM(seed=1, n_candidates=1)
+    assert llm.calls["generate"] == 0
+    llm.generate("prompt", "system")
+    assert llm.calls["generate"] == 1
+    llm.generate("prompt", "system")
+    assert llm.calls["generate"] == 2
+
+
+def test_llm_generate_structured_increments_calls_counter():
+    """generate_structured also increments its own counter key for symmetry."""
+    llm = FakeLLM(seed=1, n_candidates=1)
+    assert llm.calls["generate_structured"] == 0
+    llm.generate_structured("prompt", "system", {})
+    assert llm.calls["generate_structured"] == 1
+
+
 # ── FakeMarketData.fetch_ohlcv ───────────────────────────────────────────
 
 

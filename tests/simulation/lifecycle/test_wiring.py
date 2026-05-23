@@ -270,12 +270,42 @@ def test_build_watch_config_dsn_contains_sim_port():
 
 
 def test_dsn_safety_rejects_prod_shaped_url():
-    """Prod DSN (no :5434/) must NOT contain the sim port guard."""
+    """prime_config MUST raise ValueError on any DSN missing the :5434/ sim port."""
+    import pytest
     prod_dsn = "postgresql://user:pass@prod-host:5432/halcyon"
-    result = prime_config(prod_dsn)
-    # The primed dict stores whatever DSN was passed — but it would fail
-    # the :5434/ guard, proving the test is non-vacuous.
-    assert ":5434/" not in result["database_url"]
+    with pytest.raises(ValueError, match=r":5434/"):
+        prime_config(prod_dsn)
+
+
+def test_build_watch_config_rejects_prod_shaped_url():
+    """build_watch_config MUST raise ValueError on any DSN missing :5434/."""
+    import pytest
+    prod_dsn = "postgresql://user:pass@prod-host:5432/halcyon"
+    with pytest.raises(ValueError, match=r":5434/"):
+        build_watch_config(prod_dsn)
+
+
+def test_prime_config_rejects_localhost_prod_port():
+    """Even a local-looking DSN on the prod port (5432) is rejected."""
+    import pytest
+    near_miss = "postgresql://test:test@127.0.0.1:5432/halcyon"
+    with pytest.raises(ValueError, match=r":5434/"):
+        prime_config(near_miss)
+
+
+def test_install_organic_patches_alpaca_accepts_positional_desk():
+    """The _get_trading_client patch must accept positional desk arg (e.g., 'equity_long')."""
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        # Real prod signature: _get_trading_client(desk: str | None = None)
+        # Common positional call site: _get_trading_client('equity_long')
+        # The lambda must accept both no-arg and positional.
+        assert _alpaca_mod._get_trading_client() is fake_tc
+        assert _alpaca_mod._get_trading_client("equity_long") is fake_tc
+        assert _alpaca_mod._get_trading_client(desk="paper") is fake_tc
+    finally:
+        undo()
 
 
 # ── 6. Idempotency / re-install ───────────────────────────────────────────────

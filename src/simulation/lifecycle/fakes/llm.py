@@ -30,6 +30,7 @@ Tests: tests/simulation/lifecycle/test_fake_market_llm.py
 from __future__ import annotations
 
 import random
+from collections import Counter
 from typing import Optional
 
 _TICKER_POOL = [
@@ -51,6 +52,7 @@ class FakeLLM:
         self._seed = seed
         self._n_candidates = n_candidates
         self._scores = scores
+        self.calls: Counter = Counter()
 
     def generate_candidates(self) -> list[dict]:
         """Return ``n_candidates`` scan-candidate dicts (ticker/score/features)."""
@@ -76,6 +78,7 @@ class FakeLLM:
 
     def generate(self, prompt: str, system_prompt: str, **kwargs) -> str:
         """Return the canned XML-tagged packet text (shape of client.generate)."""
+        self.calls["generate"] += 1
         rng = random.Random(self._seed)
         conviction = rng.randint(1, 10)
         return (
@@ -94,4 +97,5 @@ class FakeLLM:
     def generate_structured(self, prompt: str, system_prompt: str,
                             response_schema: dict, **kwargs) -> dict:
         """Return canned candidate packets (shape of client.generate_structured)."""
+        self.calls["generate_structured"] += 1
         return {"candidates": self.generate_candidates()}
