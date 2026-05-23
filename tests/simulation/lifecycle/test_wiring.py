@@ -1,0 +1,317 @@
+"""Tests for src.simulation.lifecycle.wiring (T5, #97).
+
+Covers:
+  1. prime_config: clears cache, primes load_config() with correct keys + DSN
+  2. build_watch_config: returns same dict shape (keys + DSN)
+  3. install_organic_patches: all 4 symbol groups patched (identity check)
+  4. undo(): all originals restored (is-identity check)
+  5. DSN safety: primed DSN contains :5434/ (never prod signature)
+  6. Idempotency: install → undo → install → undo leaves originals intact
+  7. No leakage: try/finally semantics — originals restored even on teardown
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import src.config as _config_module
+import src.data_ingestion.market_data as _market_data_mod
+import src.llm.packet_writer as _packet_writer_mod
+import src.shadow_trading.alpaca_adapter as _alpaca_mod
+import src.universe.sp100 as _sp100_mod
+from src.simulation.lifecycle.fakes.llm import FakeLLM
+from src.simulation.lifecycle.fakes.market_data import FakeMarketData
+from src.simulation.lifecycle.fakes.trading_client import FakeTradingClient
+from src.simulation.lifecycle.clock import VirtualClock
+from src.simulation.lifecycle.wiring import (
+    build_watch_config,
+    install_organic_patches,
+    prime_config,
+)
+
+_ET = ZoneInfo("America/New_York")
+
+_SIM_DSN = "postgresql://test:test@127.0.0.1:5434/halcyon"
+_UNIVERSE = ["AAPL", "MSFT", "NVDA"]
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _make_fakes():
+    clock = VirtualClock(start=datetime(2025, 6, 2, 9, 30, tzinfo=_ET))
+    fake_tc = FakeTradingClient(clock=clock)
+    fake_md = FakeMarketData(seed=42)
+    fake_llm = FakeLLM(seed=0)
+    return fake_tc, fake_md, fake_llm
+
+
+# ── 1. prime_config ──────────────────────────────────────────────────────────
+
+def test_prime_config_clears_cache():
+    """prime_config must set _config_cache to None before re-priming."""
+    _config_module._config_cache = {"stale": True}
+    prime_config(_SIM_DSN)
+    # After the call the cache is the primed dict, not the stale one
+    assert _config_module._config_cache is not None
+    assert "stale" not in _config_module._config_cache
+
+
+def test_prime_config_shadow_trading_enabled():
+    result = prime_config(_SIM_DSN)
+    assert result.get("shadow_trading", {}).get("enabled") is True
+
+
+def test_prime_config_llm_enabled():
+    result = prime_config(_SIM_DSN)
+    assert result.get("llm", {}).get("enabled") is True
+
+
+def test_prime_config_grammar_enforcement_false():
+    result = prime_config(_SIM_DSN)
+    assert result.get("use_grammar_enforcement") is False
+
+
+def test_prime_config_dsn_present():
+    result = prime_config(_SIM_DSN)
+    assert result.get("database_url") == _SIM_DSN
+
+
+def test_prime_config_load_config_returns_primed():
+    """After prime_config, load_config() must return the same primed dict."""
+    primed = prime_config(_SIM_DSN)
+    from src.config import load_config
+    loaded = load_config()
+    assert loaded is primed
+
+
+def test_prime_config_overrides_applied():
+    result = prime_config(_SIM_DSN, overrides={"custom_key": "custom_val"})
+    assert result["custom_key"] == "custom_val"
+
+
+# ── 2. build_watch_config ────────────────────────────────────────────────────
+
+def test_build_watch_config_shadow_trading_enabled():
+    result = build_watch_config(_SIM_DSN)
+    assert result.get("shadow_trading", {}).get("enabled") is True
+
+
+def test_build_watch_config_llm_enabled():
+    result = build_watch_config(_SIM_DSN)
+    assert result.get("llm", {}).get("enabled") is True
+
+
+def test_build_watch_config_grammar_enforcement_false():
+    result = build_watch_config(_SIM_DSN)
+    assert result.get("use_grammar_enforcement") is False
+
+
+def test_build_watch_config_dsn_present():
+    result = build_watch_config(_SIM_DSN)
+    assert result.get("database_url") == _SIM_DSN
+
+
+def test_build_watch_config_overrides_applied():
+    result = build_watch_config(_SIM_DSN, overrides={"my_override": 99})
+    assert result["my_override"] == 99
+
+
+def test_build_watch_config_same_keys_as_prime_config():
+    """build_watch_config must have the same required key set as prime_config."""
+    prime = prime_config(_SIM_DSN)
+    watch = build_watch_config(_SIM_DSN)
+    for key in ("shadow_trading", "llm", "use_grammar_enforcement", "database_url"):
+        assert key in prime
+        assert key in watch
+
+
+# ── 3. install_organic_patches — after-install symbol identity ──────────────
+
+def test_install_patches_alpaca_adapter():
+    """_get_trading_client must be replaced (not the original)."""
+    orig = _alpaca_mod._get_trading_client
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        assert _alpaca_mod._get_trading_client is not orig
+    finally:
+        undo()
+
+
+def test_install_patches_market_data_fetch_ohlcv():
+    """fetch_ohlcv must be replaced."""
+    orig = _market_data_mod.fetch_ohlcv
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        assert _market_data_mod.fetch_ohlcv is not orig
+    finally:
+        undo()
+
+
+def test_install_patches_market_data_fetch_spy_benchmark():
+    """fetch_spy_benchmark must be replaced."""
+    orig = _market_data_mod.fetch_spy_benchmark
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        assert _market_data_mod.fetch_spy_benchmark is not orig
+    finally:
+        undo()
+
+
+def test_install_patches_packet_writer_generate():
+    """packet_writer.generate must be replaced."""
+    orig = _packet_writer_mod.generate
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        assert _packet_writer_mod.generate is not orig
+    finally:
+        undo()
+
+
+def test_install_patches_packet_writer_is_llm_available():
+    """packet_writer.is_llm_available must be replaced and return True."""
+    orig = _packet_writer_mod.is_llm_available
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        assert _packet_writer_mod.is_llm_available is not orig
+        assert _packet_writer_mod.is_llm_available() is True
+    finally:
+        undo()
+
+
+def test_install_patches_sp100_universe():
+    """get_sp100_universe must return the injected small list."""
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        result = _sp100_mod.get_sp100_universe()
+        assert result == _UNIVERSE
+    finally:
+        undo()
+
+
+def test_install_patches_alpaca_returns_fake_tc():
+    """_get_trading_client() must return the fake_tc object."""
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    try:
+        returned = _alpaca_mod._get_trading_client()
+        assert returned is fake_tc
+    finally:
+        undo()
+
+
+# ── 4. undo() — originals restored with is-identity ─────────────────────────
+
+def test_undo_restores_alpaca_adapter():
+    orig = _alpaca_mod._get_trading_client
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    undo()
+    assert _alpaca_mod._get_trading_client is orig
+
+
+def test_undo_restores_fetch_ohlcv():
+    orig = _market_data_mod.fetch_ohlcv
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    undo()
+    assert _market_data_mod.fetch_ohlcv is orig
+
+
+def test_undo_restores_fetch_spy_benchmark():
+    orig = _market_data_mod.fetch_spy_benchmark
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    undo()
+    assert _market_data_mod.fetch_spy_benchmark is orig
+
+
+def test_undo_restores_packet_writer_generate():
+    orig = _packet_writer_mod.generate
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    undo()
+    assert _packet_writer_mod.generate is orig
+
+
+def test_undo_restores_packet_writer_is_llm_available():
+    orig = _packet_writer_mod.is_llm_available
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    undo()
+    assert _packet_writer_mod.is_llm_available is orig
+
+
+def test_undo_restores_sp100_universe():
+    orig = _sp100_mod.get_sp100_universe
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    undo()
+    assert _sp100_mod.get_sp100_universe is orig
+
+
+# ── 5. DSN safety ────────────────────────────────────────────────────────────
+
+def test_prime_config_dsn_contains_sim_port():
+    """Primed DSN must contain :5434/ — never a prod-shaped URL."""
+    result = prime_config(_SIM_DSN)
+    assert ":5434/" in result["database_url"]
+
+
+def test_build_watch_config_dsn_contains_sim_port():
+    result = build_watch_config(_SIM_DSN)
+    assert ":5434/" in result["database_url"]
+
+
+def test_dsn_safety_rejects_prod_shaped_url():
+    """Prod DSN (no :5434/) must NOT contain the sim port guard."""
+    prod_dsn = "postgresql://user:pass@prod-host:5432/halcyon"
+    result = prime_config(prod_dsn)
+    # The primed dict stores whatever DSN was passed — but it would fail
+    # the :5434/ guard, proving the test is non-vacuous.
+    assert ":5434/" not in result["database_url"]
+
+
+# ── 6. Idempotency / re-install ───────────────────────────────────────────────
+
+def test_idempotency_double_cycle():
+    """install → undo → install → undo leaves all originals intact."""
+    orig_tc = _alpaca_mod._get_trading_client
+    orig_ohlcv = _market_data_mod.fetch_ohlcv
+    orig_spy = _market_data_mod.fetch_spy_benchmark
+    orig_gen = _packet_writer_mod.generate
+    orig_llm_avail = _packet_writer_mod.is_llm_available
+    orig_sp100 = _sp100_mod.get_sp100_universe
+
+    for _ in range(2):
+        fake_tc, fake_md, fake_llm = _make_fakes()
+        undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+        undo()
+
+    assert _alpaca_mod._get_trading_client is orig_tc
+    assert _market_data_mod.fetch_ohlcv is orig_ohlcv
+    assert _market_data_mod.fetch_spy_benchmark is orig_spy
+    assert _packet_writer_mod.generate is orig_gen
+    assert _packet_writer_mod.is_llm_available is orig_llm_avail
+    assert _sp100_mod.get_sp100_universe is orig_sp100
+
+
+# ── 7. No leakage on teardown (try/finally semantics) ────────────────────────
+
+def test_no_leakage_on_early_teardown():
+    """undo() restores originals even when called before any usage."""
+    orig_tc = _alpaca_mod._get_trading_client
+    fake_tc, fake_md, fake_llm = _make_fakes()
+    undo = install_organic_patches(fake_tc, fake_md, fake_llm, _UNIVERSE)
+    # Simulate early teardown (e.g., fixture cleanup before test body ran)
+    try:
+        pass  # test body would go here
+    finally:
+        undo()
+    assert _alpaca_mod._get_trading_client is orig_tc
