@@ -50,7 +50,11 @@ logger = logging.getLogger(__name__)
 
 _OLLAMA_USER_GLOB = r"C:\Users\*\AppData\Local\Programs\Ollama\ollama.exe"
 _OLLAMA_MODELS_PATH = r"C:\Users\mille\.ollama\models"
-_DEFAULT_MODEL_TAG = "halcyon-v1"
+# v0.36.52: track current production model. The fallback chain in __init__
+# prefers (a) explicit param, (b) config llm.expected_model_tag, (c) config
+# llm.model — so the watchdog stays in sync with the LLM client's actual
+# model. This default is the last-resort floor when no config is reachable.
+_DEFAULT_MODEL_TAG = "arcis:v1.0.0"
 _HEALTH_POLL_SEC = 30
 _STARTUP_GRACE_SEC = 8
 
@@ -86,13 +90,22 @@ class OllamaWatchdog:
     """Single-owner lifecycle manager for the GPU1-pinned Ollama server."""
 
     def __init__(self, base_url: str | None = None, expected_model_tag: str | None = None):
+        # v0.36.52: decouple base_url and expected_model_tag resolution. The
+        # original code gated BOTH lookups on `base_url is None`, so callers
+        # that passed base_url explicitly silently fell through to the default
+        # tag. Now each param falls back to config independently.
+        config = load_config() if (base_url is None or expected_model_tag is None) else None
         if base_url is None:
-            config = load_config()
-            base_url = config.get("llm", {}).get("base_url", "http://localhost:11434")
-            if expected_model_tag is None:
-                expected_model_tag = config.get("llm", {}).get(
-                    "expected_model_tag", _DEFAULT_MODEL_TAG
-                )
+            base_url = (config or {}).get("llm", {}).get("base_url", "http://localhost:11434")
+        if expected_model_tag is None:
+            # Fallback chain: explicit override -> llm.expected_model_tag ->
+            # llm.model (DRY with the LLM client) -> hardcoded default.
+            llm_cfg = (config or {}).get("llm", {})
+            expected_model_tag = (
+                llm_cfg.get("expected_model_tag")
+                or llm_cfg.get("model")
+                or _DEFAULT_MODEL_TAG
+            )
         self.base_url = base_url.rstrip("/")
         self.expected_model_tag = expected_model_tag or _DEFAULT_MODEL_TAG
         self._exe = resolve_ollama_exe()
@@ -297,9 +310,13 @@ class OllamaWatchdog:
             logger.debug("[OLLAMA-WD] metric emit failed: %s", exc)
         logger.warning("[OLLAMA-WD] Ollama unhealthy: %s", detail)
         try:
+            # v0.36.52: notify_system_event(event, detail) — was passing
+            # message= (rejected as unexpected kwarg). severity is consumed by
+            # safe_send itself (popped at telegram.py:1609), not forwarded.
             safe_send(
                 "system_event",
-                message=f"[GPU1-OLLAMA] Unhealthy: {detail}",
+                event="GPU1-OLLAMA unhealthy",
+                detail=detail,
                 severity="critical",
                 force=True,
             )
