@@ -3387,7 +3387,7 @@ The script runs two phases:
 
 **Phase 2 — Placement check:**
 - Launches `ollama serve` with `CUDA_VISIBLE_DEVICES=1` + `CUDA_DEVICE_ORDER=PCI_BUS_ID`
-- Waits for Ollama to load the model, then queries `nvidia-smi --query-compute-apps=gpu_index,...`
+- Waits for Ollama to load the model, then queries `nvidia-smi --query-compute-apps=gpu_uuid,...` and resolves each process's GPU index via the uuid→index map from `--query-gpu=index,name,uuid` (the `gpu_index` field is not valid for `--query-compute-apps` on driver 596.36+)
 - Asserts Ollama VRAM is on GPU1 (the 3060), NOT on GPU0
 
 Expected passing output:
@@ -3425,7 +3425,7 @@ After the watch loop restarts, confirm GPU assignment via:
 nvidia-smi --query-gpu=index,name,uuid --format=csv
 # Expected: index 0 = RTX 3090, index 1 = RTX 3060
 
-nvidia-smi --query-compute-apps=gpu_index,pid,process_name,used_memory --format=csv,noheader
+nvidia-smi  # default output shows the per-GPU process table with the GPU index column
 # Expected: Ollama (or ollama_llama_server) process on index 1 only
 #           No ollama process on index 0
 ```
@@ -3447,7 +3447,7 @@ After cutover, monitor these signals over the first overnight cycle:
 
 2. **First overnight training launch** — confirm training subprocess is on GPU0:
    ```powershell
-   nvidia-smi --query-compute-apps=gpu_index,pid,process_name,used_memory --format=csv,noheader
+   nvidia-smi  # default output shows the per-GPU process table with the GPU index column
    # Expected during training: python process on index 0 (RTX 3090)
    #                           ollama process on index 1 (RTX 3060) — unchanged
    ```
@@ -3561,7 +3561,7 @@ Use when: an active `logs/training.pid` file exists, `nvidia-smi` shows a Python
 
 4. **Confirm GPU0 is idle:**
    ```powershell
-   nvidia-smi --query-compute-apps=gpu_index,pid,process_name,used_memory --format=csv,noheader
+   nvidia-smi  # default output shows the per-GPU process table with the GPU index column
    ```
    Expected: no Python compute-app on index 0. If a training process is still listed on GPU0, wait 30 seconds and retry. Do not proceed to the revert until GPU0 shows idle.
 

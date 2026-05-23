@@ -30,14 +30,19 @@ _NVIDIASMI_QUERY_GPU_FLIPPED = (
     "1, NVIDIA GeForce RTX 3090, GPU-aaaa-1111\n"
 )
 
+# v0.36.51 hotfix: the smoke script now queries `gpu_uuid` (not `gpu_index`),
+# because driver 596.36's --query-compute-apps does not accept `gpu_index`.
+# The first field below is the GPU's uuid (matching _NVIDIASMI_QUERY_GPU_PASS:
+# GPU-aaaa-1111 == index 0 == RTX 3090; GPU-bbbb-2222 == index 1 == RTX 3060).
+
 # Compute-apps output: model process is on GPU 1 (3060) — placement PASS
 _NVIDIASMI_COMPUTE_APPS_GPU1 = (
-    "1, 1234, ollama, 4096 MiB\n"
+    "GPU-bbbb-2222, 1234, ollama, 4096 MiB\n"
 )
 
 # Compute-apps output: model process is on GPU 0 (3090) — placement FAIL
 _NVIDIASMI_COMPUTE_APPS_GPU0 = (
-    "0, 1234, ollama, 4096 MiB\n"
+    "GPU-aaaa-1111, 1234, ollama, 4096 MiB\n"
 )
 
 # Compute-apps output: no processes
