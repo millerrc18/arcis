@@ -1,12 +1,24 @@
 name: Lifecycle Smoke
 
 # Per-PR (and per-push) fast wiring/regression tier for the lifecycle simulator.
-# Runs on a bare-metal runner: NO Docker service, NO 5434 PG, NO GPU. The smoke
-# scenario drives run_smoke() against a TEMPORARY SQLite DB, so its integrity
-# verdict is NON-authoritative (SQLite cannot enforce the PG FK/NOT NULL/type
-# constraints the data-integrity invariants assert against). The authoritative
-# integrity gate is the nightly full-gate job in pg-tests.yml — this job exists
-# for wiring + regression coverage on every PR, not integrity authority.
+# Runs on a runner with the ephemeral 5434 PG service block (mirrors the
+# postgres-test service in pg-tests.yml's lifecycle-full-gate). The smoke
+# scenario drives run_smoke() using the T9 organic open->exit->reconcile
+# lifecycle, which writes through the real prod scan path
+# (universe_scanner -> log_recommendation -> executor.open_shadow_trade)
+# → PG under the safe DSN (postgresql://test:test@127.0.0.1:5434/halcyon).
+#
+# Integrity verdict is NON-authoritative for the SMOKE tier (fewer sim-days,
+# lighter scenario, no fault matrix) — the authoritative integrity gate is the
+# nightly full-gate job in pg-tests.yml. This job exists for wiring +
+# regression coverage on every PR.
+#
+# WHY a postgres-test service block here (was absent in v0.36.50): smoke.py's
+# T9 organic runner writes through connect_db(None) → PG under bootstrap's env
+# (DATABASE_URL=5434 + ARCIS_PG_CUTOVER_ENABLED=1). An all-SQLite smoke cannot
+# drive the organic runner without redirecting every prod write, which would
+# defeat the wiring-coverage purpose. The 5434 ephemeral PG is the cheapest
+# correct way to exercise the real prod scan path in CI per PR.
 "on":
   push:
     branches: [main]
@@ -16,6 +28,22 @@ name: Lifecycle Smoke
 jobs:
   lifecycle-smoke:
     runs-on: ubuntu-latest
+    services:
+      postgres-test:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: halcyon
+        ports:
+          # host 5434 -> container 5432: the safe DSN run_smoke() pins
+          # (postgresql://test:test@127.0.0.1:5434/halcyon).
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d halcyon"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 15
     env:
       # PYTHONUTF8=1 prevents TRL/jinja codec issues on non-UTF-8 systems
       # (discovered 2026-05-10 during RTX 3090 training-readiness verify).
@@ -39,9 +67,9 @@ jobs:
           pip install pytest pytest-timeout
 
       - name: Run lifecycle smoke (entrypoints + core lifecycle suite)
-        # The entrypoints test invokes run_smoke() end-to-end on temp SQLite;
-        # the core lifecycle suite is the regression net around it. The 5434
-        # full-gate tests in test_entrypoints.py skip cleanly here (no PG).
+        # The entrypoints test invokes run_smoke() end-to-end on the 5434 PG;
+        # the core lifecycle suite is the regression net around it. T9 organic
+        # runner writes via real prod scan path, so PG is required.
         run: python -m pytest tests/simulation/lifecycle/ -q --timeout=120
 
       - name: Smoke verdict (run_smoke direct invocation)

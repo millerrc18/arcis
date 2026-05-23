@@ -46,7 +46,14 @@ def _assert_dsn_safe(dsn) -> None:
 
 
 def install_prod_guard() -> None:
-    """Wrap psycopg2.connect and the resolved-DSN boundary against prod PG."""
+    """Wrap psycopg2.connect and the resolved-DSN boundary against prod PG.
+
+    Idempotent: a second call returns immediately rather than wrapping the
+    already-wrapped function N-deep (#98 review nit, 2026-05-23).
+    """
+    if getattr(psycopg2.connect, "_lifecycle_guarded", False):
+        return
+
     _original_connect = psycopg2.connect
 
     def _guarded_connect(dsn=None, *args, **kwargs):
@@ -56,4 +63,5 @@ def install_prod_guard() -> None:
         _assert_dsn_safe(dsn)
         return _original_connect(dsn, *args, **kwargs)
 
+    _guarded_connect._lifecycle_guarded = True  # idempotency sentinel
     psycopg2.connect = _guarded_connect

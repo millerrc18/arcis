@@ -19,7 +19,9 @@ two identical seeded runs produce an identical row order and hash.
 from __future__ import annotations
 
 import hashlib
+import json
 
+from src.shadow_trading.reconcile import SYNTHETIC_EXIT_REASONS
 from src.simulation.lifecycle.oracle._result import InvariantResult
 
 
@@ -81,14 +83,19 @@ def check_zero_orphans(conn) -> InvariantResult:
 def check_zero_synthetic_closes(conn) -> InvariantResult:
     """Invariant 3 — zero reconciled_stale / synthetic _resolve_stuck_pnl closes.
 
-    A 'reconciled_stale' exit_reason (or a _resolve_stuck_pnl synthetic marker)
-    is a close the platform fabricated rather than executed. Count must be 0.
+    A close with any exit_reason in SYNTHETIC_EXIT_REASONS (sourced from
+    src.shadow_trading.reconcile, the prod source-of-truth) is one the
+    platform fabricated rather than executed. Count must be 0. Adding a new
+    synthetic exit_reason in reconcile.py automatically extends this gate
+    (no drift between prod and the oracle).
     """
     cur = conn.cursor()
+    placeholders = ", ".join(["%s"] * len(SYNTHETIC_EXIT_REASONS))
     cur.execute(
-        "SELECT trade_id FROM shadow_trades "
-        "WHERE exit_reason IN ('reconciled_stale', 'resolved_stuck', 'synthetic') "
-        "ORDER BY trade_id"
+        f"SELECT trade_id FROM shadow_trades "
+        f"WHERE exit_reason IN ({placeholders}) "
+        f"ORDER BY trade_id",
+        tuple(sorted(SYNTHETIC_EXIT_REASONS)),
     )
     synthetic = [r[0] for r in cur.fetchall()]
     passed = not synthetic
@@ -171,7 +178,14 @@ def canonical_snapshot_hash(conn) -> str:
         cur.execute(f"SELECT {cols} FROM {table} ORDER BY {order_by}")
         hasher.update(f"::{table}::".encode())
         for row in cur.fetchall():
-            hasher.update(repr(tuple(row)).encode())
+            # json.dumps with sort_keys + default=str is a documented canonical
+            # serializer — stable across CPython rebuilds and across container
+            # images. repr() on Decimal/datetime/None is NOT a documented
+            # canonical format, so use json for cross-environment determinism
+            # (#98 review should-fix #6, 2026-05-23).
+            hasher.update(
+                json.dumps(list(row), sort_keys=True, default=str).encode()
+            )
     return hasher.hexdigest()
 
 

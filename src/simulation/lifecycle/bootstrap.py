@@ -38,13 +38,20 @@ def _is_prod_pg_url(url: str) -> bool:
 
 
 def _scrub_environment() -> None:
-    """Rewrite os.environ in place so the simulator targets the safe test PG."""
+    """Rewrite os.environ in place so the simulator targets the safe test PG.
+
+    Both DATABASE_URL and TEST_DATABASE_URL are re-pinned to SIM_DATABASE_URL
+    after any prod-signature scrub — fallback-pattern fixtures that read
+    TEST_DATABASE_URL (24 sites repo-wide) must resolve to the sim URL, not
+    empty (#98 review should-fix #3, spec §3.2 step 2 alignment).
+    """
     os.environ.pop("ARCIS_DB_PATH", None)
     if _is_prod_pg_url(os.environ.get("DATABASE_URL", "")):
         os.environ.pop("DATABASE_URL", None)
     if _is_prod_pg_url(os.environ.get("TEST_DATABASE_URL", "")):
         os.environ.pop("TEST_DATABASE_URL", None)
     os.environ["DATABASE_URL"] = SIM_DATABASE_URL
+    os.environ["TEST_DATABASE_URL"] = SIM_DATABASE_URL
     os.environ["ARCIS_PG_CUTOVER_ENABLED"] = "1"
     os.environ["ALPACA_PAPER_TRADE"] = "true"
     os.environ["ARCIS_DISABLE_DOTENV"] = "1"
@@ -74,6 +81,7 @@ def scrubbed_env() -> dict:
     if _is_prod_pg_url(env.get("TEST_DATABASE_URL", "")):
         env.pop("TEST_DATABASE_URL", None)
     env["DATABASE_URL"] = SIM_DATABASE_URL
+    env["TEST_DATABASE_URL"] = SIM_DATABASE_URL
     env["ARCIS_DISABLE_DOTENV"] = "1"
     return env
 
