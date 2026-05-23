@@ -269,3 +269,128 @@ def test_fill_leg_increments_calls_counter():
     assert client.calls["fill_leg"] == 0
     client.fill_leg(order.legs[0].id, fill_price=110.0)
     assert client.calls["fill_leg"] == 1
+
+
+# ── fill_on_submit + fill_listener (T2, #97) ─────────────────────────────────
+
+
+def test_fill_on_submit_books_position():
+    """With fill_on_submit=True, submit_order books a position immediately.
+    Price rule: limit_price if present, else 100.0 fallback."""
+    client = FakeTradingClient(clock=_clock(), fill_on_submit=True)
+    req = _bracket_request(symbol="AAPL", qty=5, tp=115.0, sl=85.0)
+    client.submit_order(req)
+    pos = client.get_open_position("AAPL")
+    assert pos is not None
+    assert float(pos.qty) == 5.0
+
+
+def test_fill_on_submit_invokes_fill_listener_once():
+    """With fill_on_submit=True and a fill_listener set, submit_order invokes
+    the listener exactly once with kwargs (symbol, side, qty, price).
+    Uses unittest.mock.Mock — not vacuous (asserts call args, not the method)."""
+    from unittest.mock import Mock
+
+    listener = Mock()
+    client = FakeTradingClient(clock=_clock(), fill_on_submit=True)
+    client.set_fill_listener(listener)
+
+    req = _bracket_request(symbol="MSFT", qty=3, tp=115.0, sl=85.0)
+    client.submit_order(req)
+
+    listener.assert_called_once()
+    _, kwargs = listener.call_args
+    assert kwargs["symbol"] == "MSFT"
+    assert kwargs["side"] == "buy"
+    assert float(kwargs["qty"]) == 3.0
+    assert isinstance(kwargs["price"], float)
+
+
+def test_fill_on_submit_deterministic_price_uses_limit_price():
+    """Price rule: when request has a limit_price, submit uses it as fill price.
+    Same inputs → same price (determinism, spec test_strategy #6)."""
+    from unittest.mock import Mock
+
+    listener = Mock()
+    client = FakeTradingClient(clock=_clock(), fill_on_submit=True)
+    client.set_fill_listener(listener)
+
+    req = type(
+        "Req",
+        (),
+        {
+            "symbol": "IBM",
+            "qty": 2,
+            "side": "buy",
+            "order_class": "bracket",
+            "type": "limit",
+            "limit_price": 150.0,
+            "stop_price": None,
+            "take_profit": {"limit_price": 160.0},
+            "stop_loss": {"stop_price": 140.0},
+        },
+    )()
+    client.submit_order(req)
+
+    _, kwargs = listener.call_args
+    assert kwargs["price"] == 150.0
+
+
+def test_fill_on_submit_deterministic_price_fallback_when_no_limit():
+    """Price rule: when request has no limit_price, submit uses the fixed
+    fallback of 100.0.  Same inputs → same price (spec test_strategy #6)."""
+    from unittest.mock import Mock
+
+    listener = Mock()
+    client = FakeTradingClient(clock=_clock(), fill_on_submit=True)
+    client.set_fill_listener(listener)
+
+    req = _bracket_request(symbol="NVDA", qty=4, tp=115.0, sl=85.0)
+    # _bracket_request sets limit_price=None → fallback
+    assert req.limit_price is None
+    client.submit_order(req)
+
+    _, kwargs = listener.call_args
+    assert kwargs["price"] == 100.0
+
+
+def test_fill_on_submit_increments_submit_order_counter():
+    """With fill_on_submit=True, submit_order still increments calls['submit_order']
+    exactly once (T1 counter preserved)."""
+    client = FakeTradingClient(clock=_clock(), fill_on_submit=True)
+    assert client.calls["submit_order"] == 0
+    client.submit_order(_bracket_request(symbol="TSLA", qty=1))
+    assert client.calls["submit_order"] == 1
+
+
+def test_fill_on_submit_false_no_position_booked():
+    """Default fill_on_submit=False: submit_order does NOT book a position
+    (preserves pre-T2 behavior — existing synthetic tests must still pass)."""
+    client = FakeTradingClient(clock=_clock())  # default fill_on_submit=False
+    client.submit_order(_bracket_request(symbol="AMD", qty=7))
+    assert client.get_open_position("AMD") is None
+
+
+def test_fill_on_submit_no_listener_does_not_error():
+    """With fill_on_submit=True and NO fill_listener set (None), submit_order
+    works without raising NoneType call error — listener is opt-in."""
+    client = FakeTradingClient(clock=_clock(), fill_on_submit=True)
+    req = _bracket_request(symbol="QQQ", qty=2)
+    client.submit_order(req)  # must not raise
+    assert client.get_open_position("QQQ") is not None
+
+
+def test_fill_leg_flattens_position():
+    """fill_leg(symbol, leg='stop') flattens the position:
+    get_open_position returns None afterward; calls['fill_leg'] increments by 1."""
+    client = FakeTradingClient(clock=_clock())
+    order = client.submit_order(_bracket_request(symbol="SPY", qty=10))
+    client.fill_entry(order.id, fill_price=500.0)
+    assert client.get_open_position("SPY") is not None
+
+    sl_leg = order.legs[1]  # stop-loss leg
+    assert client.calls["fill_leg"] == 0
+    client.fill_leg(sl_leg.id, fill_price=480.0)
+
+    assert client.get_open_position("SPY") is None
+    assert client.calls["fill_leg"] == 1

@@ -112,6 +112,9 @@ def _default_fill_policy(requested_qty: float, fill_qty: Optional[float]) -> flo
     return requested_qty if fill_qty is None else fill_qty
 
 
+_FILL_ON_SUBMIT_FALLBACK_PRICE = 100.0
+
+
 class FakeTradingClient:
     """Stateful in-memory stand-in for alpaca-py's TradingClient."""
 
@@ -121,14 +124,26 @@ class FakeTradingClient:
         clock: VirtualClock,
         fill_policy: Callable[[float, Optional[float]], float] = _default_fill_policy,
         account: Optional[FakeAccount] = None,
+        fill_on_submit: bool = False,
     ) -> None:
         self._clock = clock
         self._fill_policy = fill_policy
         self._account = account if account is not None else FakeAccount()
+        self._fill_on_submit = fill_on_submit
+        self._fill_listener: Optional[Callable] = None
         self._counter = 0
         self._orders: dict[str, FakeOrder] = {}
         self._positions: dict[str, FakePosition] = {}
         self.calls: Counter[str] = Counter()
+
+    def set_fill_listener(self, listener: Optional[Callable]) -> None:
+        """Register a callable invoked after each auto-fill when fill_on_submit is True.
+
+        The listener is called as: listener(symbol=..., side=..., qty=..., price=...)
+        matching CapitalLedger.apply_fill's keyword signature (oracle.capital, Task 8).
+        Pass None to clear a previously registered listener.
+        """
+        self._fill_listener = listener
 
     # ── id minting (deterministic, monotonic) ────────────────────────────
 
@@ -150,7 +165,15 @@ class FakeTradingClient:
     # ── order submission ─────────────────────────────────────────────────
 
     def submit_order(self, request) -> FakeOrder:
-        """Submit a bracket/OCO order; return an SDK-shaped FakeOrder."""
+        """Submit a bracket/OCO order; return an SDK-shaped FakeOrder.
+
+        When fill_on_submit is True the entry fills immediately at a
+        deterministic price: limit_price from the request if present, otherwise
+        _FILL_ON_SUBMIT_FALLBACK_PRICE (100.0).  Same inputs always produce the
+        same fill price.  After the position is booked, fill_listener is invoked
+        as fill_listener(symbol=..., side=..., qty=..., price=...) if set.
+        Default fill_on_submit=False preserves pre-T2 behavior.
+        """
         self.calls["submit_order"] += 1
         symbol = request.symbol
         qty = float(request.qty)
@@ -175,6 +198,13 @@ class FakeTradingClient:
         self._orders[order.id] = order
         for leg in order.legs:
             self._orders[leg.id] = leg
+        if self._fill_on_submit:
+            fill_price = order.limit_price if order.limit_price is not None else _FILL_ON_SUBMIT_FALLBACK_PRICE
+            self._apply_fill(order, qty, fill_price)
+            order.status = "filled"
+            self._open_or_add_position(symbol, qty, fill_price)
+            if self._fill_listener is not None:
+                self._fill_listener(symbol=symbol, side=side, qty=qty, price=fill_price)
         return order
 
     def _build_legs(self, request, symbol: str, qty: float, entry_side: str) -> list[FakeOrder]:
