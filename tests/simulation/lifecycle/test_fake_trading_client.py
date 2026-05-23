@@ -178,3 +178,94 @@ def test_deterministic_client_order_id_sequence_across_runs():
     # monotonic integer sequence embedded in client_order_id
     assert run_a == sorted(run_a)
     assert len(set(run_a)) == 3
+
+
+# ── FakeAccount + get_account() (T1, #97) ───────────────────────────────────
+
+
+def test_get_account_returns_exact_adapter_surface():
+    """get_account() must expose .id/.status/.cash/.buying_power/.equity/
+    .portfolio_value/.currency matching get_account_info() reads (adapter
+    lines 215-221). If this breaks, alpaca_adapter.get_account_info() will
+    KeyError at runtime."""
+    client = FakeTradingClient(clock=_clock())
+    acct = client.get_account()
+
+    assert str(acct.id) == "sim-account"
+    assert str(acct.status) == "ACTIVE"
+    assert float(acct.cash) == 1_000_000.0
+    assert float(acct.buying_power) == 1_000_000.0
+    assert float(acct.equity) == 1_000_000.0
+    assert float(acct.portfolio_value) == 1_000_000.0
+    assert str(acct.currency) == "USD"
+
+
+def test_get_account_increments_calls_counter():
+    """get_account() must increment self.calls['get_account'] each time.
+    If the counter line is missing, this test fails with count == 0."""
+    client = FakeTradingClient(clock=_clock())
+    assert client.calls["get_account"] == 0
+    client.get_account()
+    assert client.calls["get_account"] == 1
+    client.get_account()
+    assert client.calls["get_account"] == 2
+
+
+def test_fake_account_parameterized_buying_power():
+    """FakeAccount(buying_power=...) overrides the default $1M.
+    Required for governor-reject seeding (below-allocation account)."""
+    from src.simulation.lifecycle.fakes.trading_client import FakeAccount
+
+    acct = FakeAccount(buying_power=1_000.0)
+    assert float(acct.buying_power) == 1_000.0
+    # other fields keep their defaults
+    assert float(acct.cash) == 1_000_000.0
+    assert str(acct.status) == "ACTIVE"
+
+
+def test_get_account_honors_seeded_buying_power():
+    """FakeTradingClient seeded with a below-allocation FakeAccount returns
+    the override — the governor-reject scenario relies on this."""
+    from src.simulation.lifecycle.fakes.trading_client import FakeAccount
+
+    client = FakeTradingClient(
+        clock=_clock(),
+        account=FakeAccount(buying_power=500.0, equity=500.0),
+    )
+    acct = client.get_account()
+    assert float(acct.buying_power) == 500.0
+    assert float(acct.equity) == 500.0
+    # id/status/currency remain canonical
+    assert str(acct.id) == "sim-account"
+    assert str(acct.currency) == "USD"
+
+
+# ── calls Counter on existing methods (T1, #97) ──────────────────────────────
+
+
+def test_submit_order_increments_calls_counter():
+    """submit_order() must increment self.calls['submit_order'].
+    If the one-line addition is missing, count stays at 0."""
+    client = FakeTradingClient(clock=_clock())
+    assert client.calls["submit_order"] == 0
+    client.submit_order(_bracket_request(symbol="AAPL", qty=1))
+    assert client.calls["submit_order"] == 1
+
+
+def test_get_all_positions_increments_calls_counter():
+    """get_all_positions() must increment self.calls['get_all_positions']."""
+    client = FakeTradingClient(clock=_clock())
+    assert client.calls["get_all_positions"] == 0
+    client.get_all_positions()
+    assert client.calls["get_all_positions"] == 1
+
+
+def test_fill_leg_increments_calls_counter():
+    """fill_leg() must increment self.calls['fill_leg'].
+    If the counter line is absent, count stays at 0."""
+    client = FakeTradingClient(clock=_clock())
+    order = client.submit_order(_bracket_request(symbol="GOOG", qty=2))
+    client.fill_entry(order.id, fill_price=100.0)
+    assert client.calls["fill_leg"] == 0
+    client.fill_leg(order.legs[0].id, fill_price=110.0)
+    assert client.calls["fill_leg"] == 1

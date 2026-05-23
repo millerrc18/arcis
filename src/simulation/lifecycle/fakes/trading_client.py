@@ -35,9 +35,29 @@ Tests: tests/simulation/lifecycle/test_fake_trading_client.py
 
 from __future__ import annotations
 
+from collections import Counter
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from src.simulation.lifecycle.clock import VirtualClock
+
+
+@dataclass
+class FakeAccount:
+    """Duck-typed alpaca-py account object mirroring get_account_info surface.
+
+    Attributes match what alpaca_adapter.get_account_info() reads (lines 215-221):
+    account.id, .status, .cash, .buying_power, .equity, .portfolio_value, .currency.
+    Parameterizable so governor-reject scenarios can seed a below-allocation account.
+    """
+
+    id: str = "sim-account"
+    status: str = "ACTIVE"
+    cash: float = 1_000_000.0
+    buying_power: float = 1_000_000.0
+    equity: float = 1_000_000.0
+    portfolio_value: float = 1_000_000.0
+    currency: str = "USD"
 
 
 class FakeOrder:
@@ -100,12 +120,15 @@ class FakeTradingClient:
         *,
         clock: VirtualClock,
         fill_policy: Callable[[float, Optional[float]], float] = _default_fill_policy,
+        account: Optional[FakeAccount] = None,
     ) -> None:
         self._clock = clock
         self._fill_policy = fill_policy
+        self._account = account if account is not None else FakeAccount()
         self._counter = 0
         self._orders: dict[str, FakeOrder] = {}
         self._positions: dict[str, FakePosition] = {}
+        self.calls: Counter[str] = Counter()
 
     # ── id minting (deterministic, monotonic) ────────────────────────────
 
@@ -117,10 +140,18 @@ class FakeTradingClient:
     def _now_iso(self) -> str:
         return self._clock.now().isoformat()
 
+    # ── account surface ──────────────────────────────────────────────────
+
+    def get_account(self) -> FakeAccount:
+        """Return the seeded FakeAccount; increment calls counter."""
+        self.calls["get_account"] += 1
+        return self._account
+
     # ── order submission ─────────────────────────────────────────────────
 
     def submit_order(self, request) -> FakeOrder:
         """Submit a bracket/OCO order; return an SDK-shaped FakeOrder."""
+        self.calls["submit_order"] += 1
         symbol = request.symbol
         qty = float(request.qty)
         side = _coerce(getattr(request, "side", "buy"))
@@ -189,6 +220,7 @@ class FakeTradingClient:
         self, leg_id: str, *, fill_price: float, fill_qty: Optional[float] = None
     ) -> FakeOrder:
         """Fill an OCO exit leg; auto-cancel its sibling and close position."""
+        self.calls["fill_leg"] += 1
         leg = self._orders[leg_id]
         filled = leg.qty if fill_qty is None else fill_qty
         self._apply_fill(leg, filled, fill_price)
@@ -249,6 +281,7 @@ class FakeTradingClient:
         return list(self._orders.values())
 
     def get_all_positions(self) -> list[FakePosition]:
+        self.calls["get_all_positions"] += 1
         return list(self._positions.values())
 
     def get_open_position(self, symbol) -> Optional[FakePosition]:
