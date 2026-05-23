@@ -74,7 +74,7 @@ def run_full_gate() -> FullGateResult:
     dsn = _bootstrap.SIM_DATABASE_URL
     conn = _provision_pg(dsn)
     try:
-        runner = ScenarioRunner(conn=conn, start=_FULL_GATE_START)
+        runner = ScenarioRunner(conn=conn, start=_FULL_GATE_START, sim_dsn=dsn)
         scenario = runner.run(days=_FULL_GATE_DAYS)
     finally:
         conn.rollback()

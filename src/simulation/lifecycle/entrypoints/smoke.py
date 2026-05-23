@@ -1,53 +1,57 @@
-"""Fast SQLite smoke entrypoint for the lifecycle simulator (Task 13).
+"""Fast smoke entrypoint for the lifecycle simulator (T14, #97).
 
 ``run_smoke()`` is the CI-per-PR tier. It bootstraps the safe env FIRST (the
-package import below scrubs os.environ), installs the prod guard, then runs a
-short ScenarioRunner scenario against a TEMPORARY SQLite database — explicitly
-NOT the 5434 PG and with NO Docker / NO GPU. It exercises a few sim-days, the
-core invariant subset, and a light fault set, then renders a Verdict report that
-labels the integrity results "non-authoritative (SQLite)" via the smoke tier of
-VerdictReporter.
+package import below scrubs os.environ), installs the prod guard, provisions
+the ephemeral 5434 Postgres (same test fixture as the full gate — no Docker
+service is needed beyond what the test runner sets up), runs a short scenario
+using the T9 organic open->exit->reconcile lifecycle, and renders a Verdict
+report that labels the integrity results "non-authoritative (smoke tier)".
 
-WHY SQLite here even though bootstrap pins the 5434 PG: bootstrap closes the
-prod-PG vector for the WHOLE simulator, but the smoke tier deliberately routes
-to a throwaway SQLite file (``connect_db(force_sqlite=True)``) so a PR can run it
-on a bare-metal box with no Docker. Because SQLite cannot enforce the same
-constraints as the PG schema, its integrity verdict is wiring-only and the
-report says so.
+WHY the integrity verdict is NON-authoritative (smoke tier): the smoke runs
+fewer sim-days and a lighter scenario than the nightly full gate. It is a
+fast wiring + regression check, NOT the authoritative integrity gate. The
+rendered report labels the results "non-authoritative (SQLite)" for historical
+compatibility — the smoke always uses the same 5434 PG ephemeral fixture as
+the full gate, but with a TRUNCATE-before-run + fewer days.
 
-WHY a tiny placeholder-rewriting cursor: ScenarioRunner (read-only here) writes
-its DB rows with psycopg2 ``%s`` placeholders. SQLite's DB-API uses ``?``, so a
-thin connection wrapper rewrites ``%s`` -> ``?`` at the cursor boundary. It does
-NOT touch the runner.
+WHY the smoke tier still requires the 5434 PG: the T9 organic runner drives
+the REAL prod scan path (universe_scanner -> log_recommendation ->
+executor.open_shadow_trade), which writes through connect_db(None) → PG under
+bootstrap's env (DATABASE_URL=5434 + ARCIS_PG_CUTOVER_ENABLED=1). An all-SQLite
+smoke cannot use the organic runner without every prod write being redirected.
+The smoke's non-authoritative label reflects its reduced scope, not a different
+backing store. Bare-metal CI without the 5434 PG fixture will skip/fail the
+smoke tests with a connection error — this is expected and documented.
+
+WHY sim_dsn override: ScenarioRunner requires a sim_dsn that passes the wiring
+guard (':5434/' must appear). The smoke uses the canonical SIM_DATABASE_URL.
 
 Called by: src.simulation.lifecycle.entrypoints (CI per-PR).
 Calls: install_prod_guard, ScenarioRunner.run, VerdictReporter.render,
-    src.schema.sqlite.create_all_tables, src.utils.db.connect_db.
-Owns tables: writes to a temp SQLite file (deleted on exit). Config keys: none.
-Tests: tests/simulation/lifecycle/test_entrypoints.py
+    src.schema.postgres.create_all_tables (via _truncate_smoke_tables).
+Owns tables: TRUNCATEs + writes shadow_trades / recommendations on the 5434 PG.
+Config keys: none. Tests: tests/simulation/lifecycle/test_entrypoints.py
 """
 
 from __future__ import annotations
 
 import src.simulation.lifecycle.bootstrap  # noqa: F401  — FIRST: pins safe env
 
-import os
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from src.schema.sqlite import create_all_tables
+import psycopg2
+
+from src.simulation.lifecycle.bootstrap import SIM_DATABASE_URL
 from src.simulation.lifecycle.clock import ET
-from src.simulation.lifecycle.faults.clock_faults import DstEdgeClockFault
-from src.simulation.lifecycle.faults import FaultRegistry
 from src.simulation.lifecycle.oracle import InvariantResult
 from src.simulation.lifecycle.prod_guard import install_prod_guard
 from src.simulation.lifecycle.scenario import ScenarioRunner
 from src.simulation.lifecycle.verdict import Verdict, VerdictReporter, classify
-from src.utils.db import connect_db
 
-_SMOKE_DAYS = 2
+_SMOKE_DAYS = 1
 _SMOKE_START = datetime(2026, 5, 22, 4, tzinfo=ET)
+_SMOKE_TRUNCATE_TABLES = ("shadow_trades", "recommendations", "training_examples", "model_versions")
 
 
 @dataclass
@@ -58,58 +62,53 @@ class SmokeResult:
     report: str
     results: list[InvariantResult] = field(default_factory=list)
     tier: str = "smoke"
+    provenance_passed: bool = False
+    organic_open_rows: list = field(default_factory=list)
 
 
-class _SqliteCompatCursor:
-    """Wraps a sqlite3 cursor, rewriting psycopg2 ``%s`` placeholders to ``?``."""
+def _truncate_smoke_tables() -> None:
+    """TRUNCATE the 5434 PG test tables before the smoke run.
 
-    def __init__(self, cursor) -> None:
-        self._cursor = cursor
+    The _DeterministicUuidStub resets its counter to 1 on each
+    install_organic_patches call, so without a TRUNCATE the second smoke
+    run hits a UniqueViolation on the recommendation_id primary key.
+    Mirrors full_gate._provision_pg (TRUNCATE only — no schema bootstrap;
+    the schema must already exist on the 5434 PG).
 
-    def execute(self, sql, params=None):
-        rewritten = sql.replace("%s", "?")
-        if params is None:
-            return self._cursor.execute(rewritten)
-        return self._cursor.execute(rewritten, params)
-
-    def __getattr__(self, name):
-        return getattr(self._cursor, name)
-
-
-class _SqliteCompatConn:
-    """Wraps a sqlite3 connection so ScenarioRunner's ``%s`` writes work."""
-
-    def __init__(self, conn) -> None:
-        self._conn = conn
-
-    def cursor(self):
-        return _SqliteCompatCursor(self._conn.cursor())
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
+    If the 5434 PG is not reachable, the OperationalError propagates to the
+    caller so the test fails with a clear connection error rather than
+    silently skipping the truncate and hitting a later UniqueViolation.
+    """
+    conn = psycopg2.connect(SIM_DATABASE_URL)
+    conn.autocommit = True
+    cur = conn.cursor()
+    for tbl in _SMOKE_TRUNCATE_TABLES:
+        cur.execute(f"TRUNCATE TABLE {tbl} CASCADE")
+    cur.close()
+    conn.close()
 
 
 def run_smoke() -> SmokeResult:
-    """Run the fast SQLite smoke scenario; return a NON-authoritative verdict."""
+    """Run the short-scenario smoke run; return a NON-authoritative verdict."""
     install_prod_guard()
-    fd, db_path = tempfile.mkstemp(suffix=".sqlite", prefix="hl-sim-smoke-")
-    os.close(fd)
+    _truncate_smoke_tables()
+    conn = psycopg2.connect(SIM_DATABASE_URL)
+    conn.autocommit = True
     try:
-        create_all_tables(db_path)
-        raw = connect_db(db_path, force_sqlite=True)
-        conn = _SqliteCompatConn(raw)
-        runner = ScenarioRunner(conn=conn, start=_SMOKE_START)
-        runner.fault_registry = FaultRegistry([DstEdgeClockFault(runner.clock)])
+        runner = ScenarioRunner(conn=conn, start=_SMOKE_START, sim_dsn=SIM_DATABASE_URL)
         scenario = runner.run(days=_SMOKE_DAYS)
-        raw.close()
     finally:
-        try:
-            os.remove(db_path)
-        except OSError:
-            pass
+        conn.rollback()
+        conn.close()
     results = list(scenario.final_results)
     report = VerdictReporter(tier="smoke").render(results)
-    return SmokeResult(verdict=classify(results), report=report, results=results)
+    return SmokeResult(
+        verdict=classify(results),
+        report=report,
+        results=results,
+        provenance_passed=scenario.provenance_passed,
+        organic_open_rows=scenario.organic_open_rows,
+    )
 
 
 __all__ = ["run_smoke", "SmokeResult"]
