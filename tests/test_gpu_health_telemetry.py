@@ -234,3 +234,61 @@ def test_reports_calls_gpu_health_not_vram_handoff():
     assert "_latest_gpu_health_ok" in src_text
     # Old name must NOT be called from this function
     assert "_latest_vram_handoff_ok" not in src_text
+
+
+# ---------------------------------------------------------------------------
+# 10. Writer-side regression locks — restored from T8 (commit 27ddc305) after
+#     dropped during v0.36.50 squash. See project_w21_attack_order #117/#94.
+# ---------------------------------------------------------------------------
+
+def test_emit_training_health_writes_metric():
+    """_emit_training_health upserts gpu_health_training_ok=1.0 with detail."""
+    from src.scheduler.watch import WatchLoop
+    instance = WatchLoop.__new__(WatchLoop)
+    with patch("src.scheduler.watch.upsert_daily_metric") as m_upsert, \
+         patch("src.scheduler.watch.safe_send") as m_safe:
+        instance._emit_training_health("unit-test detail")
+    m_upsert.assert_called_once()
+    args, kwargs = m_upsert.call_args
+    assert args[0] == "gpu_health_training_ok"
+    assert args[1] == 1.0
+    assert "unit-test detail" in args[2]
+    m_safe.assert_called_once_with(
+        "gpu_health", direction="training", success=True, detail="unit-test detail"
+    )
+
+
+def test_emit_training_health_metric_exception_swallowed():
+    """A metrics-backend error must NOT crash the training-lifecycle handler."""
+    from src.scheduler.watch import WatchLoop
+    instance = WatchLoop.__new__(WatchLoop)
+    with patch("src.scheduler.watch.upsert_daily_metric",
+               side_effect=RuntimeError("PG offline")), \
+         patch("src.scheduler.watch.safe_send"):
+        instance._emit_training_health("detail")  # must not raise
+
+
+def test_emit_training_health_safe_send_exception_swallowed():
+    """A Telegram-dispatch error must NOT crash the training-lifecycle handler."""
+    from src.scheduler.watch import WatchLoop
+    instance = WatchLoop.__new__(WatchLoop)
+    with patch("src.scheduler.watch.upsert_daily_metric"), \
+         patch("src.scheduler.watch.safe_send",
+               side_effect=RuntimeError("telegram offline")):
+        instance._emit_training_health("detail")  # must not raise
+
+
+@pytest.mark.parametrize("method_name,expected_detail", [
+    ("_run_evening_training_launch", "evening training launched"),
+    ("_run_morning_training_stop", "morning training stop"),
+    ("_run_market_open_training_stop", "market-open training stop"),
+])
+def test_training_lifecycle_runner_emits_health(method_name, expected_detail):
+    """Each of the 3 training-lifecycle runners must call _emit_training_health."""
+    from src.scheduler.watch import WatchLoop
+    instance = WatchLoop.__new__(WatchLoop)
+    with patch("src.training.trainer.run_fine_tune"), \
+         patch("src.training.training_control.stop_training_bounded"), \
+         patch.object(WatchLoop, "_emit_training_health") as m_emit:
+        getattr(instance, method_name)()
+    m_emit.assert_called_once_with(expected_detail)
