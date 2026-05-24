@@ -88,7 +88,11 @@ def _parse_rg_json(stdout: str) -> list[dict]:
 
 def _run_rg(pattern: str, search_path: Path) -> str:
     """Run rg and return stdout. Raises SymbolFindError on missing rg or bad exit."""
-    cmd = ["rg", "--json", "--type", "py", pattern, str(search_path)]
+    # The `--` sentinel disambiguates the positional pattern/path from any
+    # future flag-shaped value (defense-in-depth — re.escape already prevents
+    # regex injection from the symbol, but a path starting with `-` could
+    # otherwise be misinterpreted as a flag).
+    cmd = ["rg", "--json", "--type", "py", "--", pattern, str(search_path)]
     try:
         result = subprocess.run(
             cmd,
@@ -105,6 +109,15 @@ def _run_rg(pattern: str, search_path: Path) -> str:
             "  scoop install ripgrep\n"
             "  choco install ripgrep"
         )
+    except subprocess.TimeoutExpired as e:
+        # Audit #105 T5 fix — spec contract requires SymbolFindError as the
+        # only exception type from this function. `from None` suppresses the
+        # original exception's argv (which contains search_path) from the
+        # rendered traceback (defense against operator-path disclosure when
+        # the tool is invoked without --json).
+        raise SymbolFindError(
+            f"rg timed out after {e.timeout}s scanning {search_path}"
+        ) from None
 
     if result.returncode not in (0, 1):
         raise SymbolFindError(

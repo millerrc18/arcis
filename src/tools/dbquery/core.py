@@ -1,5 +1,13 @@
 """Read-only SELECT/WITH executor against the test PG instance.
 
+OPERATOR-TRUST WARNING (KC2): DBQuery executes arbitrary operator-supplied SQL.
+Mitigations: pre-connect regex (only SELECT/WITH allowed), PG read_only
+transaction (PG-enforced), @prod_guard (blocks production DSN signatures).
+The operator MUST use DBQuery only against the trusted test PG (127.0.0.1:5434
+by default) — do NOT expose DBQuery to untrusted callers. Constructs like
+`SELECT pg_read_file(...)`, `SELECT pg_sleep(60)`, and `COPY ... TO PROGRAM`
+(where role permits) execute against whatever DB this is connected to.
+
 Called by: src/tools/dbquery/__main__.py, operator agents, integration tests
 Calls: src.tools._db.pg_connect, src.tools._safety.(safe_op, prod_guard),
        src.tools._config.load_arcis_config

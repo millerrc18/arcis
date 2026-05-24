@@ -162,34 +162,109 @@ def test_find_use_returns_references_excludes_def_lines(search_root, tmp_path):
 def test_find_any_is_union_deduplicated(search_root, tmp_path):
     """find('Foo', kind='any') is the union of def+use, no (file, line) duplicates.
 
-    Verify-by-mutation: removing the (file, line) deduplication in core.py
-    causes this test to fail because lines matching both the def-pattern and
-    the use-pattern (if any) would appear twice.
+    Strengthened per QA review: original fixture had no actual (file, line)
+    collisions between def_rows and use_rows, so the dedup branch was never
+    exercised. This test now monkey-patches `_find_use` to inject a synthetic
+    row that collides with the existing def at (foo.py, 1) — forcing the
+    dedup logic to actually run, with assertions that fail if it doesn't.
+
+    Verify-by-mutation: replacing the seen-set dedup in core.py with
+    `return def_rows + use_rows` (no dedup) causes (foo.py, 1) to appear
+    twice in the result — this test asserts each (file, line) pair appears
+    exactly once, so the assertion fails.
     """
+    from unittest.mock import patch
+
     from src.tools.symbolfind import find
+    from src.tools.symbolfind.core import _find_use as _real_find_use
 
-    results_any = find("Foo", kind="any", path=search_root)
+    # Patch _find_use to inject a synthetic collision with the class def at
+    # (foo.py, 1). Real _find_use returns its normal results; we append a
+    # synthetic row that mirrors the def location. If dedup works, kind='any'
+    # sees (foo.py, 1) exactly once. If dedup is broken, it sees it twice.
+    def _find_use_with_collision(escaped_symbol, search_path):
+        real_results = _real_find_use(escaped_symbol, search_path)
+        # Find foo.py's path in the real results so we use the SAME path
+        # string the def-side returns (otherwise (file, line) won't collide).
+        foo_path = None
+        for r in real_results:
+            if Path(r["file"]).name == "foo.py":
+                foo_path = r["file"]
+                break
+        if foo_path is None:
+            # Fallback: construct foo.py's path the way rg would emit it
+            foo_path = str(search_path / "foo.py")
+        synthetic = {
+            "file": foo_path,
+            "line": 1,  # collides with class Foo: at line 1
+            "col": 1,
+            "kind": "use",
+            "snippet": "synthetic-collision-row",
+        }
+        return real_results + [synthetic]
+
+    with patch(
+        "src.tools.symbolfind.core._find_use",
+        side_effect=_find_use_with_collision,
+    ):
+        results_any = find("Foo", kind="any", path=search_root)
     results_def = find("Foo", kind="def", path=search_root)
-    results_use = find("Foo", kind="use", path=search_root)
-
-    assert isinstance(results_any, list)
 
     file_line_pairs = [(r["file"], r["line"]) for r in results_any]
     unique_pairs = set(file_line_pairs)
+
+    # The load-bearing assertion: dedup MUST collapse the synthetic-collision
+    # row with the real def-row at (foo.py, 1). If dedup is removed, this
+    # fails because (foo.py, 1) appears twice.
     assert len(file_line_pairs) == len(unique_pairs), (
-        "kind='any' must not have duplicate (file, line) pairs — "
+        "kind='any' must dedup (file, line) — "
         f"found {len(file_line_pairs)} rows but only {len(unique_pairs)} unique pairs"
     )
 
+    # Sanity: the collision pair appears exactly once
+    foo_line_1_count = sum(
+        1 for r in results_any
+        if Path(r["file"]).name == "foo.py" and r["line"] == 1
+    )
+    assert foo_line_1_count == 1, (
+        f"(foo.py, line 1) must appear exactly once after dedup, "
+        f"got {foo_line_1_count}"
+    )
+
+    # Other sanity properties still hold
     def_pairs = {(r["file"], r["line"]) for r in results_def}
-    use_pairs = {(r["file"], r["line"]) for r in results_use}
     any_pairs = {(r["file"], r["line"]) for r in results_any}
-
     assert def_pairs.issubset(any_pairs), "all def results must appear in any"
-    assert use_pairs.issubset(any_pairs), "all use results must appear in any"
 
-    assert len(results_any) >= len(results_def)
-    assert len(results_any) >= len(results_use)
+
+@rg_required
+def test_find_wraps_subprocess_timeout_as_symbol_find_error(search_root, tmp_path):
+    """subprocess.TimeoutExpired must be wrapped as SymbolFindError per spec contract.
+
+    Audit #105 T5 Security fix — the spec requires SymbolFindError as the
+    only exception type from find(). Without the wrapper, Python API callers
+    receive raw TimeoutExpired, and the CLI without --json prints a stderr
+    traceback containing the full argv (search_path disclosure).
+
+    Verify-by-mutation: removing the `except subprocess.TimeoutExpired`
+    clause in core._run_rg causes this test to fail because pytest.raises
+    won't catch the raw subprocess exception as SymbolFindError.
+    """
+    from unittest.mock import patch
+
+    import subprocess as sp
+
+    from src.tools.symbolfind import SymbolFindError, find
+
+    def _raise_timeout(*args, **kwargs):
+        raise sp.TimeoutExpired(cmd=args[0] if args else ["rg"], timeout=30)
+
+    with patch("subprocess.run", side_effect=_raise_timeout):
+        with pytest.raises(SymbolFindError) as exc_info:
+            find("Foo", kind="any", path=search_root)
+
+    assert "timed out" in str(exc_info.value).lower()
+    assert "30s" in str(exc_info.value)
 
 
 # ── Test (d) — rg missing ─────────────────────────────────────────────────────

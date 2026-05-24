@@ -75,6 +75,13 @@ def _run_gh(run_id: int | str, fields: str, repo: Optional[str]) -> dict:
             "Install gh via `winget install GitHub.cli` (Windows) "
             "or https://cli.github.com for other platforms."
         )
+    except subprocess.TimeoutExpired as e:
+        # Audit #105 T4 fix — spec contract is CIInvestigateError as the only
+        # exception type. `from None` suppresses the original exception's
+        # argv from chained traceback.
+        raise CIInvestigateError(
+            f"gh timed out after {e.timeout}s for run_id={run_id}"
+        ) from None
 
     if result.returncode != 0:
         stderr = result.stderr.strip()

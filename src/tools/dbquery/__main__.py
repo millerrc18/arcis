@@ -61,11 +61,18 @@ def main() -> None:
         prog="python -m src.tools.dbquery",
         description="Run a read-only SELECT/WITH against the configured test PG.",
         epilog=(
-            "JSONB-COLUMN WARNING: this tool does NOT page-size individual rows. "
-            "A single jsonb column (e.g. audit_reports.full_report) can be MB-scale; "
-            "a blanket-select like 'SELECT full_report FROM audit_reports LIMIT 1000' "
-            "can pull gigabytes. Narrow the projection -- e.g. "
-            "SELECT id, full_report->'summary' AS summary -- rather than blanket-"
+            "OPERATOR-TRUST WARNING (KC2): DBQuery executes arbitrary SQL bounded\n"
+            "only by a pre-connect regex (SELECT/WITH only), PG read_only transaction,\n"
+            "and @prod_guard (blocks production DSN signatures). Use only against\n"
+            "trusted test PG (127.0.0.1:5434 by default); do NOT expose to untrusted\n"
+            "callers. Constructs like SELECT pg_read_file(...) and SELECT pg_sleep(60)\n"
+            "are not blocked beyond the above mitigations.\n"
+            "\n"
+            "JSONB-COLUMN WARNING: this tool does NOT page-size individual rows.\n"
+            "A single jsonb column (e.g. audit_reports.full_report) can be MB-scale;\n"
+            "a blanket-select like 'SELECT full_report FROM audit_reports LIMIT 1000'\n"
+            "can pull gigabytes. Narrow the projection -- e.g.\n"
+            "SELECT id, full_report->'summary' AS summary -- rather than blanket-\n"
             "selecting jsonb columns."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
