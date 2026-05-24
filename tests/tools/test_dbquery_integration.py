@@ -275,6 +275,14 @@ def test_cli_write_blocked_returns_json_envelope_exit_1(fixture_table):
     delegating to _cli_envelope.run_cli — the envelope schema might differ or
     exit code might be 0.
     """
+    # Capture the audit log size BEFORE the subprocess so the post-call
+    # assertion only inspects newly-appended content (avoids false positives
+    # from older log lines written before the libpq-redaction fix).
+    from src.tools._execution_log import DEFAULT_LOG_PATH
+    log_offset_before = (
+        DEFAULT_LOG_PATH.stat().st_size if DEFAULT_LOG_PATH.exists() else 0
+    )
+
     result = subprocess.run(
         [
             sys.executable, "-m", "src.tools.dbquery",
@@ -300,3 +308,20 @@ def test_cli_write_blocked_returns_json_envelope_exit_1(fixture_table):
     assert "password=test" not in err["message"], (
         "DSN password appeared in the error message — sanitize_error not applied"
     )
+
+    # T2 Security finding (medium): assert DSN password ALSO not in the audit
+    # log. Pre-existing T1 weakness in sanitize_params (only matched URL-form
+    # DSNs; libpq key=value form leaked verbatim). Fixed by extending
+    # _execution_log._LIBPQ_PASSWORD_RE. This assertion locks the contract so
+    # future regressions of the redaction layer are caught at the tool-
+    # integration boundary (not just the unit-test boundary of _execution_log).
+    # Read only NEW log content (since offset_before) so older pre-fix log
+    # entries don't generate false-positive assertions.
+    if DEFAULT_LOG_PATH.exists():
+        with open(DEFAULT_LOG_PATH, encoding="utf-8") as f:
+            f.seek(log_offset_before)
+            new_log_text = f.read()
+        assert "password=test" not in new_log_text, (
+            "DSN password appeared in newly-written tool-execution.log lines — "
+            "libpq key=value redaction regression"
+        )
