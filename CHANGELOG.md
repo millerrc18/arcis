@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+## [v0.36.62] — 2026-05-24 — Tier 1 Tools (#105): five composable Python-API + CLI tools
+
+Implements Arcis #105 Tier 1 tools building on the v0.36.57 #104 foundation (`_config.py`, `_safety.py`, `_execution_log.py`). Five tools, each shipped as a per-tool subpackage callable via Python API or `python -m src.tools.<name>` CLI.
+
+### Added
+
+- **Five composable tools** under `src/tools/`:
+  - `dbquery/` — read-only `SELECT`/`WITH` executor with server-side cursor streaming (`named_cursor='dbquery_stream'`, `fetchmany(limit+1)` with `truncated` flag) for jsonb safety. Two-layer read-only: regex (`^\s*(SELECT|WITH)\s` pre-connect) + `pg_connect(read_only=True)`. `@safe_op` OUTER + `@prod_guard` INNER. CLI `--help` carries KC2 operator-trust + jsonb warnings.
+  - `logtail/` — multi-line-aware backward tail with NSSM-rotation-safe semantics (DA5: `os.fstat` before + after read; size shrink → `LogTailError('file rotated/truncated mid-read; retry')`). Default `log_path` = `cfg.paths.logs_runtime / 'arcis.log'`. `--level` respects hierarchy; `--grep` matches joined entry text.
+  - `ciinvestigate/` — `gh run view` wrapper with **atomic write** (`tempfile + fsync + os.replace` — Windows NTFS handles concurrent writers as atomic refusal) + **corrupt-cache self-heal** (`JSONDecodeError → unlink + refetch + WARNING`) + **`updatedAt`-validated cache freshness** (DA3 — `gh run rerun` mutates `conclusion`/`jobs`/`updatedAt`; head-check detects this on every cache hit). Cache: `data/cache/ci-investigate/<run_id>.json`.
+  - `symbolfind/` — `rg --json --type py`-backed Python symbol lookup. `kind='def'` (class/def line + module-level constant assignment), `'use'` (references minus def lines), `'any'` (union dedup by `(file, line)`). `re.escape(symbol)` prevents regex injection; `--` argv sentinel for defense-in-depth against future flag-shaped paths. Fails fast with `winget install BurntSushi.ripgrep.MSVC` hint when rg missing.
+  - `tradingstate/` — single-shot snapshot: open positions + most-recent audit + GPU health. **DA2 snapshot consistency**: all 3 PG queries on a SINGLE connection with `isolation_level='REPEATABLE READ'` — guarantees point-in-time view even under concurrent watch-loop writes. SQLite fallback on `psycopg2.OperationalError`. Missing GPU metrics yield `None` (NOT `False`) — distinguishes "not measured" from "measured failing".
+
+- **Per-tool subpackage layout** (`src/tools/<name>/{__init__.py, __main__.py, core.py, ...}`) — Tier 2 inherits.
+
+- **Sub-module-when-needed pattern (§4.8)** — TradingState splits into `core.py` (Python API + decorators, ≤300 LOC) + `queries.py` (SQL constants for PG + SQLite variants) + `render.py` (3-section markdown, ≤200 LOC). DBQuery/LogTail/CIInvestigate/SymbolFind do NOT split (cores ≤500 LOC). Tier 2 ShadowClose/PromoteModel/Postmortem will split.
+
+- **`src/tools/_db.py`** — thin psycopg2 `pg_connect` contextmanager supporting `read_only`, `isolation_level='REPEATABLE READ'`, `named_cursor`, `timeout` kwargs. Always `RealDictCursor`. Does NOT couple to `src.config` / `src.utils.db` (spec §2.2 forbidden-imports).
+
+- **`src/tools/_cli_envelope.py`** — shared `run_cli` helper for `--json` error envelope (DA6). Schema: `{"error": {"type": "<ExceptionClassName>", "message": "<sanitized>", "tool": "<tool_name>"}}` to stdout + `sys.exit(1)`. Message routed through `src.utils.secret_redact.sanitize_error` per spec §4.4 (Audit #414 precedent).
+
+- **Tool cache convention** — `data/cache/<tool-name>/`. CIInvestigate writes `<run_id>.json` atomically.
+
+- **Decorator contract (§4.7)** — `@safe_op` OUTER; `@prod_guard` (and Tier 2's `@safety_window`) INNER. Each guard writes its OWN terminal-state event (`'prod_guard_block'`, `'safety_window_block'`); `@safe_op` does NOT double-log `SafetyError` subclasses (verified at `src/tools/_safety.py:146-147`). Every tool's integration test asserts: `prod_guard_block` present AND zero duplicate `'error'` events.
+
+### Fixed
+
+- **`src/tools/_execution_log.py`** — extend `_sanitize_dsn` to handle libpq key=value form (`host=... password=PASSWORD`) via new `_LIBPQ_PASSWORD_RE`. Pre-existing T1 weakness: the URL-only `_DSN_PASSWORD_RE` left libpq-form passwords verbatim in `data/logs/tool-execution.log` when operators passed `--dsn` to T1+ tools. Now redacted while preserving `host`/`port`/`user` for diagnostics. New unit + integration tests pin the contract.
+
+### CLI conventions established for Tier 1+ tools
+
+- argparse, long-form flags, `--json` boolean toggle.
+- Under `--json`, errors are emitted as a JSON envelope to stdout + exit 1; without `--json`, traceback prints to stderr as usual.
+- `subprocess.TimeoutExpired` is wrapped as the tool's own error class (SymbolFindError, CIInvestigateError) per spec contract; `from None` suppresses argv disclosure via chained traceback.
+
+### Test coverage
+
+- 101 tests in `tests/tools/` (was 56 in v0.36.61): 7 DBQuery, 7 LogTail, 9 CIInvestigate (incl. DA1 concurrent-writers + corrupt-cache + DA3 rerun-invalidation), 8 SymbolFind, 6 TradingState integration + 4 TradingState CLI, 5 `_db.py`, 3 `_cli_envelope.py`, plus pre-existing 56.
+- Schema-drift discipline locked: zero `opened_at` / `overall_verdict` substrings in `src/tools/tradingstate/` + tests (the canonical F3/F4 regression).
+- Decorator-contract: every `@prod_guard`-decorated tool (DBQuery, TradingState) has an integration test asserting exactly-one terminal-state event under prod-DSN signature.
+
+### References
+
+- Spec: `docs/audits/2026-05-24-tier1-tools/specs/2026-05-24-tier1-tools-design.md`
+- Plan: `docs/audits/2026-05-24-tier1-tools/plans/2026-05-24-tier1-tools.md`
+- Foundation: v0.36.57 #104 (`_config.py`, `_safety.py`, `_execution_log.py`)
+- Memory: `feedback_complete_efforts_no_deferral` (all review-driven changes addressed in this PR, no deferral)
+
 ## [v0.36.61] — 2026-05-24 — Deferred-test cleanup (#92 follow-up): test_version.py + test_schema.py mock-target drift
 
 Closes the two pre-existing test failures the v0.36.60 PR (#1172) deferred to "Out of scope". The deferral was the trigger for the operator's new `feedback_complete_efforts_no_deferral` memory ("within an effort deliver ALL of it OR scope the effort smaller; never punt sub-items to operator-memory"); this PR fixes the deferred items directly per that standard.
