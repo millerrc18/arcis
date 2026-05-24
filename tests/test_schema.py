@@ -815,11 +815,34 @@ def test_shadow_trades_strategy_id_fk_db_enforcement():
     conn.close()
 
 
-def test_fetch_closed_trades_filters_by_strategy_id():
-    """_fetch_closed_trades(strategy_id='X') returns only trades for strategy X (T2/#56)."""
-    import sqlite3
+@pytest.mark.parametrize(
+    "path_name,patch_target,env_database_url",
+    [
+        ("sqlite", "get_closed_shadow_trades", None),
+        ("postgres", "_fetch_closed_trades_from_postgres", "postgresql://fake@localhost/x"),
+    ],
+)
+def test_fetch_closed_trades_filters_by_strategy_id(
+    monkeypatch, path_name, patch_target, env_database_url
+):
+    """_fetch_closed_trades(strategy_id='X') returns only trades for strategy X (T2/#56).
+
+    Parametrized over both dispatch paths of _fetch_closed_trades:
+      - sqlite branch (DATABASE_URL unset): calls get_closed_shadow_trades
+      - postgres branch (DATABASE_URL set): calls _fetch_closed_trades_from_postgres
+    Each variant patches the corresponding function (not the other) so mock-
+    target drift in either branch surfaces as a real-PG call against missing
+    fixtures rather than a silent vacuous pass (the v0.36.60 / #92 follow-up
+    finding; the original test patched only get_closed_shadow_trades and was
+    vacuous whenever DATABASE_URL was set, the operator's runtime env).
+    """
     from unittest.mock import patch
     from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
+
+    if env_database_url is None:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("DATABASE_URL", env_database_url)
 
     rows_x = [
         {"trade_id": "t1", "ticker": "AAPL", "status": "closed",
@@ -833,17 +856,37 @@ def test_fetch_closed_trades_filters_by_strategy_id():
     ]
     all_rows = rows_x + rows_y
 
-    with patch("src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+    with patch(f"src.api.cloud_routes.kpis_compute.{patch_target}",
                return_value=all_rows):
         result = _fetch_closed_trades(strategy_id="strategy_X")
-    assert len(result) == 1
-    assert result[0]["strategy_id"] == "strategy_X"
+    assert len(result) == 1, f"path={path_name}: expected 1 row, got {len(result)}"
+    assert result[0]["strategy_id"] == "strategy_X", (
+        f"path={path_name}: expected strategy_X, got {result[0]['strategy_id']}"
+    )
 
 
-def test_fetch_closed_trades_strategy_id_none_returns_all():
-    """_fetch_closed_trades(strategy_id=None) returns all trades — backward compat (T2/#56)."""
+@pytest.mark.parametrize(
+    "path_name,patch_target,env_database_url",
+    [
+        ("sqlite", "get_closed_shadow_trades", None),
+        ("postgres", "_fetch_closed_trades_from_postgres", "postgresql://fake@localhost/x"),
+    ],
+)
+def test_fetch_closed_trades_strategy_id_none_returns_all(
+    monkeypatch, path_name, patch_target, env_database_url
+):
+    """_fetch_closed_trades(strategy_id=None) returns all trades — backward compat (T2/#56).
+
+    Same parametrization as the strategy_id-filter test above; locks both
+    dispatch branches against mock-target drift.
+    """
     from unittest.mock import patch
     from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
+
+    if env_database_url is None:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("DATABASE_URL", env_database_url)
 
     all_rows = [
         {"trade_id": "t1", "ticker": "AAPL", "status": "closed",
@@ -854,10 +897,10 @@ def test_fetch_closed_trades_strategy_id_none_returns_all():
          "quarantined": 0, "exit_reason": "target_1"},
     ]
 
-    with patch("src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+    with patch(f"src.api.cloud_routes.kpis_compute.{patch_target}",
                return_value=all_rows):
         result = _fetch_closed_trades(strategy_id=None)
-    assert len(result) == 2
+    assert len(result) == 2, f"path={path_name}: expected 2 rows, got {len(result)}"
 
 
 def test_render_migrate_fk_emits_not_valid():

@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [v0.36.61] — 2026-05-24 — Deferred-test cleanup (#92 follow-up): test_version.py + test_schema.py mock-target drift
+
+Closes the two pre-existing test failures the v0.36.60 PR (#1172) deferred to "Out of scope". The deferral was the trigger for the operator's new `feedback_complete_efforts_no_deferral` memory ("within an effort deliver ALL of it OR scope the effort smaller; never punt sub-items to operator-memory"); this PR fixes the deferred items directly per that standard.
+
+### What ships
+
+- **`tests/test_version.py`** — 3 assertions hardcoded `"v0.36.50"` had been broken on `main` since v0.36.51. Refactored to use two module-level constants (`_EXPECTED_VERSION = "v0.36.61"`, `_EXPECTED_BARE_SEMVER = "0.36.61"`) so every future release PR is a 2-line bump alongside the `src/version.py` change. Updated the module docstring to document the version-lock intent (the test deliberately fails on version drift to force the PR author to also update CHANGELOG).
+
+- **`tests/test_schema.py::test_fetch_closed_trades_*`** — both tests patched `src.api.cloud_routes.kpis_compute.get_closed_shadow_trades` but `_fetch_closed_trades` dispatches via `DATABASE_URL` env: when set (operator's runtime env), it calls `_fetch_closed_trades_from_postgres` and the original mock was a no-op. Tests reported `psycopg2.errors.UndefinedTable: relation "shadow_trades" does not exist` locally because the mock never intercepted the actual call — a classic `feedback_vacuous_test_pattern` (the mock was theatrical). Replaced both with `@pytest.mark.parametrize` over both dispatch branches:
+  - `sqlite` variant: `monkeypatch.delenv("DATABASE_URL", raising=False)` + patches `get_closed_shadow_trades`
+  - `postgres` variant: `monkeypatch.setenv("DATABASE_URL", ...)` + patches `_fetch_closed_trades_from_postgres`
+  Each variant patches exactly one path (not both), so mock-target drift in EITHER dispatch branch surfaces immediately as the function attempting a real DB query against missing fixtures rather than passing vacuously. Locks both branches against the same class of drift.
+
+### Why this exists at all
+
+- v0.36.60 PR body had an "Out of scope (pre-existing failures surfaced during testing)" section listing these two items. Operator wrote `feedback_complete_efforts_no_deferral` in response, noting both were inside-the-effort work that should not have been deferred (the test_version.py fix is literally one line of arithmetic; the test_schema.py is a vacuous-test bug fix matching `feedback_vacuous_test_pattern` already-encoded rigor).
+
+### What this PR is NOT
+
+- **Not a refactor of the version-lock pattern.** Some projects derive the test assertion from `src.version.VERSION` itself, making the test self-syncing. That's a richer design but loses the "force the author to acknowledge the bump" property. Keeping the literal-assert pattern; just lifted the literal to a module-level constant.
+- **Not a redesign of `_fetch_closed_trades` dispatch.** The function continues to dispatch on `DATABASE_URL` env; the parametrize covers both branches without changing the production code.
+
+### References
+
+- Memory `feedback_complete_efforts_no_deferral` — the standard this PR enforces
+- Memory `feedback_vacuous_test_pattern` — the bug class this PR closes for `test_fetch_closed_trades_*`
+- PR #1172 (v0.36.60) — the parent PR that deferred these items
+
 ## [v0.36.60] — 2026-05-24 — PG table-ownership fix (#92): 5 tables + 2 sequences transferred to halcyon_app, restore-drift wire-up added
 
 Fourth of the `project_w21_attack_order` phase-4 wedges (after v0.36.55 #101 CI hygiene, v0.36.57 #104 tooling foundation, v0.36.59 #103 reviewer prompts). "Same failure class as 2026-05-14 DROP SCHEMA permission-denied loop. Quick `ALTER TABLE … OWNER TO halcyon_app`. High-impact safety fix." — operator's brief for #92.
