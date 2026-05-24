@@ -60,6 +60,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m src.tools.dbquery",
         description="Run a read-only SELECT/WITH against the configured test PG.",
+        epilog=(
+            "JSONB-COLUMN WARNING: this tool does NOT page-size individual rows. "
+            "A single jsonb column (e.g. audit_reports.full_report) can be MB-scale; "
+            "a blanket-select like 'SELECT full_report FROM audit_reports LIMIT 1000' "
+            "can pull gigabytes. Narrow the projection -- e.g. "
+            "SELECT id, full_report->'summary' AS summary -- rather than blanket-"
+            "selecting jsonb columns."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("sql", help="SQL SELECT or WITH statement to execute")
     parser.add_argument(
