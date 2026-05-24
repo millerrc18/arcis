@@ -7,7 +7,7 @@ python-dotenv>=1.0,<2.0
 # jsonschema — required transitively by src/api/cloud_routes/system_index.py
 # (imports capability_registry which validates Action schemas via jsonschema).
 # Missing → cloud deploy crashed on startup with ModuleNotFoundError.
-jsonschema>=4.0,<5.0
+jsonschema>=4.26.0,<5.0
 # numpy — required by src/api/cloud_routes/kpis.py (PR-690 I3: Lo (2002)
 # autocorrelation-corrected Sharpe SE uses np.corrcoef + np.array slicing).
 numpy>=1.24,<3.0
