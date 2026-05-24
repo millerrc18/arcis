@@ -76,6 +76,150 @@ def _validate_url(url: str, label: str) -> None:
         sys.exit(1)
 
 
+def apply_ownership_reconciliation(dest_url: str) -> dict:
+    """Transfer ownership of all public tables/sequences to halcyon_app + apply GRANT block.
+
+    Idempotent. Discovers tables/sequences in the public schema NOT already owned
+    by halcyon_app and ALTERs each. Then applies the load-bearing GRANT + ALTER
+    DEFAULT PRIVILEGES block from memory `feedback_drop_schema_grant_pattern` so
+    halcyon_app retains write access and halcyon_readonly retains SELECT, both
+    surviving future table creations.
+
+    Wire-up site for the 2026-05-14 restore-loop incident (v0.36.60 / #92): the
+    public-schema DROP + restore-as-superuser pattern leaves tables owned by the
+    restore user (`halcyon`) instead of the runtime app role (`halcyon_app`),
+    which manifests as permission-denied restart loops. Calling this function
+    after any schema-create step closes that drift.
+
+    Privilege requirement
+    ---------------------
+    ALTER TABLE OWNER requires the connection role to be superuser OR have
+    membership in halcyon_app. If neither holds, this function logs a clear
+    actionable warning and returns without mutating -- the caller's script
+    completes successfully and the operator can re-run with a privileged URL.
+
+    Returns
+    -------
+    dict with keys: tables_altered (list[str]), sequences_altered (list[str]),
+    grants_applied (bool), skipped (bool, True iff privilege check failed).
+    """
+    conn = psycopg2.connect(dest_url, connect_timeout=15)
+    conn.autocommit = False
+    result: dict = {
+        "tables_altered": [],
+        "sequences_altered": [],
+        "grants_applied": False,
+        "skipped": False,
+    }
+    try:
+        with conn.cursor() as cur:
+            # Upfront role/privilege checks -- single short-circuit + no in-txn surprises.
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='halcyon_app'")
+            if not cur.fetchone():
+                raise RuntimeError(
+                    "halcyon_app role does not exist on this PG. "
+                    "Cannot reconcile ownership to a non-existent role; "
+                    "create the role first or run this against the correct DB."
+                )
+
+            cur.execute("SELECT current_user, current_setting('is_superuser')")
+            user, is_super = cur.fetchone()
+            cur.execute("SELECT pg_has_role(current_user, 'halcyon_app', 'MEMBER')")
+            is_member = cur.fetchone()[0]
+            if not (is_super == "on" or is_member):
+                print(
+                    f"  WARN: current_user={user!r} cannot ALTER OWNER "
+                    f"(not superuser, not member of halcyon_app). "
+                    f"Skipping ownership reconciliation. Re-run as halcyon "
+                    f"(or another privileged role) to apply.",
+                    file=sys.stderr,
+                )
+                result["skipped"] = True
+                return result
+
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='halcyon_readonly'")
+            has_readonly = cur.fetchone() is not None
+
+            # Tables: only ALTER what's not already correct (cheaper + clearer log)
+            cur.execute(
+                "SELECT tablename FROM pg_tables "
+                "WHERE schemaname='public' AND tableowner != 'halcyon_app' "
+                "ORDER BY tablename"
+            )
+            for (tname,) in cur.fetchall():
+                cur.execute(
+                    sql.SQL("ALTER TABLE public.{} OWNER TO halcyon_app").format(
+                        sql.Identifier(tname)
+                    )
+                )
+                result["tables_altered"].append(tname)
+                print(f"  ALTER TABLE public.{tname} OWNER TO halcyon_app")
+
+            # Sequences: information_schema.sequences has no owner column, so
+            # join pg_class -> pg_namespace -> pg_authid (the discovery query
+            # documented in tests/test_table_ownership.py).
+            cur.execute(
+                "SELECT c.relname FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "JOIN pg_authid r ON r.oid=c.relowner "
+                "WHERE c.relkind='S' AND n.nspname='public' "
+                "AND r.rolname != 'halcyon_app' ORDER BY c.relname"
+            )
+            for (sname,) in cur.fetchall():
+                cur.execute(
+                    sql.SQL("ALTER SEQUENCE public.{} OWNER TO halcyon_app").format(
+                        sql.Identifier(sname)
+                    )
+                )
+                result["sequences_altered"].append(sname)
+                print(f"  ALTER SEQUENCE public.{sname} OWNER TO halcyon_app")
+
+            # GRANT block per feedback_drop_schema_grant_pattern -- idempotent;
+            # locks the privileges in for halcyon_app across current AND future
+            # tables (the ALTER DEFAULT PRIVILEGES part). halcyon_readonly GRANTs
+            # are conditional on the role existing (ephemeral test PG without
+            # the full role topology gracefully skips them).
+            cur.execute("GRANT ALL ON ALL TABLES IN SCHEMA public TO halcyon_app")
+            cur.execute("GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO halcyon_app")
+            cur.execute(
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                "GRANT ALL ON TABLES TO halcyon_app"
+            )
+            cur.execute(
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                "GRANT ALL ON SEQUENCES TO halcyon_app"
+            )
+            if has_readonly:
+                cur.execute(
+                    "GRANT SELECT ON ALL TABLES IN SCHEMA public TO halcyon_readonly"
+                )
+                cur.execute(
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+                    "GRANT SELECT ON TABLES TO halcyon_readonly"
+                )
+            else:
+                print(
+                    "  NOTE: halcyon_readonly role absent; skipped its GRANTs "
+                    "(expected on ephemeral test PG; would be a flag on production)",
+                    file=sys.stderr,
+                )
+
+            result["grants_applied"] = True
+            print(
+                f"  GRANTs + ALTER DEFAULT PRIVILEGES applied: "
+                f"{len(result['tables_altered'])} table(s), "
+                f"{len(result['sequences_altered'])} sequence(s) altered"
+            )
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return result
+
+
 def _resolve_primary_key_columns(table) -> list[str]:
     pk = table.primary_key
     return [pk] if isinstance(pk, str) else list(pk)
@@ -293,6 +437,20 @@ def run_migration(
         # create_all_tables takes a DSN URL string, not a connection object.
         create_all_tables(dest_url)
         print("Schema sync complete.")
+        # v0.36.60 / #92: reconcile ownership immediately after schema-create so
+        # any tables created by a restore-as-superuser earlier (per the
+        # 2026-05-14 incident) get handed back to halcyon_app before the data
+        # copy starts. Idempotent: a no-op when ownership is already correct.
+        print("Reconciling public-schema ownership to halcyon_app...")
+        # SF1 from #92 review: fail-fast on unexpected reconciliation errors.
+        # The function already handles the safe not-privileged case via
+        # result["skipped"]=True (returns gracefully); any raised exception is
+        # a genuine misconfiguration (missing halcyon_app role, conn drop, etc.)
+        # and continuing with the data copy would leave the operator in the
+        # exact 2026-05-14 failure mode this PR fixes -- halcyon_app with rows
+        # but no DDL rights. Matches the --reconcile-only path's
+        # propagate-exceptions semantics for a uniform contract.
+        apply_ownership_reconciliation(dest_url)
         print()
 
     print("Step 2/2: copy data Render -> local, table by table...")
@@ -353,13 +511,38 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the create_all_tables step (use when schema already in sync).",
     )
+    parser.add_argument(
+        "--reconcile-only",
+        action="store_true",
+        help=(
+            "Skip Render->local data copy entirely and only run ownership "
+            "reconciliation against DATABASE_URL. Use post-restore from a "
+            "snapshot (v0.36.60 / #92) when the schema is already populated "
+            "but tables are owned by the restore-user instead of halcyon_app. "
+            "Requires DATABASE_URL to be a privileged role (superuser or "
+            "member of halcyon_app); SOURCE_DATABASE_URL is not consulted."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    source_url = os.environ.get("SOURCE_DATABASE_URL", "")
     dest_url = os.environ.get("DATABASE_URL", "")
+
+    if args.reconcile_only:
+        # Standalone reconciliation path -- no source URL, no data copy, no
+        # interactive prompt. Invoked from scripts/recovery/restore_pg_from_snapshot.ps1
+        # at step 7.5 (post-GRANT, pre-verification) and operator-runnable
+        # anytime drift surfaces on a healthy DB.
+        _validate_url(dest_url, "DATABASE_URL")
+        print(f"Reconciling ownership on: {_redact_password(dest_url)}")
+        result = apply_ownership_reconciliation(dest_url)
+        if result["skipped"]:
+            sys.exit(1)
+        return
+
+    source_url = os.environ.get("SOURCE_DATABASE_URL", "")
     table_filter = [t.strip() for t in args.tables.split(",")] if args.tables else None
 
     run_migration(

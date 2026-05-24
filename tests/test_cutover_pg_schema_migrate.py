@@ -77,6 +77,15 @@ def test_cutover_migrate_ok_not_yellow_on_ownership(monkeypatch):
     # table-level self-heal already committed in the first phase. This is EXPECTED +
     # non-actionable, so it must emit OK-with-note (NOT a permanent yellow preflight,
     # which is the persistent-false-positive anti-pattern). Never critical.
+    #
+    # v0.36.60 / #92 update: the original five misowned tables (recommendations,
+    # shadow_trades, sync_state, traffic_light_state, vix_term_structure) were
+    # transferred to halcyon_app via schema/migrations/2026-05-24_table_ownership_fix.sql
+    # and the wire-up in scripts/render_to_local_migrate.py:apply_ownership_reconciliation.
+    # This test is kept as DEFENSE-IN-DEPTH for any FUTURE ownership drift (e.g., a
+    # post-restore scenario where the migration wasn't yet re-run) -- the OK-with-note
+    # behavior remains the correct response even after the historical cases are fixed.
+    # See tests/test_table_ownership.py for the steady-state policy assertion.
     import psycopg2
     monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
     monkeypatch.setenv("DATABASE_URL", "postgresql://app:pw@localhost:5433/halcyon")

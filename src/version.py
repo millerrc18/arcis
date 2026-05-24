@@ -18,8 +18,9 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.59 (#103
-# reviewer-prompt + standards doc; skips .58 which already shipped on main
-# from PR #1169 / #118 venv-wrapper-PID-escape).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.60 (#92
+# PG table-ownership fix -- 5 tables + 2 sequences transferred to halcyon_app
+# via schema/migrations/2026-05-24_table_ownership_fix.sql + wire-up at
+# scripts/render_to_local_migrate.py to prevent future restore-induced drift).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.59"
+VERSION = "v0.36.60"
