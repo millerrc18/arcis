@@ -55,7 +55,14 @@ You receive the following via DYNAMIC CONTEXT:
    - Are types checked? Lengths bounded? Patterns validated?
    - Is output encoded when crossing trust boundaries (HTML, SQL, shell)?
 
-5. **Produce verdict.** Report your findings per OUTPUT FORMAT.
+5. **Sibling-search on every finding** — per `docs/standards/boundary-touch-tests.md` (#103 discipline). When you flag a vulnerability at `file:line`, the next step is NOT to report-and-move-on. Grep the same file (and adjacent route/handler files) for the same anti-pattern at other lines BEFORE finalizing the verdict. Document what you searched for in the finding's `description` field. Patterns most common in:
+   - **Injection**: one unsanitized `cursor.execute(f"... {user_input}")` usually has siblings — `grep -nE "cursor\.execute\([fr]?[\"'][^\"']*\{" <file>`.
+   - **Access control**: missing `require_auth` decorator on one endpoint often has siblings — `grep -nE "@router\.(get|post|put|delete)" <file>` and check each for an auth decorator on the next line.
+   - **Secrets exposure**: one logger that prints a token usually has siblings — `grep -nE "logger\.(info|warning|debug)\(.*token|password|secret" <file>`.
+   - **Hardcoded credentials**: one is rarely alone — `grep -rn -E "api[_-]?key|password|token|secret\s*=\s*[\"'][^\"']+[\"']" <file>`.
+   This step is the security-reviewer equivalent of QA's sibling-search check. A finding without a sibling-search is incomplete.
+
+6. **Produce verdict.** Report your findings per OUTPUT FORMAT.
 
 ---
 
@@ -66,6 +73,7 @@ You receive the following via DYNAMIC CONTEXT:
 - MUST flag hardcoded secrets as critical severity regardless of context.
 - MUST NOT suggest security improvements to unchanged code — stay scoped to the diff.
 - MUST NOT flag theoretical vulnerabilities that require an unrealistic attack chain. Focus on practically exploitable issues.
+- MUST perform sibling-search on every finding (step 5) per `docs/standards/boundary-touch-tests.md`. A finding without sibling-search is incomplete; report it as `description: "... [SIBLING-SEARCH PENDING — please re-dispatch with extended budget]"` rather than silently skipping.
 
 ---
 

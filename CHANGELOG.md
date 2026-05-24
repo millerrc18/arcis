@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+## [v0.36.59] — 2026-05-24 — Reviewer-prompt + standards doc (#103): boundary-touch + vacuous-test + sibling-search discipline formalized
+
+Third of four phase-4 early wedges per `project_w21_attack_order` (after v0.36.55 #101 CI hygiene + v0.36.57 #104 tooling foundation). "Half-day work, no infra dependency. Would have caught all 3 v0.36.51-53 bugs at review time. Every phase-4 hotfix benefits from sharper reviewer prompts." — operator's brief for #103.
+
+### What ships
+
+- **NEW `docs/standards/boundary-touch-tests.md`** — single-file standards doc covering the boundary-touch test discipline, the vacuous-test anti-pattern, the empirical-verification gold standard (subprocess-remove-impl-and-rerun), and the sibling-search principle. Authoritative for `.claude/plugins/arcis/agents/coding-{qa,security,rigor}-reviewer.md`. Cites the v0.36.51-53 mock-coverage-gap chain as cases-that-would-have-been-caught, and `tests/tools/test_safe_op_integration.py` from v0.36.57 #104 as the canonical positive example. Includes a 7-row "when this applies" table + pre-merge checklist.
+
+- **`.claude/plugins/arcis/agents/coding-qa-reviewer.md`** — adds new workflow step 4 (Test rigor check) + step 5 (Sibling-search check), each citing the standards doc. Step 4 enumerates four concrete sub-checks (mock target resolution, method/attribute name resolution, vacuous-test detection, boundary-touch coverage) with the gold-standard question made explicit. CONSTRAINTS section adds non-negotiable enforcement language: "A 'passing' PR with vacuous tests or unresolved mock targets is a `must_fix` finding even if every spec requirement is technically met."
+
+- **`.claude/plugins/arcis/agents/coding-security-reviewer.md`** — adds new workflow step 5 (Sibling-search on every finding). Includes four concrete grep recipes per vulnerability class (injection, access control, secrets exposure, hardcoded credentials). CONSTRAINTS section adds the "incomplete finding without sibling-search" rule with explicit suggested marker text.
+
+- **NEW (imported from user-cache) `.claude/plugins/arcis/agents/coding-rigor-reviewer.md`** — 264-line elaborate C1–C7 advisory PR-comment rubric was sitting only in the user-cache at `~/.claude/plugins/cache/halcyon-local/arcis/0.1.0/agents/`, never committed to the repo. Imported as source-of-truth (this PR captures the cache/repo divergence). Augmented with:
+  - **C5.5** Vacuous-test detection (mocks `side_effect` or asserts `_not_called()` but the branch never reached → `BLOCKER`)
+  - **C5.6** Boundary-touch coverage when composed contracts are introduced (decorators / pipelines / schema mirrors → at least one real-composition test or `ADVISORY` / `BLOCKER` for safety-critical seams)
+  - Three-form sibling-search regex in step 3, with the historical-miss-rate note (`from X|import X|X.` catches the dotted-attribute-string `@patch` decorator references the single-form grep misses ~30% of)
+
+### Why this lands NOW (before #105 Tier 1 tools)
+
+Per the operator's brief: "Every phase-4 hotfix benefits from sharper reviewer prompts." The remaining phase-4 backlog (#92 / #100 / #86 / #51 / #77 plus the Tier 1+ tooling track #105 onward) will be reviewed by the same three reviewer agents. Each downstream hotfix now gets the boundary-touch + vacuous-test + sibling-search checks for free, without needing to embed reminders in every dispatch prompt.
+
+### What this PR is NOT
+
+- **Not a runtime change.** Zero `src/*.py` edits, zero test edits, zero schema edits. Pure prompt + docs.
+- **Not a hookify rule.** The hookify-rule version of "enforce vacuous-test detection" would be a separate task (PreToolUse on test edits), out of scope here.
+- **Not a backfill audit.** v0.36.51-53 already shipped. The discipline applies prospectively — future PRs are reviewed against it, past PRs are not retroactively re-reviewed.
+
+### Cache-vs-repo discovery
+
+The `coding-rigor-reviewer.md` existed only in `~/.claude/plugins/cache/halcyon-local/arcis/0.1.0/agents/` — not in `.claude/plugins/arcis/agents/`. Without this PR, edits to the cache copy would silently get reverted on the next plugin-publish cycle. Committing it captures the divergence; future edits land in the repo and propagate to cache via the normal flow.
+
+### References
+
+- Memory `feedback_vacuous_test_pattern` — gold-standard question + empirical verification, v0.36.22 + #94 T18 origin cases
+- Memory `feedback_review_sibling_search` — PR #690 origin + PR #1055 three-form regex
+- Memory `feedback_strict_rigor_no_handwave` — operator-stated "rather take a full day than hand wave"
+- v0.36.51 / v0.36.52 / v0.36.53 CHANGELOG entries — the bugs the discipline targets
+- v0.36.57 #104 CHANGELOG entry — anticipated this standards doc formalization
+
 ## [v0.36.57] — 2026-05-24 — Tooling foundation (#104): central `arcis_config.yaml` + safety primitives (SafeOp / SafetyWindowGuard / ProdGuard) + JSON-lines tool-execution audit log
 
 Foundation for the entire Tier 1+ tool suite (#105 onward). **No tools are built in this PR** — pure infrastructure that future tools import. Gap-fill between v0.36.56 (gpu_health writer restore) and v0.36.58 (#118 venv wrapper-PID escape) — the operator's #104 brief explicitly reserved v0.36.57 for this task at the time those PRs merged out-of-sequence.

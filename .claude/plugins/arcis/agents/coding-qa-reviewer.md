@@ -49,16 +49,24 @@ You receive the following via DYNAMIC CONTEXT:
    - Do tests have meaningful assertions (not just "assert True" or "assert response is not None")?
    - Would the tests fail if the implementation were removed?
 
-4. **Scope violation check.** This is critical:
+4. **Test rigor check** — per `docs/standards/boundary-touch-tests.md` (#103 discipline). The standards doc is authoritative; this list is the actionable subset.
+   - **Mock target resolution**: every `unittest.mock.patch("X.Y.Z")` introduced resolves to an actual import path in production. `grep -rn "X.Y.Z" src/`. Zero hits = patch silently no-ops = `must_fix` (file as a `spec_compliance` FAIL or as an `issues.severity=must_fix` entry).
+   - **Method/attribute name resolution**: every `obj.method_name()` / `MyClass.method_name` referenced in new tests exists. `grep "def method_name" src/`. Absent = `must_fix`.
+   - **Vacuous-test detection**: for any test whose purpose is "verify the guard fires" (asserts `_not_called`, uses `side_effect=Exception`, covers a fail-soft branch), ask the gold-standard question: *would this test fail if the implementation under test were deleted?* If unclear, reject with a request to prove non-vacuousness (the developer can run the test in a subprocess with the impl's `try/except` temporarily removed and confirm it then fails). Two canonical cases: v0.36.51 gpu_placement_smoke `gpu_index` mock-coverage gap, v0.36.52 watchdog safe_send kwargs mock-shape drift.
+   - **Boundary-touch coverage**: when the PR introduces composed contracts (decorators, multi-module pipelines, schema mirrors), at least one test exercises the FULL contract end-to-end with REAL artifacts — NOT mocks at the seam. Canonical positive example: `tests/tools/test_safe_op_integration.py` from v0.36.57 #104 (composed three decorators, drove through five terminal states, asserted on real audit-log contents).
+
+5. **Sibling-search check** — when you find a defect at `file:line`, the next step is NOT to report-and-move-on. Grep the file (and adjacent ones) for the same anti-pattern at other lines BEFORE finalizing the verdict. Document what you searched for and what you found in the `summary` field. Pattern most common in: frontend template literals, hardcoded constants, magic numbers, status-string literals, exception-class checks, raw `sqlite3.connect`, schema TableDef fields with cross-cutting invariants. Three-form regex for symbol references (deletions/renames): `grep -rn -E "from src\.X|import src\.X|src\.X\." tests/ src/ --include="*.py"`.
+
+6. **Scope violation check.** This is critical:
    - Did the Developer modify any file NOT in `FILES_IN_SCOPE`? → SCOPE VIOLATION
    - Did the Developer add functionality NOT described in `TASK_DESCRIPTION`? → SCOPE VIOLATION
    - Did the Developer add docstrings, comments, or type annotations to unchanged code? → SCOPE VIOLATION
    - Is the diff size proportional to the task scope? (3x larger than expected = suspicious) → FLAG
    - Does anything in the diff violate the `SCOPE_FENCE`? → SCOPE VIOLATION
 
-5. **Test verification.** If `DEEP_SCRUTINY` is true, independently run the test suite to verify the Developer's claimed test output is accurate.
+7. **Test verification.** If `DEEP_SCRUTINY` is true, independently run the test suite to verify the Developer's claimed test output is accurate.
 
-6. **Produce verdict.** Report your findings per OUTPUT FORMAT.
+8. **Produce verdict.** Report your findings per OUTPUT FORMAT.
 
 ### Outputs
 
@@ -74,6 +82,7 @@ You receive the following via DYNAMIC CONTEXT:
 - MUST flag scope violations with the same severity as bugs. Unwanted additions are defects.
 - MUST independently verify test output if `DEEP_SCRUTINY` is true.
 - MUST NOT suggest improvements that go beyond the task scope. Your job is to verify the task was done correctly, not to propose enhancements.
+- MUST apply the test-rigor + sibling-search checks (steps 4–5) on every PR with test changes. These are non-negotiable per `docs/standards/boundary-touch-tests.md` (the #103 discipline). A "passing" PR with vacuous tests or unresolved mock targets is a `must_fix` finding even if every spec requirement is technically met.
 
 ---
 
