@@ -1,7 +1,7 @@
 """Shared --json error-envelope wrapper consumed by every Tier-1 tool's __main__.py.
 
 Called by: src/tools/db_query/__main__.py, src/tools/log_tail/__main__.py, etc. (T2-T7)
-Calls: sys.exit, json.dumps (stdlib only)
+Calls: sys.exit, json.dumps (stdlib), src.utils.secret_redact.sanitize_error
 Owns tables: none
 Config keys: none
 Tests: covered indirectly by each tool's __main__ tests (T2-T7)
@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import sys
 from typing import Any, Callable
+
+from src.utils.secret_redact import sanitize_error
 
 
 def run_cli(
@@ -31,9 +33,13 @@ def run_cli(
       - fn returns successfully       → print result to stdout, sys.exit(0).
 
     Error envelope schema (per spec §4.6):
-        {"error": {"type": "<ExceptionClassName>", "message": "<str(e)>", "tool": "<tool_name>"}}
+        {"error": {"type": "<ExceptionClassName>", "message": "<sanitize_error(e)>", "tool": "<tool_name>"}}
 
     The 'type' is the exception class __name__ (e.g. 'WriteNotPermittedError').
+    The 'message' is routed through src.utils.secret_redact.sanitize_error to
+    redact known credential patterns (DSN passwords, bearer tokens, api_key) per
+    spec §4.4 and the Audit #414 precedent — defense-in-depth before T2-T7
+    inherit this wrapper for their --json output.
     No traceback is included in the envelope.
     """
     try:
@@ -43,7 +49,7 @@ def run_cli(
             envelope = {
                 "error": {
                     "type": type(exc).__name__,
-                    "message": str(exc),
+                    "message": sanitize_error(exc),
                     "tool": tool_name,
                 }
             }
