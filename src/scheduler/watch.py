@@ -46,6 +46,7 @@ from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
 from src.notifications import safe_send
 from src.scheduler.handler_registry import HandlerRegistryMixin
+from src.scheduler.metrics import upsert_daily_metric
 from src.scheduler.scorer import GuardedScorer
 from src.utils.db import (
     DBError,
@@ -2502,20 +2503,37 @@ class WatchLoop(HandlerRegistryMixin):
 
     # ── Training-Lifecycle Methods (dual-GPU) ────────────────────────
 
+    def _emit_training_health(self, detail: str) -> None:
+        # Restored from T8 (commit 27ddc305) — dropped during v0.36.50 squash.
+        try:
+            upsert_daily_metric(
+                "gpu_health_training_ok", 1.0,
+                f'{{"gpu":"0","detail":"{detail}"}}',
+            )
+        except Exception as exc:
+            logger.debug("[WATCH] gpu_health_training_ok metric failed: %s", exc)
+        try:
+            safe_send("gpu_health", direction="training", success=True, detail=detail)
+        except Exception as exc:
+            logger.debug("[WATCH] gpu_health event failed: %s", exc)
+
     def _run_evening_training_launch(self):
         """18:30-04:00 ET, market closed — launch the overnight GPU0 training run."""
         from src.training.trainer import run_fine_tune
         run_fine_tune()
+        self._emit_training_health("evening training launched")
 
     def _run_morning_training_stop(self):
         """5:15 AM ET — stop the overnight GPU0 training subprocess (bounded)."""
         from src.training import training_control
         training_control.stop_training_bounded(_TRAINING_STOP_TIMEOUT_S)
+        self._emit_training_health("morning training stop")
 
     def _run_market_open_training_stop(self):
         """>= 09:25 ET hard-ceiling safety net — stop GPU0 training (bounded)."""
         from src.training import training_control
         training_control.stop_training_bounded(_TRAINING_STOP_TIMEOUT_S)
+        self._emit_training_health("market-open training stop")
 
     # ── AI Council ────────────────────────────────────────────────
 

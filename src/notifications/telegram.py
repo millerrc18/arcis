@@ -611,12 +611,17 @@ def notify_premarket_complete(features_done: bool, training_gen: int,
 
 
 def notify_gpu_health(direction: str, success: bool, detail: str = "") -> bool:
-    """Alert: GPU health transition (training ↔ Ollama inference)."""
+    """Alert: GPU health lifecycle event under the dual-GPU static partition.
+
+    Static partition (#94): training pins GPU0 (RTX 3090); Ollama remains
+    resident on GPU1 (RTX 3060) throughout. There is NO load/unload around
+    training — pre-#94 VRAM-handoff language was retired with the partition.
+    """
     emoji = "✅" if success else "❌"
     if direction == "training":
-        msg = f"{emoji} <b>GPU HEALTH → TRAINING</b>\nOllama unloaded, PyTorch subprocess launched"
+        msg = f"{emoji} <b>GPU HEALTH → TRAINING</b>\nTraining lifecycle on GPU0 (Ollama remains on GPU1)"
     else:
-        msg = f"{emoji} <b>GPU HEALTH → INFERENCE</b>\nTraining complete, Ollama loaded and warm"
+        msg = f"{emoji} <b>GPU HEALTH → INFERENCE</b>\nOllama health on GPU1 (training partition idle)"
     if detail:
         msg += f"\n{detail}"
     return send_telegram(msg)
