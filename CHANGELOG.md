@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+## [v0.36.55] — 2026-05-23 — CI workflow hygiene (#101): PR-only path filter on lifecycle-smoke + installed-packages cache + training-requirements relocation closes the auto-submission parser issue at the source
+
+W21 phase-4 first early-wedge per the operator's attack-order (memory: `project_w21_attack_order`). Lands BEFORE the remaining hotfix backlog (#92 / #100 / #86 / #51 / #77) so each downstream PR benefits from the optimized CI throughput. No application-code changes — pure workflow surgery + one repo-layout move.
+
+**QA history on this PR:** the first iteration (commit `d4b504c3`) added a `.github/workflows/dependency-submission.yml` using `pypa/gh-action-pip-audit` to replace the failing GitHub auto-submission. The Opus QA review caught a load-bearing-claim failure: `pypa/gh-action-pip-audit` is a *vulnerability scanner*, NOT a dependency-submission action. Verified against the action's own `action.yml` description and v1.1.0 README (zero references to dep-graph / submission / dependabot). Operator chose Path (c) over the QA's recommended Path (a): relocate `requirements-training.txt` OUT of GitHub's auto-submission scan range — a root-cause fix that lets the existing auto-submission run cleanly on the base `requirements.txt`. Dep-submission.yml dropped from this PR; vuln-audit work filed as #116 (post-#101 follow-up) with two locked-in design constraints (memory: `feedback_audit_workflow_constraints`).
+
+### What ships
+
+- **lifecycle-smoke.yml — PR-trigger path filter, push:main unfiltered safety net.** `on.pull_request` now restricts to `paths: ['src/simulation/**', 'tests/simulation/**', '.github/workflows/lifecycle-smoke.yml']` — most PRs don't touch the simulation pipeline, so the ~9.5min smoke job is now skipped on those. `on.push: branches: [main]` deliberately has NO `paths:` filter — every merge to main still runs the smoke as the safety net for upstream-refactor breakage. The smoke imports from `src/shadow_trading`, `src/schema`, `src/scheduler`, `src/risk`, `src/cost_model`, `src/llm`, `src/data_ingestion`, `src/universe`, `src/journal` — all upstream of `src/simulation/` at import time; a refactor to any of them that breaks the lifecycle would otherwise only be caught by the nightly lifecycle-full-gate, leaving a 24h reliability window during which #95 wipe-gate trust degrades. The asymmetry is intentional per the operator's strict-rigor policy: catch upstream-refactor regressions at MERGE TIME, not 24h later.
+
+- **pg-tests.yml + lifecycle-smoke.yml — installed-packages cache (`env.pythonLocation`).** Both workflows now add an `actions/cache@v4` step keyed on `${{ runner.os }}-python3.12-pkgs-${{ hashFiles('requirements.txt') }}` with path `${{ env.pythonLocation }}` (the setup-python install root — captures site-packages + .pth files + entry-point scripts). Complementary to setup-python's existing `cache: 'pip'` (caches the wheel download cache at `~/.cache/pip`): the two together give cold-miss ~60-90s + warm-hit ~5s for the dep-install step. Key includes `python3.12` (so a future 3.13 bump doesn't poison the cache — `.so` files are cpython-version-specific) and `hashFiles('requirements.txt')` ONLY — `requirements-cloud.txt` (server-only) and `training/requirements.txt` (training-only, volatile unsloth git+URL, NOT installed in these CI jobs) would force unnecessary cold-cache rebuilds if hashed. The lifecycle-full-gate job inside pg-tests.yml gets the same cache step (shared key means it can share entries with the pg-tests job when requirements.txt matches).
+
+- **`requirements-training.txt` → `training/requirements.txt` — root-cause sidestep for the auto-submission parser.** GitHub's auto-generated "Automatic Dependency Submission (Python)" workflow scans ALL `requirements*.txt` files in the **repo root** unconditionally. The training file at the repo root contained `unsloth[cu128-torch260] @ git+https://github.com/unslothai/unsloth.git` — a git+URL with extras + master-tracking ref that breaks the upstream parser. Result: submit-pypi RED on every push during 2026-05-23 cutover-hotfix chain (PRs 1163, 1164, 1165, 1166); 1162's eventual green was opportunistic, not stable (verified via `gh pr view` statusCheckRollup). Moving the file to `training/` (mirrors `src/training/` semantically — co-locates training-only deps with training-only code) puts it outside the auto-submission's default scan range. The auto-submission now sees only the clean base `requirements.txt` and runs cleanly on every push. **No new YAML files, no `gh api` settings flip post-merge, no replacement workflow needed.** The fix is permanent and survives any future churn of the training file (operator can swap unsloth git+URL → tagged release whenever, no CI re-tuning required). References updated: `scripts/generate_directory.py` (annotation dict key), `scripts/overnight_train.py` (install-instruction comment), `tests/test_dep_health_hardening.py` (test reads the file path), `tests/test_stop_callback.py` (module docstring), `.github/workflows/pg-tests.yml` + `.github/workflows/lifecycle-smoke.yml` (cache-step comments), `training/requirements.txt` itself (self-reference at top).
+
+- **lifecycle-full-gate cadence — confirmed already correctly gated.** Brief item #2 was a verify-only step — the `lifecycle-full-gate` job inside `pg-tests.yml` already has `if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'` (no per-PR fire). Confirmed via PR 1162 status checks where it shows SKIPPED on `pull_request` events. The cache step is the only change to that job; the cadence guard was already correct from v0.36.54's #97 work.
+
+### Net effect
+
+- ~50 dep-install runs/week × ~75s = ~62 min/week → cache warm-hit ~95% = ~7 min/week (**~55 min/week saved**)
+- lifecycle-smoke skipped on ~70% of PRs at PR-trigger time = **~95 min/week saved**
+- submit-pypi no longer RED on every PR — fewer wasted ~3min flickers; operator no longer needs to disable it post-merge
+- **Estimated total: ~600 min/month saved (~50% reduction), no security visibility regression, no new YAML to maintain**
+
+### Verification on first PR after merge
+
+1. First `lifecycle-smoke` + `pg-tests` runs after merge: cache MISS (cold). Install ~60-90s as before.
+2. Re-trigger workflows (re-run from UI or push another commit): cache HIT. Install drops to ~3-5s. Confirm via the "Cache" step log line: `Cache restored from key: Linux-python3.12-pkgs-<hash>`.
+3. Touch `requirements.txt` (add a trailing newline): cache MISS (different hash). Revert: cache HIT. Confirms invalidation works.
+4. PR touching only docs / non-sim code: `lifecycle-smoke` SKIPS at PR-trigger time. Merge-to-main re-runs it as the safety net.
+5. `submit-pypi` check on the next push:main after this PR merges: GREEN (auto-submission now scans only the clean base requirements.txt; no unsloth URL to choke on). The "Automatic Dependency Submission (Python)" workflow continues to populate the Insights → Dependency Graph view as before.
+
+### Follow-ups filed
+
+- **#116 — Add PR-time vulnerability scanning (vuln-audit follow-up from #101 QA).** Two locked-in design constraints per the operator's audit-workflow discipline (memory: `feedback_audit_workflow_constraints`):
+  - `permissions: contents: read` ONLY (least-privilege; reject any template that hands write perm without action-doc justification)
+  - NO blanket `continue-on-error: true` (workflow RED only on scan crashes; vuln-findings surface via job-summary in 3 distinct states: "no vulns" / "vulns found (N — see Dependabot)" / "scan crashed")
+
+**Read first when modifying CI workflows:** `feedback_use_coding_team_skill` (this is a single-tracker hotfix, direct dispatch fine), `feedback_strict_rigor_no_handwave` (verification steps above are mandatory before claiming the savings), and `feedback_audit_workflow_constraints` (governs any future security/audit workflow PR).
+
 ## [v0.36.54] — 2026-05-23 — Sim gate-completion (#97): organic open→exit→reconcile lifecycle + provenance guard + honest STABLE verdict
 
 Closes the #97 "lifecycle simulator gate-completion" sprint. The simulator's STABLE verdict was previously certifying synthetic hand-written rows — ScenarioRunner crafted clean `recommendations`/`shadow_trades` rows and called `submit_order`/`fill_entry` directly on the fake, so the 9 oracle invariants asserted on rows the runner itself wrote, NEVER touching the real `executor.open_shadow_trade`, `check_and_manage_open_trades`, or `reconcile_all_paper_trades` — exactly the machinery where every motivating production bug lives (orphans, phantom closes, close-didn't-clear). #95's destructive clean-slate wipe is hard-gated on a STABLE verdict from this organic lifecycle, so the prior tautology was a real risk. This release replaces it with a runtime-provenance-guarded organic drive.

@@ -1,0 +1,21 @@
+# GPU Training Dependencies
+# Install with: pip install -r training/requirements.txt
+# Requires: NVIDIA GPU with CUDA 12.x, 12GB+ VRAM
+#
+# Relocated from `requirements-training.txt` at repo root in v0.36.55 (#101).
+# The unsloth git+URL pin (`unsloth[cu128-torch260] @ git+https://...` below)
+# breaks GitHub's auto Dependency Submission parser (which scans only
+# `requirements*.txt` files in the repo root). Moving this file OUT of repo-root
+# scan range lets the auto-submission run cleanly on the base requirements.txt
+# without disabling it.
+#
+# Install PyTorch first (match your CUDA version):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#
+# Then install these:
+unsloth[cu128-torch260] @ git+https://github.com/unslothai/unsloth.git
+datasets>=3.0
+trl>=0.12,<0.25
+transformers>=4.46
+accelerate>=1.0
+bitsandbytes>=0.44

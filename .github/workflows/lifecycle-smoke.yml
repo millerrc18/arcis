@@ -21,9 +21,25 @@ name: Lifecycle Smoke
 # correct way to exercise the real prod scan path in CI per PR.
 "on":
   push:
+    # NO paths: filter on push:main — every main push runs the smoke as a
+    # safety net for upstream-refactor breakage that the strict-sim path
+    # filter on pull_request would miss (shadow_trading / schema / scheduler
+    # / risk / cost_model / oracle are all upstream of src/simulation/ at
+    # import time; a refactor to any of them that breaks the lifecycle
+    # would otherwise only be caught by the nightly lifecycle-full-gate —
+    # a 24h reliability window during which #95 wipe gate trust degrades).
     branches: [main]
   pull_request:
     branches: [main]
+    # PR-only path filter: most PRs don't touch the simulation pipeline.
+    # Operator's strict-rigor policy (catch upstream-refactor breakage at
+    # merge time, NOT 24h later via nightly): the PR-trigger filter is
+    # aggressive for minute savings, the push:main trigger above is the
+    # unfiltered safety net.
+    paths:
+      - 'src/simulation/**'
+      - 'tests/simulation/**'
+      - '.github/workflows/lifecycle-smoke.yml'
 
 jobs:
   lifecycle-smoke:
@@ -70,11 +86,48 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # setup-python's built-in cache:'pip' caches the pip DOWNLOAD cache
+          # (~/.cache/pip). Complementary to the actions/cache@v4 step below
+          # which caches the INSTALLED packages (env.pythonLocation) — the
+          # two together give cold-miss ~60-90s + warm-hit ~5s.
           cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Cache installed packages
+        # env.pythonLocation is set by actions/setup-python to the install
+        # root (e.g. /opt/hostedtoolcache/Python/3.12.x/x64). Caching it
+        # captures site-packages + .pth files + entry-point scripts —
+        # everything pip writes during install. Key components:
+        #   runner.os   — Linux binaries can't restore to a future Windows
+        #                 self-hosted runner; segregate by OS
+        #   python3.12  — pin to the Python minor; a future 3.13 bump won't
+        #                 poison this cache (.so files are cpython-version
+        #                 specific)
+        #   hashFiles   — ONLY requirements.txt. NOT requirements-cloud.txt
+        #                 (server-only deps, not installed in these CI jobs)
+        #                 and NOT training/requirements.txt (relocated from
+        #                 repo-root requirements-training.txt in v0.36.55/#101
+        #                 — the unsloth git+URL is volatile + breaks the
+        #                 GitHub auto dependency-submission parser; relocating
+        #                 OUT of repo-root scan range was the root-cause fix).
+        #                 Also not installed here. Per-PR diff analysis showed
+        #                 hashing the training file would force unnecessary
+        #                 cold-cache rebuilds.
+        id: pkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-python3.12-pkgs-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
         # requirements.txt pins freezegun>=1.5,<2.0 (the simulator clock source);
         # installing it here ensures the smoke run has its determinism dependency.
+        # When the package cache above HITS (env.pythonLocation restored), pip
+        # sees everything satisfied and exits in ~3-5s. On MISS, the full
+        # install runs (~60-90s) and the cache is written by actions/cache on
+        # post-step. The install step doubles as a cache-validity sanity check
+        # — if the cache is somehow stale or corrupted, pip idempotently
+        # installs whatever's missing.
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt

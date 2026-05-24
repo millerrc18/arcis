@@ -1,14 +1,14 @@
 # Arcis Repository Directory
 
 > **Auto-generated** by `scripts/generate_directory.py` — run after every sprint.
-> Last updated: 2026-05-20
+> Last updated: 2026-05-24
 
 ## Quick Stats
 
 | Metric | Count |
 |---|---|
-| Python source files | 334 |
-| Test files | 585 |
+| Python source files | 374 |
+| Test files | 623 |
 | Dashboard pages | 45 |
 | Research documents | 115 |
 | Schema tables | 80 |
@@ -37,7 +37,7 @@ arcis/
 │   ├── settings.local.yaml.bak
 │   └── trade_commentary.gbnf
 ├── docs/  ← Research, sprints, architecture, decisions, guides
-│   ├── archive/
+│   ├── archive/  ← Archived docs (49 old sprints, audits, governance)
 │   │   ├── audits/
 │   │   ├── governance/
 │   │   ├── misc/
@@ -87,6 +87,11 @@ arcis/
 │   │   ├── 2026-05-14-dashboard-rectification/
 │   │   ├── 2026-05-14-p0-pg-wipe/
 │   │   ├── 2026-05-17-v0.36.13-training-page/
+│   │   ├── 2026-05-21-capability-registry/
+│   │   ├── 2026-05-21-dual-gpu-separation/
+│   │   ├── 2026-05-22-dual-gpu-recutover/
+│   │   ├── 2026-05-22-lifecycle-simulator/
+│   │   ├── 2026-05-22-sim-gate-completion/
 │   │   ├── 2026-w21-collectors/
 │   │   ├── 2026-W21-doc-consolidation/
 │   │   ├── 2026-W21-execution-cleanup/
@@ -111,11 +116,11 @@ arcis/
 │   │   ├── log-audit-2026-04-04.md
 │   │   ├── training-audit-2026-04-19-dryrun.md
 │   │   └── training-audit-2026-04-19.md
-│   ├── blueprint/
+│   ├── blueprint/  ← Original project blueprint
 │   │   └── version1_blueprint.md
-│   ├── charter/
+│   ├── charter/  ← Project charter (.docx)
 │   │   └── AI_Research_Desk_Project_Charter.docx
-│   ├── decisions/
+│   ├── decisions/  ← Architecture Decision Records (ADRs, 12 decisions)
 │   │   ├── 001-strategy-2-mean-reversion.md
 │   │   ├── 002-strategy-3-evolved-pead.md
 │   │   ├── 003-rl-method-dr-grpo.md
@@ -140,9 +145,9 @@ arcis/
 │   │   ├── forensic-audit-2026-04-18.md
 │   │   ├── regime-2026-04-18-nonq.md
 │   │   └── regime-2026-04-18.md
-│   ├── diagrams/
+│   ├── diagrams/  ← 13 SVG architecture diagrams (light/dark mode)
 │   │   └── svg/
-│   ├── guides/
+│   ├── guides/  ← Setup guides (email, audit plugin, daily audit)
 │   │   ├── audit-plugin.md
 │   │   ├── daily-repo-audit.md
 │   │   └── email_setup.md
@@ -167,8 +172,8 @@ arcis/
 │   │   ├── improvement_log.md
 │   │   ├── issue_log.md
 │   │   └── training_collection_investigation_2026-04-22.md
-│   ├── research/
-│   │   ├── deep-research/
+│   ├── research/  ← 70+ research documents covering all system domains
+│   │   ├── deep-research/  ← Deep research results (highest authority)
 │   │   ├── prompts/
 │   │   ├── 15_Algorithm_Gap_Assessment.md
 │   │   ├── 2026-04-05-15-algorithms-gap-analysis.md
@@ -279,7 +284,7 @@ arcis/
 │   │   └── XML_Compliance_via_GBNF_Grammar_Enforcement.md
 │   ├── specs/
 │   │   └── strategy-schema.md
-│   ├── sprints/
+│   ├── sprints/  ← Sprint prompts and implementation plans
 │   │   ├── future/
 │   │   ├── redline-history/
 │   │   ├── track_1_5_pass1_design/
@@ -431,7 +436,7 @@ arcis/
 │   │   ├── eslint.queryfn.config.js
 │   │   ├── no-bare-queryfn-with-args.js
 │   │   └── no-bare-queryfn-with-args.test.js
-│   ├── public/
+│   ├── public/  ← Static assets (icons, manifest, service worker)
 │   │   ├── architecture-letter.html
 │   │   ├── architecture.html
 │   │   ├── blueprint.html
@@ -441,12 +446,12 @@ arcis/
 │   │   ├── icons.svg
 │   │   ├── manifest.json
 │   │   └── sw.js
-│   ├── src/
+│   ├── src/  ← React source code
 │   │   ├── assets/
-│   │   ├── components/
+│   │   ├── components/  ← Shared UI components
 │   │   ├── contexts/
 │   │   ├── hooks/
-│   │   ├── pages/
+│   │   ├── pages/  ← 18 dashboard pages
 │   │   ├── utils/
 │   │   ├── api.js
 │   │   ├── App.jsx
@@ -484,7 +489,7 @@ arcis/
 │   │   └── restore_pg_from_snapshot.ps1
 │   ├── _shared_migration_utils.py
 │   ├── ai_research_desk.sqlite3
-│   ├── alpha_attribution_backtest.py
+│   ├── alpha_attribution_backtest.py  ← Attribution backtest on historical data
 │   ├── archive_bootcamp_2026_04_24.py
 │   ├── assign_curriculum_stages.py
 │   ├── audit_db_sync.py
@@ -511,7 +516,7 @@ arcis/
 │   ├── close_triage_bundle_issues.sh
 │   ├── collect_1min_bars.py
 │   ├── create_missing_tables.py
-│   ├── daily_repo_audit.py
+│   ├── daily_repo_audit.py  ← Automated CI audit (GitHub Actions)
 │   ├── diagnose_leakage.py
 │   ├── dump_config.py
 │   ├── export_backfill_prompts.py
@@ -524,6 +529,7 @@ arcis/
 │   ├── generate_directory.py
 │   ├── generate_llm_corpus.py
 │   ├── generate_schema_docs.py
+│   ├── gpu_placement_smoke.py
 │   ├── import_backfill_results.py
 │   ├── import_chatgpt_outputs.py
 │   ├── install-hooks.sh
@@ -532,7 +538,6 @@ arcis/
 │   ├── migrate_production_db.py
 │   ├── migrate_render_sync_live_drift_2026_05_03.py
 │   ├── migrate_shadow_trades_quarantined_not_null_2026_04_26.py
-│   ├── ollama_watchdog.ps1
 │   ├── overnight_train.py
 │   ├── post_close_check.py
 │   ├── preflight_monday.py
@@ -544,11 +549,12 @@ arcis/
 │   ├── register_model_v1.py
 │   ├── render_architecture_doc.py
 │   ├── render_init_db.py
-│   ├── render_migrate.py
+│   ├── render_migrate.py  ← Postgres schema migration from registry
 │   ├── render_to_local_migrate.py
 │   ├── reresolve_attribution.py
 │   ├── run_backtest.py
 │   ├── run_ci_locally.ps1
+│   ├── run_watch_handler.py
 │   ├── schema_report.py
 │   ├── scrape_sp_changes.py
 │   ├── scrub_validation_leaks.py
@@ -560,61 +566,61 @@ arcis/
 │   ├── smoke_gate_9_fold1.bat
 │   ├── sqlite_to_pg_migrate.py
 │   ├── stage1_baseline_recompute.py
-│   ├── start_ollama_watchdog.bat
 │   ├── statusline.py
-│   ├── stress_test.py
+│   ├── stress_test.py  ← Historical stress testing (2008/2020/2022)
 │   ├── sync_daily_repo_audit_issues.py
 │   ├── sync_quarantine_to_postgres.py
 │   ├── validate_ib_gateway.py
 │   ├── validate_ib_integration.py
 │   ├── validate_training_format.py
-│   ├── verify_docs.py
+│   ├── verify_docs.py  ← Documentation count drift checker
 │   ├── verify_training_readiness.py
 │   ├── weekly_review.bat
 │   └── weekly_review.py
 ├── src/  ← Python backend — 28 modules, 195 files
-│   ├── allocation/
+│   ├── allocation/  ← (1 files)
 │   │   ├── __init__.py
 │   │   └── risk_parity.py
-│   ├── analytics/
+│   ├── analytics/  ← (5 files)
 │   │   ├── __init__.py
 │   │   ├── canonical_sharpe.py
 │   │   ├── instrumentation.py
 │   │   ├── instrumentation_filter.py
 │   │   ├── kpis_compute.py
 │   │   └── spy_benchmark.py
-│   ├── api/
-│   │   ├── cloud_routes/
-│   │   ├── routes/
+│   ├── api/  ← (42 files) FastAPI routes (local + cloud), 120+ endpoints
+│   │   ├── cloud_routes/  ← (18 files) Render cloud API routes (6 files)
+│   │   ├── routes/  ← (19 files) Local API routes (14 files)
 │   │   ├── __init__.py
 │   │   ├── app.py
 │   │   ├── cloud_app.py
 │   │   ├── cohort_meta.py
 │   │   ├── local_auth.py
 │   │   └── websocket.py
-│   ├── attribution/
+│   ├── attribution/  ← (1 files) Alpha attribution — LLM vs ranker-only comparison
 │   │   ├── __init__.py
 │   │   └── logger.py
-│   ├── cli/
+│   ├── cli/  ← (2 files) CLI commands (scan, watch, shadow-status, etc.)
 │   │   ├── __init__.py
 │   │   ├── commands.py
 │   │   └── promotion_cmd.py
-│   ├── commands/
+│   ├── commands/  ← (3 files) Command queue executor (11 command types)
 │   │   ├── __init__.py
 │   │   ├── diagnostic_handlers.py
 │   │   ├── executor.py
 │   │   └── maintenance.py
-│   ├── config/
+│   ├── config/  ← (1 files) YAML config loader + environment detection
 │   │   ├── __init__.py
 │   │   └── overrides.py
-│   ├── cost_model/
+│   ├── cost_model/  ← (1 files)
 │   │   ├── __init__.py
 │   │   └── calibration.py
-│   ├── council/
+│   ├── council/  ← (13 files) 5-agent AI Council — Modified Delphi protocol
 │   │   ├── __init__.py
 │   │   ├── agent_data.py
 │   │   ├── agents.py
 │   │   ├── aggregation.py
+│   │   ├── capability_registration.py
 │   │   ├── constants.py
 │   │   ├── context.py
 │   │   ├── engine.py
@@ -624,10 +630,12 @@ arcis/
 │   │   ├── protocol.py
 │   │   ├── rate_limiter.py
 │   │   └── value_tracker.py
-│   ├── data_collection/
+│   ├── data_collection/  ← (28 files) 12 overnight collectors (options, VIX, FRED, EDGAR, etc.)
 │   │   ├── __init__.py
+│   │   ├── _capability_health.py
 │   │   ├── _finnhub_shared.py
 │   │   ├── analyst_collector.py
+│   │   ├── capability_registration.py
 │   │   ├── cboe_collector.py
 │   │   ├── company_executive_collector.py
 │   │   ├── docs_collector.py
@@ -652,7 +660,7 @@ arcis/
 │   │   ├── stock_financials_collector.py
 │   │   ├── trends_collector.py
 │   │   └── vix_collector.py
-│   ├── data_enrichment/
+│   ├── data_enrichment/  ← (9 files) 7-dimension feature enrichment (Finnhub, news, insider)
 │   │   ├── __init__.py
 │   │   ├── earnings_signals.py
 │   │   ├── enricher.py
@@ -663,13 +671,13 @@ arcis/
 │   │   ├── macro.py
 │   │   ├── news.py
 │   │   └── staleness.py
-│   ├── data_ingestion/
+│   ├── data_ingestion/  ← (4 files) Market data fetching (yfinance, Alpaca)
 │   │   ├── __init__.py
 │   │   ├── backfill_registration.py
 │   │   ├── finnhub.py
 │   │   ├── market_data.py
 │   │   └── risk_free_rate.py
-│   ├── diagnostics/
+│   ├── diagnostics/  ← (10 files)
 │   │   ├── __init__.py
 │   │   ├── analyses.py
 │   │   ├── bootstrap.py
@@ -681,16 +689,17 @@ arcis/
 │   │   ├── power.py
 │   │   ├── report.py
 │   │   └── summary_extractor.py
-│   ├── email/
+│   ├── email/  ← (2 files) SMTP email sender (digest, full-stream modes)
 │   │   ├── __init__.py
 │   │   ├── digest_builder.py
 │   │   └── notifier.py
-│   ├── evaluation/
+│   ├── evaluation/  ← (21 files) Build score, HSHS health, backtester, system validator
 │   │   ├── __init__.py
 │   │   ├── auditor.py
 │   │   ├── backtester.py
 │   │   ├── backtester_helpers.py
 │   │   ├── build_score.py
+│   │   ├── capability_registration.py
 │   │   ├── change_detector.py
 │   │   ├── corpus.py
 │   │   ├── corpus_generator.py
@@ -707,7 +716,7 @@ arcis/
 │   │   ├── subgroup_analysis.py
 │   │   ├── system_validator.py
 │   │   └── walkforward.py
-│   ├── features/
+│   ├── features/  ← (13 files) Feature engine (regime, setup classifier, indicators, MR)
 │   │   ├── __init__.py
 │   │   ├── earnings.py
 │   │   ├── engine.py
@@ -722,12 +731,13 @@ arcis/
 │   │   ├── regime.py
 │   │   ├── setup_classifier.py
 │   │   └── traffic_light.py
-│   ├── journal/
+│   ├── journal/  ← (2 files) Trade journal — CRUD for shadow_trades (PostgreSQL runtime)
 │   │   ├── __init__.py
 │   │   ├── stats.py
 │   │   └── store.py
-│   ├── llm/
+│   ├── llm/  ← (9 files) Ollama client, packet writer, conviction parser, validator
 │   │   ├── __init__.py
+│   │   ├── capability_registration.py
 │   │   ├── client.py
 │   │   ├── grammar_client.py
 │   │   ├── ollama_state.py
@@ -736,10 +746,10 @@ arcis/
 │   │   ├── prompts.py
 │   │   ├── validator.py
 │   │   └── watchlist_writer.py
-│   ├── logging/
+│   ├── logging/  ← (1 files) Structured logging configuration
 │   │   ├── __init__.py
 │   │   └── activity.py
-│   ├── methods/
+│   ├── methods/  ← (10 files)
 │   │   ├── __init__.py
 │   │   ├── _rf_vector.py
 │   │   ├── block_bootstrap.py
@@ -751,35 +761,36 @@ arcis/
 │   │   ├── promotion_gate_helpers.py
 │   │   ├── psr.py
 │   │   └── white_rc.py
-│   ├── monitoring/
+│   ├── monitoring/  ← (4 files)
 │   │   ├── __init__.py
 │   │   ├── alert_silence.py
 │   │   ├── errors.py
 │   │   ├── manual_intervention_drift.py
 │   │   └── system_metrics.py
-│   ├── notifications/
+│   ├── notifications/  ← (8 files) Telegram bot (32 notification functions)
 │   │   ├── __init__.py
 │   │   ├── _config.py
+│   │   ├── capability_registration.py
 │   │   ├── digest_queue.py
 │   │   ├── errors.py
 │   │   ├── platform_events.py
 │   │   ├── policy.py
 │   │   ├── telegram.py
 │   │   └── telegram_commands.py
-│   ├── observability/
+│   ├── observability/  ← (2 files)
 │   │   ├── __init__.py
 │   │   ├── formatters.py
 │   │   └── loki_handler.py
-│   ├── packets/
+│   ├── packets/  ← (3 files) Trade packet builder + renderer + EOD recap
 │   │   ├── __init__.py
 │   │   ├── eod_recap.py
 │   │   ├── template.py
 │   │   └── watchlist.py
-│   ├── platform/
-│   │   ├── capability_registry/
-│   │   ├── features/
-│   │   ├── rigor/
-│   │   ├── risk/
+│   ├── platform/  ← (38 files)
+│   │   ├── capability_registry/  ← (6 files)
+│   │   ├── features/  ← (2 files)
+│   │   ├── rigor/  ← (13 files)
+│   │   ├── risk/  ← (1 files)
 │   │   ├── specs/
 │   │   ├── __init__.py
 │   │   ├── _backtest_trace.py
@@ -798,19 +809,22 @@ arcis/
 │   │   ├── strategy_spec.py
 │   │   ├── vix_lookup.py
 │   │   └── walkforward_autofire.py
-│   ├── ranking/
+│   ├── ranking/  ← (1 files) Deterministic ranker (score 0-100)
 │   │   ├── __init__.py
 │   │   └── ranker.py
-│   ├── risk/
+│   ├── risk/  ← (3 files) Risk governor (8 hard checks + kill switch)
 │   │   ├── __init__.py
+│   │   ├── gate_decisions.py
 │   │   ├── governor.py
 │   │   └── price_utils.py
-│   ├── scheduler/
+│   ├── scheduler/  ← (15 files) Watch loop + 4-tier multi-cadence scanners
 │   │   ├── __init__.py
 │   │   ├── fundamentals_refresh.py
+│   │   ├── handler_registration.py
 │   │   ├── handler_registry.py
 │   │   ├── holidays.py
 │   │   ├── metrics.py
+│   │   ├── ollama_watchdog.py
 │   │   ├── overnight.py
 │   │   ├── position_monitor.py
 │   │   ├── premarket.py
@@ -818,17 +832,16 @@ arcis/
 │   │   ├── scorer.py
 │   │   ├── sentiment_scanner.py
 │   │   ├── universe_scanner.py
-│   │   ├── vram_manager.py
 │   │   ├── watch.py
 │   │   └── watch_handlers.py
-│   ├── schema/
+│   ├── schema/  ← (5 files) Schema registry (49 tables) + validator + Postgres sync
 │   │   ├── __init__.py
 │   │   ├── postgres.py
 │   │   ├── registry.py
 │   │   ├── sqlite.py
 │   │   ├── sync_config.py
 │   │   └── validator.py
-│   ├── services/
+│   ├── services/  ← (9 files) Business logic services (scan, shadow, system)
 │   │   ├── __init__.py
 │   │   ├── bootcamp_state.py
 │   │   ├── mr_scan_service.py
@@ -839,7 +852,7 @@ arcis/
 │   │   ├── system_service.py
 │   │   ├── training_service.py
 │   │   └── watchlist_service.py
-│   ├── shadow_trading/
+│   ├── shadow_trading/  ← (21 files) Trade execution (Alpaca adapter, bracket orders, reconcile)
 │   │   ├── __init__.py
 │   │   ├── _status_sql.py
 │   │   ├── alpaca_adapter.py
@@ -850,6 +863,7 @@ arcis/
 │   │   ├── bracket_attach.py
 │   │   ├── bracket_monitor.py
 │   │   ├── broker_exception_logger.py
+│   │   ├── capability_registration.py
 │   │   ├── executor.py
 │   │   ├── exit_reason.py
 │   │   ├── exit_reconciliation.py
@@ -861,16 +875,17 @@ arcis/
 │   │   ├── reconcile_dispatch.py
 │   │   ├── reconcile_state.py
 │   │   └── state.py
-│   ├── simulation/
+│   ├── simulation/  ← (29 files)
+│   │   ├── lifecycle/  ← (26 files)
 │   │   ├── __init__.py
 │   │   ├── cache.py
 │   │   ├── engine.py
 │   │   └── monte_carlo.py
-│   ├── strategy/
+│   ├── strategy/  ← (1 files) Strategy configuration and dispatching
 │   │   ├── __init__.py
 │   │   └── canary.py
-│   ├── sync/
-│   ├── trading/
+│   ├── sync/  ← Render Postgres sync (incremental, per-table reconnect)
+│   ├── trading/  ← (6 files)
 │   │   ├── __init__.py
 │   │   ├── alpaca_broker.py
 │   │   ├── broker_factory.py
@@ -878,13 +893,14 @@ arcis/
 │   │   ├── ib_broker.py
 │   │   ├── ib_broker_helpers.py
 │   │   └── ib_shadow.py
-│   ├── training/
-│   │   ├── audit/
+│   ├── training/  ← (30 files) Training pipeline (data collector, versioning, backfill, leakage)
+│   │   ├── audit/  ← (6 files)
 │   │   ├── __init__.py
 │   │   ├── ab_evaluation.py
 │   │   ├── backfill.py
 │   │   ├── bootstrap.py
 │   │   ├── canary.py
+│   │   ├── capability_registration.py
 │   │   ├── claude_client.py
 │   │   ├── curriculum.py
 │   │   ├── data_collector.py
@@ -898,16 +914,19 @@ arcis/
 │   │   ├── quality_filter.py
 │   │   ├── regime_sampler.py
 │   │   ├── report.py
+│   │   ├── stop_callback.py
 │   │   ├── trainer.py
+│   │   ├── training_control.py
+│   │   ├── training_stop.py
 │   │   ├── validation.py
 │   │   └── versioning.py
-│   ├── universe/
+│   ├── universe/  ← (4 files) S&P 100 universe management
 │   │   ├── __init__.py
 │   │   ├── company_names.py
 │   │   ├── pit.py
 │   │   ├── sectors.py
 │   │   └── sp100.py
-│   ├── utils/
+│   ├── utils/  ← (8 files) Activity logger, helpers
 │   │   ├── __init__.py
 │   │   ├── activity_logger.py
 │   │   ├── codemod.py
@@ -993,6 +1012,7 @@ arcis/
 │   │   ├── __init__.py
 │   │   ├── test_analyst_collector.py
 │   │   ├── test_analyst_collector_rate_limit.py
+│   │   ├── test_capability_health.py
 │   │   ├── test_company_executive_collector.py
 │   │   ├── test_edgar_collector.py
 │   │   ├── test_fed_collector.py
@@ -1037,6 +1057,7 @@ arcis/
 │   ├── evaluation/
 │   │   ├── __init__.py
 │   │   ├── test_audit_data_quality_filters.py
+│   │   ├── test_audit_email_throttle.py
 │   │   ├── test_auditor_bootcamp_flag.py
 │   │   ├── test_auditor_drawdown_sample_size.py
 │   │   ├── test_auditor_llm_sample_size_guard.py
@@ -1045,6 +1066,7 @@ arcis/
 │   │   ├── test_build_score_model_quality_pg_compat.py
 │   │   ├── test_corpus.py
 │   │   ├── test_corpus_generator.py
+│   │   ├── test_drawdown_capital_denominator.py
 │   │   ├── test_gate_evaluator.py
 │   │   ├── test_hshs_live.py
 │   │   ├── test_shadow.py
@@ -1130,6 +1152,7 @@ arcis/
 │   │   ├── test_data_loader.py
 │   │   ├── test_event_exclusion.py
 │   │   ├── test_find_candidates.py
+│   │   ├── test_io_schemas.py
 │   │   ├── test_lazy_prices.py
 │   │   ├── test_lazy_prices_e2e.py
 │   │   ├── test_metrics.py
@@ -1148,7 +1171,8 @@ arcis/
 │   ├── risk/
 │   │   ├── test_cap_reconciliation.py
 │   │   ├── test_fail_closed.py
-│   │   └── test_governor_disabled_alert.py
+│   │   ├── test_governor_disabled_alert.py
+│   │   └── test_governor_gates.py
 │   ├── scheduler/
 │   │   ├── __init__.py
 │   │   ├── test_done_flag_discipline.py
@@ -1159,11 +1183,13 @@ arcis/
 │   │   ├── test_overnight_plan_gated_mass_failure.py
 │   │   ├── test_overnight_reconcile_dispatch.py
 │   │   ├── test_reports.py
+│   │   ├── test_run_watch_handler.py
 │   │   ├── test_scan_metrics_writer.py
 │   │   ├── test_schedule_health_report.py
 │   │   ├── test_schema_verify_call_count.py
 │   │   ├── test_sentiment_scanner_news_block.py
 │   │   ├── test_walkforward_reconciler.py
+│   │   ├── test_watch_clock_seam.py
 │   │   └── test_watch_platform_tick.py
 │   ├── schema/
 │   │   ├── __init__.py
@@ -1234,6 +1260,7 @@ arcis/
 │   │   ├── test_timeout_days_stamping.py
 │   │   └── test_wave5_guard_row_factory.py
 │   ├── simulation/
+│   │   ├── lifecycle/
 │   │   ├── __init__.py
 │   │   └── test_engine.py
 │   ├── trading/
@@ -1282,6 +1309,7 @@ arcis/
 │   ├── test_calmar_canonical_only.py
 │   ├── test_canary.py
 │   ├── test_canonical_sharpe.py
+│   ├── test_capability_registry_coverage.py
 │   ├── test_capability_registry_imports.py
 │   ├── test_capability_registry_integration.py
 │   ├── test_capability_registry_metadata.py
@@ -1291,6 +1319,7 @@ arcis/
 │   ├── test_cleanup_test_pollution_647.py
 │   ├── test_cli_confirm_promotion.py
 │   ├── test_cli_shadow_close.py
+│   ├── test_client_ollama_health.py
 │   ├── test_cloud_analytics.py
 │   ├── test_cloud_app.py
 │   ├── test_cloud_auth.py
@@ -1327,6 +1356,7 @@ arcis/
 │   ├── test_cto_report.py
 │   ├── test_cto_report_cache.py
 │   ├── test_curriculum.py
+│   ├── test_cutover_pg_schema_migrate.py
 │   ├── test_dashboard_gate_kpi_route.py
 │   ├── test_dashboard_reconciliation.py
 │   ├── test_data_collection_stats.py
@@ -1379,7 +1409,10 @@ arcis/
 │   ├── test_fred_history.py
 │   ├── test_fundamentals_refresh.py
 │   ├── test_gate_evaluator.py
+│   ├── test_gpu_health_telemetry.py
+│   ├── test_gpu_placement_smoke.py
 │   ├── test_grammar_client.py
+│   ├── test_handler_registration.py
 │   ├── test_helper_coverage_backfill.py
 │   ├── test_holdout.py
 │   ├── test_hshs.py
@@ -1396,6 +1429,7 @@ arcis/
 │   ├── test_ingestion.py
 │   ├── test_ingestion_gate.py
 │   ├── test_initialize_database_backfill_guard_v0_36_34.py
+│   ├── test_install_service_watchdog.py
 │   ├── test_institutional_holdings_bigint_v0_36_33.py
 │   ├── test_instrumentation_version.py
 │   ├── test_journal_stats.py
@@ -1427,12 +1461,15 @@ arcis/
 │   ├── test_news.py
 │   ├── test_no_conflict_markers_in_repo.py
 │   ├── test_no_fetchone_int_index_in_pg_unsafe_files.py
+│   ├── test_no_legacy_watchdog_scripts.py
 │   ├── test_no_naked_sqlite_exceptions.py
 │   ├── test_no_sqlite_isms_in_pg_safe_files.py
 │   ├── test_notifications_telegram.py
 │   ├── test_observability_quick_wins.py
+│   ├── test_ollama_watchdog.py
 │   ├── test_order_verification.py
 │   ├── test_outcome_stats_filter_coverage.py
+│   ├── test_overnight_handoff_removed.py
 │   ├── test_p4_1_fallback_pattern_gone.py
 │   ├── test_packet_builders.py
 │   ├── test_packet_writer.py
@@ -1459,6 +1496,7 @@ arcis/
 │   ├── test_recap_service.py
 │   ├── test_reconcile.py
 │   ├── test_reconcile_backfill.py
+│   ├── test_reconcile_liquidate_on_stale.py
 │   ├── test_reconcile_phantom_pnl_v0_36_30.py
 │   ├── test_reconciler_hotfix.py
 │   ├── test_regime.py
@@ -1497,8 +1535,10 @@ arcis/
 │   ├── test_startup.py
 │   ├── test_startup_checks.py
 │   ├── test_startup_checks_introspection.py
+│   ├── test_startup_guard.py
 │   ├── test_statistics.py
 │   ├── test_status_model.py
+│   ├── test_stop_callback.py
 │   ├── test_stop_loss_sign.py
 │   ├── test_stress_test_methodology.py
 │   ├── test_sync_composite_pk.py
@@ -1521,11 +1561,14 @@ arcis/
 │   ├── test_traffic_light.py
 │   ├── test_trainer.py
 │   ├── test_trainer_dates_directions_fix.py
+│   ├── test_trainer_gpu_pin.py
 │   ├── test_trainer_holdout_alert.py
 │   ├── test_trainer_modelfile_v0_36_35.py
+│   ├── test_training_control.py
 │   ├── test_training_data.py
 │   ├── test_training_outcome_bucketing.py
 │   ├── test_training_pipeline_safety.py
+│   ├── test_training_stop.py
 │   ├── test_type_safety.py
 │   ├── test_universe.py
 │   ├── test_validation.py
@@ -1533,11 +1576,6 @@ arcis/
 │   ├── test_version.py
 │   ├── test_versioning.py
 │   ├── test_versioning_audit_trail.py
-│   ├── test_vram_manager.py
-│   ├── test_vram_manager_na_memory.py
-│   ├── test_vram_manager_ollama_path_v0_36_35.py
-│   ├── test_vram_manager_per_process_clear_v0_36_35.py
-│   ├── test_vram_manager_pid_kill.py
 │   ├── test_watch_bootstrap.py
 │   ├── test_watch_handler_registry.py
 │   ├── test_watch_handlers.py
@@ -1546,6 +1584,7 @@ arcis/
 │   ├── test_watch_pragma_isolation.py
 │   ├── test_watch_resilience.py
 │   ├── test_watch_strategy_gate.py
+│   ├── test_watchdog_liveness_monitor.py
 │   ├── test_watchlist_service.py
 │   ├── test_websocket.py
 │   ├── test_writers_ab_evaluation.py
@@ -1555,6 +1594,8 @@ arcis/
 │   ├── test_writers_operator_view_state.py
 │   ├── test_writers_overrides.py
 │   └── test_xml_format.py
+├── training/
+│   └── requirements.txt  ← Training-specific deps (PEFT, TRL, BitsAndBytes) — relocated from repo root in v0.36.55 (#101) so GitHub's auto dependency-submission stops choking on the unsloth git+URL pin
 ├── --db-path
 ├── _582_operator_action.sql
 ├── _a.py
@@ -1588,7 +1629,6 @@ arcis/
 ├── RELEASES.md  ← Version history and release process
 ├── render.yaml  ← Render deployment configuration
 ├── requirements-cloud.txt  ← Render cloud deployment deps
-├── requirements-training.txt  ← Training-specific deps (PEFT, TRL, BitsAndBytes)
 ├── requirements.txt  ← Core Python dependencies
 └── validate-schema-report.txt
 ```
