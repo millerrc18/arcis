@@ -18,9 +18,10 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.60 (#92
-# PG table-ownership fix -- 5 tables + 2 sequences transferred to halcyon_app
-# via schema/migrations/2026-05-24_table_ownership_fix.sql + wire-up at
-# scripts/render_to_local_migrate.py to prevent future restore-induced drift).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.61 (#92
+# follow-up via feedback_complete_efforts_no_deferral memory -- fixes the
+# two deferred test failures from the v0.36.60 PR's "Out of scope" section:
+# test_version.py hardcoded v0.36.50 asserts + test_schema.py mock-target
+# drift on _fetch_closed_trades_*).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.60"
+VERSION = "v0.36.61"
