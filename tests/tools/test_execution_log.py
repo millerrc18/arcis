@@ -107,6 +107,32 @@ def test_sanitize_params_redacts_dsn_password():
     assert "REDACTED" in clean["dsn"]
 
 
+def test_sanitize_params_redacts_libpq_keyvalue_dsn_password():
+    """libpq key=value form DSN must also have password=VALUE redacted.
+
+    Audit #105 T2 fix — the URL-only _DSN_PASSWORD_RE missed the libpq
+    key=value form (host=... password=... port=... user=...) that the
+    operator passes via DBQuery's --dsn arg. This test pins the
+    _LIBPQ_PASSWORD_RE redaction so future regressions are caught immediately.
+
+    Verify-by-mutation: removing _LIBPQ_PASSWORD_RE from _sanitize_dsn would
+    leave the password in the cleaned dict and this assertion would fail.
+    """
+    from src.tools._execution_log import sanitize_params
+
+    dirty = {
+        "dsn": "host=127.0.0.1 port=5434 dbname=halcyon user=test password=mysecret123",
+    }
+    clean = sanitize_params(dirty)
+
+    assert "mysecret123" not in clean["dsn"], "libpq password leaked"
+    assert "password=REDACTED" in clean["dsn"]
+    # Other fields preserved for diagnostics
+    assert "host=127.0.0.1" in clean["dsn"]
+    assert "port=5434" in clean["dsn"]
+    assert "user=test" in clean["dsn"]
+
+
 def test_sanitize_params_redacts_known_secret_keys():
     """Common secret param names (api_key, token, password, secret) are redacted."""
     from src.tools._execution_log import sanitize_params

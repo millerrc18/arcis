@@ -67,14 +67,23 @@ _SECRET_KEY_PATTERNS = re.compile(
 # DSN-shaped values get partial redaction (preserve host/db for diagnostics).
 # Pattern: `scheme://user:PASSWORD@host...` → `scheme://user:REDACTED@host...`
 _DSN_PASSWORD_RE = re.compile(r"(://[^:/?@\s]+):[^@\s]+@")
+# libpq key=value DSN form: `host=... password=PASSWORD ...` → `... password=REDACTED ...`
+# Audit #105 T2 fix — operator-supplied --dsn arg uses key=value form, and the
+# URL-only _DSN_PASSWORD_RE above did not catch it. Without this regex, the
+# password lands verbatim in data/logs/tool-execution.log.
+_LIBPQ_PASSWORD_RE = re.compile(r"(?i)(password=)[^\s]+")
 
 
 # ── Sanitization ─────────────────────────────────────────────────────
 
 
 def _sanitize_dsn(dsn: str) -> str:
-    """Partial-redact DSN: preserve scheme/user/host/db, redact password."""
-    return _DSN_PASSWORD_RE.sub(r"\1:REDACTED@", dsn)
+    """Partial-redact DSN: handles BOTH URL-form (scheme://user:pw@host) and
+    libpq key=value form (host=... password=...). Preserves all non-password
+    fields for diagnostics."""
+    dsn = _DSN_PASSWORD_RE.sub(r"\1:REDACTED@", dsn)
+    dsn = _LIBPQ_PASSWORD_RE.sub(r"\1REDACTED", dsn)
+    return dsn
 
 
 def sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -98,9 +107,12 @@ def sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
                 clean[k] = _sanitize_dsn(v)
             else:
                 clean[k] = "REDACTED"
-        elif isinstance(v, str) and _DSN_PASSWORD_RE.search(v):
+        elif isinstance(v, str) and (
+            _DSN_PASSWORD_RE.search(v) or _LIBPQ_PASSWORD_RE.search(v)
+        ):
             # Non-secret-keyed but DSN-shaped value (e.g., a `dsn` kwarg) —
-            # partial redact for diagnostics.
+            # partial redact for diagnostics. Handles URL form AND libpq
+            # key=value form (e.g., `host=... password=...`).
             clean[k] = _sanitize_dsn(v)
         else:
             clean[k] = v
