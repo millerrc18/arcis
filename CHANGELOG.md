@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+## [v0.36.60] — 2026-05-24 — PG table-ownership fix (#92): 5 tables + 2 sequences transferred to halcyon_app, restore-drift wire-up added
+
+Fourth of the `project_w21_attack_order` phase-4 wedges (after v0.36.55 #101 CI hygiene, v0.36.57 #104 tooling foundation, v0.36.59 #103 reviewer prompts). "Same failure class as 2026-05-14 DROP SCHEMA permission-denied loop. Quick `ALTER TABLE … OWNER TO halcyon_app`. High-impact safety fix." — operator's brief for #92.
+
+### Background
+
+On 2026-05-14, `DROP SCHEMA public CASCADE; CREATE SCHEMA public` followed by `psql -U halcyon -f snapshot.sql` left all restored tables owned by the `halcyon` superuser instead of the runtime app role `halcyon_app`. The immediate watch-loop restart loop was patched via the GRANT block in memory `feedback_drop_schema_grant_pattern`, but five tables silently kept the wrong owner. Discovery query on 2026-05-24 confirmed: `recommendations`, `shadow_trades`, `sync_state`, `traffic_light_state`, `vix_term_structure` were still owned by `halcyon`; two associated SERIAL sequences (`traffic_light_state_id_seq`, `vix_term_structure_id_seq`) had drifted alongside.
+
+The existing workaround in `tests/test_cutover_pg_schema_migrate.py::test_cutover_migrate_ok_not_yellow_on_ownership` documented this as "EXPECTED + non-actionable" — that workaround is now defense-in-depth, since the historical cases are fixed at the source.
+
+### What ships
+
+- **NEW `schema/migrations/2026-05-24_table_ownership_fix.sql`** — one-shot migration. `ALTER TABLE OWNER TO halcyon_app` for the 5 tables, `ALTER SEQUENCE OWNER TO halcyon_app` for the 2 sequences, plus the load-bearing GRANT + ALTER DEFAULT PRIVILEGES block from `feedback_drop_schema_grant_pattern` (idempotent re-apply). Operator-gated: NOT auto-applied by the runtime. Apply via `docker exec -i halcyon-pg psql -U halcyon -d halcyon < schema/migrations/2026-05-24_table_ownership_fix.sql`. Establishes `schema/migrations/` as the convention for future versioned schema operations.
+
+- **`scripts/render_to_local_migrate.py`** — NEW function `apply_ownership_reconciliation(dest_url)` discovers misowned tables/sequences and ALTERs them, then applies the GRANT block. Wired into `run_migration()` immediately after `create_all_tables()` so any future render→local restore (the 2026-05-14 code path) cannot leave ownership skewed. Upfront role/privilege checks: raises if `halcyon_app` role missing (silent no-op would mask misconfiguration); cleanly skips with WARN if current user lacks superuser or halcyon_app membership; conditionally skips `halcyon_readonly` GRANTs when that role is absent (ephemeral test PG topology). Idempotent.
+
+- **NEW `tests/test_table_ownership.py`** — two regression-lock test classes:
+  - `TestOwnershipReconciliationEphemeral` — boundary-touch test against the docker-compose.test.yml PG (port 5434). Creates the prod-mirror role topology, drops misowned tables, drives `apply_ownership_reconciliation()`, asserts the policy holds. Four tests covering tables, sequences (drift independently from tables — separately regression-locked), idempotency, and hard-fail when halcyon_app role missing. Conforms to `docs/standards/boundary-touch-tests.md` (the v0.36.59 standard): real PG, no mocks at the seam, assertions on actual `pg_tables` state.
+  - `TestLiveOwnershipPolicy` — skip-unless-flagged policy assertion (`ARCIS_LIVE_OWNERSHIP_CHECK=1` + `ARCIS_ALLOW_PROD_PG_IN_TESTS=1`). Operator-run on-demand against the runtime PG; RED pre-migration, GREEN post-migration.
+
+- **`tests/test_cutover_pg_schema_migrate.py`** — updated docstring on `test_cutover_migrate_ok_not_yellow_on_ownership` citing v0.36.60 resolution of the five historical cases. The test stays as defense-in-depth for any FUTURE drift.
+
+### Application procedure (operator-gated)
+
+1. Verify discovery on live PG: `docker exec halcyon-pg psql -U halcyon -d halcyon -t -c "SELECT tablename, tableowner FROM pg_tables WHERE schemaname='public' AND tableowner != 'halcyon_app';"` — expect the 5 tables.
+2. Apply migration as halcyon superuser: `docker exec -i halcyon-pg psql -U halcyon -d halcyon < schema/migrations/2026-05-24_table_ownership_fix.sql`.
+3. Re-run discovery query — expect zero rows.
+4. (Optional) `ARCIS_LIVE_OWNERSHIP_CHECK=1 ARCIS_ALLOW_PROD_PG_IN_TESTS=1 pytest tests/test_table_ownership.py::TestLiveOwnershipPolicy -v` for explicit confirmation.
+
+### What this PR is NOT
+
+- **Not a runtime-applied auto-migration.** ALTER OWNER requires superuser (the runtime role `halcyon_app` cannot reclaim ownership of tables it doesn't own); the migration MUST be operator-run as halcyon.
+- **Not a startup self-heal.** Per operator decision, the prevention layer lives in `render_to_local_migrate.py` only — adding runtime self-heal would require the runtime to run as halcyon superuser, contradicting least-privilege.
+- **Not a CI-runnable live check.** `TestLiveOwnershipPolicy` is skip-unless-flagged precisely because the conftest P0 guard (born from the 2026-05-14 / 2026-05-17 prod-wipe incidents) refuses pytest against prod-PG signatures by default.
+
+### References
+
+- Memory `feedback_drop_schema_grant_pattern` — 2026-05-14 incident + the GRANT block (this PR completes its scope by adding the ownership half)
+- Memory `project_w21_attack_order` — phase-4b sequencing (after #101/#104/#103, before #100/#86/#51/#77)
+- `docs/standards/boundary-touch-tests.md` (v0.36.59) — followed for `TestOwnershipReconciliationEphemeral`
+- 2026-05-14 incident pattern: DROP SCHEMA + restore-as-superuser leaves wrong owner → permission-denied restart loop
+
 ## [v0.36.59] — 2026-05-24 — Reviewer-prompt + standards doc (#103): boundary-touch + vacuous-test + sibling-search discipline formalized
 
 Third of four phase-4 early wedges per `project_w21_attack_order` (after v0.36.55 #101 CI hygiene + v0.36.57 #104 tooling foundation). "Half-day work, no infra dependency. Would have caught all 3 v0.36.51-53 bugs at review time. Every phase-4 hotfix benefits from sharper reviewer prompts." — operator's brief for #103.
