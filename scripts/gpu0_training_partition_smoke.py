@@ -181,7 +181,11 @@ class GPUMonitor(threading.Thread):
             ts = time.time()
             try:
                 apps = _query_compute_apps_indexed()
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError) as exc:
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, RuntimeError) as exc:
+                # _query_compute_apps_indexed raises bare RuntimeError on
+                # nvidia-smi non-zero exit; without catching it the daemon
+                # thread would die silently and Phase 8 would report AMBER
+                # instead of surfacing the monitor crash.
                 self.observations.append({"ts": ts, "err": str(exc)})
                 time.sleep(MONITOR_POLL_SEC)
                 continue
@@ -255,53 +259,67 @@ def main() -> int:
     train_py.write_text(SMOKE_SUBPROC_SOURCE, encoding="utf-8")
     print(f"[PHASE 2] Wrote smoke train.py ({train_py.stat().st_size} bytes)\n")
 
-    # ── Phase 3: env (production helper) + baseline error-log size ───────────
-    env = trainer._training_subprocess_env()
-    env["SMOKE_DURATION"] = str(SMOKE_DURATION)
-    env["SMOKE_ALLOC_GB"] = str(SMOKE_ALLOC_GB)
-    print("[PHASE 3] Env from _training_subprocess_env():")
-    for k in ("CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "PYTHONUTF8",
-              "PYTHONIOENCODING", "ARCIS_STOP_FLAG"):
-        print(f"           {k}={env.get(k)!r}")
-    err_size_before = _err_log_size()
-    print(f"[PHASE 3] arcis_err.log size before: {err_size_before} bytes\n")
-
-    # ── Phase 4: launch monitor + smoke subprocess via production helper ─────
-    monitor = GPUMonitor(_smoke_pid_from_pidfile)
-    monitor.start()
-
-    print("[PHASE 4] Launching smoke via trainer._launch_and_wait_training ...")
-    t0 = time.time()
     rc: int | None = None
+    monitor: GPUMonitor | None = None
+    err_size_before = _err_log_size()
     try:
-        rc = trainer._launch_and_wait_training([sys.executable, str(train_py)], env)
-        elapsed = time.time() - t0
-        print(f"[PHASE 4] Subprocess exited rc={rc} after {elapsed:.1f}s\n")
-    finally:
-        monitor.stop_evt.set()
-        monitor.join(timeout=20)
+        # ── Phase 3: env (production helper) + baseline error-log size ───────
+        env = trainer._training_subprocess_env()
+        env["SMOKE_DURATION"] = str(SMOKE_DURATION)
+        env["SMOKE_ALLOC_GB"] = str(SMOKE_ALLOC_GB)
+        print("[PHASE 3] Env from _training_subprocess_env():")
+        for k in ("CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "PYTHONUTF8",
+                  "PYTHONIOENCODING", "ARCIS_STOP_FLAG"):
+            print(f"           {k}={env.get(k)!r}")
+        print(f"[PHASE 3] arcis_err.log size before: {err_size_before} bytes\n")
 
-    # ── Phase 5: restore train.py ────────────────────────────────────────────
-    if had_train_py:
-        shutil.copy2(backup_py, train_py)
+        # ── Phase 4: launch monitor + smoke subprocess via production helper ─
+        monitor = GPUMonitor(_smoke_pid_from_pidfile)
+        monitor.start()
+
+        print("[PHASE 4] Launching smoke via trainer._launch_and_wait_training ...")
+        t0 = time.time()
         try:
-            backup_py.unlink()
-        except OSError:
-            pass
-        print(f"[PHASE 5] Restored original train.py from backup\n")
-    else:
-        try:
-            train_py.unlink()
-        except OSError:
-            pass
-        print("[PHASE 5] Removed smoke train.py (no pre-existing file)\n")
+            rc = trainer._launch_and_wait_training([sys.executable, str(train_py)], env)
+            elapsed = time.time() - t0
+            print(f"[PHASE 4] Subprocess exited rc={rc} after {elapsed:.1f}s\n")
+        finally:
+            monitor.stop_evt.set()
+            monitor.join(timeout=20)
+    finally:
+        # ── Phase 5: ALWAYS restore train.py, even on Phase 3/4 exception ────
+        # Failing to restore here would leave the smoke stub at training_data/
+        # train.py; the production overnight scheduler exec's that path and
+        # would silently run the 4 GB sleep stub instead of real training.
+        if had_train_py:
+            try:
+                shutil.copy2(backup_py, train_py)
+                try:
+                    backup_py.unlink()
+                except OSError:
+                    pass
+                print(f"[PHASE 5] Restored original train.py from backup")
+            except OSError as exc:
+                print(f"[PHASE 5] FAIL restoring train.py from backup: {exc}",
+                      file=sys.stderr)
+        else:
+            try:
+                train_py.unlink()
+                print("[PHASE 5] Removed smoke train.py (no pre-existing file)")
+            except OSError:
+                pass
+        print()
 
     # ── Phase 6: analyze observations ────────────────────────────────────────
     print("[PHASE 6] Monitor observations:")
-    print(f"           total samples: {len(monitor.observations)}")
-    samples_with_pid = [o for o in monitor.observations
-                        if o.get("smoke_pid") and "err" not in o]
-    print(f"           samples with smoke PID resolved: {len(samples_with_pid)}")
+    if monitor is None:
+        print("           monitor never started (Phase 3 or 4 raised before launch)")
+        samples_with_pid: list[dict] = []
+    else:
+        print(f"           total samples: {len(monitor.observations)}")
+        samples_with_pid = [o for o in monitor.observations
+                            if o.get("smoke_pid") and "err" not in o]
+        print(f"           samples with smoke PID resolved: {len(samples_with_pid)}")
 
     smoke_wrong_gpu: list[dict] = []
     ollama_on_gpu0: list[dict] = []
