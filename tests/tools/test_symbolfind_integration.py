@@ -64,7 +64,7 @@ def search_root(tmp_path):
         "def helper_uses_foo():\n"
         "    return Foo()\n"
         "\n"
-        "CONST_FOO = 42\n",
+        "Foo = 42\n",
         encoding="utf-8",
     )
 
@@ -105,7 +105,7 @@ def test_find_def_returns_class_and_constant(search_root, tmp_path):
 
     lines_in_foo = {r["line"] for r in results if Path(r["file"]).name == "foo.py"}
     assert 1 in lines_in_foo, "class Foo: is on line 1"
-    assert 7 in lines_in_foo, "CONST_FOO = 42 is on line 7"
+    assert 7 in lines_in_foo, "Foo = 42 (module-level constant assignment) is on line 7"
 
     for r in results:
         assert "file" in r
