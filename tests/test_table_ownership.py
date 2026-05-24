@@ -378,17 +378,30 @@ class TestLiveOwnershipPolicy:
         )
 
     def test_all_public_sequences_owned_by_halcyon_app(self):
-        """Policy: every sequence in public schema owned by halcyon_app."""
+        """Policy: every sequence in public schema owned by halcyon_app.
+
+        Uses pg_get_userbyid(relowner) instead of joining pg_authid because
+        this test connects as halcyon_app (from operator's DATABASE_URL),
+        and pg_authid SELECT requires superuser. pg_get_userbyid() is a
+        public function that resolves owner OID -> rolname without exposing
+        the underlying catalog table. The ephemeral test
+        (test_reconciliation_transfers_standalone_sequence_to_halcyon_app)
+        keeps the pg_authid join because IT connects as `test` superuser.
+        Surfaced 2026-05-24 when initial live-policy run failed with
+        "permission denied for table pg_authid" while the migration itself
+        had succeeded -- a test query bug, not a policy violation.
+        """
         url = self._live_url()
         conn = psycopg2.connect(url, connect_timeout=10)
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT c.relname, r.rolname FROM pg_class c "
+                    "SELECT c.relname, pg_get_userbyid(c.relowner) AS rolname "
+                    "FROM pg_class c "
                     "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                    "JOIN pg_authid r ON r.oid=c.relowner "
                     "WHERE c.relkind='S' AND n.nspname='public' "
-                    "AND r.rolname != 'halcyon_app' ORDER BY c.relname"
+                    "AND pg_get_userbyid(c.relowner) != 'halcyon_app' "
+                    "ORDER BY c.relname"
                 )
                 misowned = cur.fetchall()
         finally:
