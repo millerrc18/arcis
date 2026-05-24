@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [v0.36.58] — 2026-05-24 — Fix Windows venv wrapper-PID escape in `_launch_and_wait_training` — closes #94 phase-3 hard-kill GPU0-leak risk (#118)
+
+Companion fix to v0.36.56. The 2026-05-24 GPU0 partition smoke (PR #1168 / `scripts/gpu0_training_partition_smoke.py`) observed a **40-PID gap** between `subprocess.Popen.pid` (3408480) and the smoke subprocess's `os.getpid()` (3408520). Investigation confirmed `.venv\Scripts\python.exe` on Windows is a thin launcher shim that re-execs the real interpreter as a CHILD `python.exe`. `_write_training_pid(proc.pid)` was therefore recording the **wrapper PID, not the GPU-using child**, creating a hard-kill silent-leak hazard: `training_control._cooperative_then_hard_stop` calls `proc.terminate()` (= `TerminateProcess` on Windows) which does NOT cascade to children. The GPU-using child could survive a "successful" training-stop with VRAM allocated until manual intervention. Cooperative-stop path was always fine because the child python itself watches `ARCIS_STOP_FLAG` directly — the leak surfaces only when cooperative-stop times out and hard-kill fires.
+
+Operator gated #94 phase-3 close on resolving this (memory `project_w21_attack_order` #118). Hard-kill GPU0 leak risk is the last hard-gate concern; partition under load was validated by v0.36.56's smoke harness.
+
+### What ships
+
+- **`src/training/trainer.py`** — new `_resolve_tracked_pid(popen_pid, settle_timeout_s=5.0)` helper consults `psutil` post-Popen-settle and returns the actual GPU-using child PID when the launcher pattern is in play:
+    - exactly 1 python child → return child PID (Windows venv case — the canonical fix)
+    - 0 python children → return `popen_pid` (Linux/Mac/non-venv Windows — no-op preserved)
+    - >1 python children → loud WARNING + fall back to `popen_pid` (operator can investigate; preserve pre-fix behavior so the anomaly is visible)
+    - `psutil.NoSuchProcess` / `AccessDenied` / `ZombieProcess` → return `popen_pid` (caller's stale-pidfile path handles)
+  `_launch_and_wait_training` now writes the resolved pid to `training.pid`. The settle timeout is bounded to 5s with 0.2s poll cadence so most cases resolve in <1s; never blocks launch indefinitely. Empirical compatibility check: child python has identical `cmdline` + `CUDA_VISIBLE_DEVICES=0` to the wrapper, so `training_control._is_tracked_training_proc(child_pid)` validates the same way it validated the wrapper pre-fix. The fix is transparent to the cooperative-stop path AND correctly targets the GPU-using process on the hard-kill path.
+
+- **`tests/test_trainer_pid_resolution.py`** (NEW, 10 tests) — locks the resolution invariant:
+    - canonical case (1 python child)
+    - `python.exe` / `python3.13` name-prefix discipline
+    - filter rejects non-python children
+    - no-op fallback when zero children (Linux/Mac)
+    - settle timeout enforces ≤1.5s wall-clock when no children appear (prevents launch latency regression)
+    - operator-observability WARNING on multiple children
+    - parametrized graceful-failure on `psutil.NoSuchProcess` / `AccessDenied` / `ZombieProcess`
+    - end-to-end Windows-venv subprocess integration test (skipif non-Windows or no venv)
+
+  10/10 pass on this box.
+
+### Why this slipped past #94's 6+ reviews
+
+`scripts/gpu_placement_smoke.py` (the existing T7 cutover gate) validated **Ollama-on-GPU1 placement** by launching `ollama serve` and checking nvidia-smi compute-apps. It did NOT exercise the **training-on-GPU0 launch path** because the upstream `_launch_and_wait_training` requires a fine-tune-eligible corpus (blocked by `HOLDOUT EMPTY` since 2026-05-22 — see #117). The wrapper-PID escape is invisible to the cooperative-stop path (which is what production hits 99% of the time) and the existing test fixtures use bare mocks for Popen so the wrapper-vs-child distinction never appeared. The v0.36.56 smoke harness (which exercises the production launch helpers directly with a torch CUDA tensor) is what surfaced the gap. **The fix is locked by 10 regression tests including a real Windows-venv subprocess integration test.**
+
 ## [v0.36.56] — 2026-05-24 — Restore `gpu_health_training_ok` writer dropped in v0.36.50 squash + GPU0 partition smoke harness (#94 follow-up)
 
 Hotfix surfaced during the 2026-05-23 → 2026-05-24 overnight observation gate for the dual-GPU re-cutover. Phase-3 of the #94 design called for `gpu_health_training_ok` to be emitted from each of the three training-lifecycle handlers (evening launch + morning stop + market-open stop). The T8 telemetry commit (`27ddc305`, 2026-05-21) wired this up; the v0.36.50 squash (`25655cf0`, 2026-05-22) stripped the helper method AND all three call sites, leaving only the read side. As a result the metric never wrote post-cutover, and `schedule_metrics` showed no `gpu_health_training_ok` rows for 2026-05-22 / 23 / 24 — masking observability of training-lifecycle health.

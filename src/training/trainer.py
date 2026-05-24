@@ -38,6 +38,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import psutil
+
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.methods.promotion_gate import promotion_gate
@@ -1180,16 +1182,81 @@ def _write_training_pid(pid: int) -> None:
         logger.warning("[TRAINING] Could not write training pidfile %s: %s", pid_file, exc)
 
 
+def _resolve_tracked_pid(popen_pid: int, settle_timeout_s: float = 5.0) -> int:
+    """Resolve the actual GPU-using python PID, transparently handling the
+    Windows venv launcher-wrapper pattern (#118 mitigation, 2026-05-24).
+
+    On Windows, ``.venv\\Scripts\\python.exe`` is a thin launcher that re-execs
+    the real interpreter as a CHILD python.exe — Popen.pid is the wrapper, but
+    the GPU-using process is the child. Writing the wrapper PID to
+    training.pid is a hard-kill silent-leak hazard because
+    training_control._cooperative_then_hard_stop calls proc.terminate()
+    (TerminateProcess on Windows), which does NOT cascade to children — the
+    GPU-using child can survive a "successful" training-stop, holding GPU0
+    VRAM until manual intervention.
+
+    Discovery: gpu0_training_partition_smoke.py 2026-05-24 observed a 40-PID
+    gap between Popen.pid (3408480) and the child's os.getpid() (3408520).
+    Verified via psutil that the child has identical cmdline + CVD=0, so
+    writing the child PID is compatible with _is_tracked_training_proc's
+    validation.
+
+    Strategy:
+      * If popen process has zero python children within settle_timeout_s,
+        assume it IS the trainer (Linux/Mac/non-venv Windows). Return
+        popen_pid.
+      * If exactly one python child exists, return that child PID
+        (Windows venv case).
+      * If multiple children exist (unexpected), warn loudly and fall back
+        to popen_pid so behavior matches pre-fix and the operator can
+        investigate.
+      * If the process is dead or inaccessible, return popen_pid — caller's
+        existing pidfile-stale path handles the rest.
+
+    Settle timeout is bounded to keep launch latency small. The poll cadence
+    is short (0.2s) so most cases resolve in <1s.
+    """
+    deadline = time.monotonic() + max(0.0, settle_timeout_s)
+    while True:
+        try:
+            proc = psutil.Process(popen_pid)
+            python_children = [
+                c for c in proc.children(recursive=False)
+                if c.name().lower().startswith("python")
+            ]
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return popen_pid
+        if len(python_children) == 1:
+            return python_children[0].pid
+        if len(python_children) > 1:
+            logger.warning(
+                "[TRAINING] Popen pid %s has %d python children — "
+                "#118 mitigation cannot uniquely identify the GPU-using "
+                "child. Falling back to wrapper pid; hard-kill may leak GPU0.",
+                popen_pid, len(python_children),
+            )
+            return popen_pid
+        if time.monotonic() >= deadline:
+            # No child appeared within the settle window. Most likely the
+            # Popen target IS the trainer (Linux/Mac/non-venv). Use the
+            # popen_pid as before.
+            return popen_pid
+        time.sleep(0.2)
+
+
 def _launch_and_wait_training(cmd: list[str], env: dict[str, str]) -> int | None:
     """Popen the training cmd pinned to GPU0, record the PID, then stop-aware wait.
 
     Uses BELOW_NORMAL_PRIORITY_CLASS on Windows so inference stays responsive.
     Writes the PID to TRAINING_PID_FILE AFTER Popen so T4's stop logic can find
-    it. Returns the subprocess returncode (never returns before exit/stop).
+    it. The pid written is the actual GPU-using child python (see
+    _resolve_tracked_pid for the Windows venv wrapper-escape mitigation).
+    Returns the subprocess returncode (never returns before exit/stop).
     """
     creationflags = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
     proc = subprocess.Popen(cmd, env=env, creationflags=creationflags)
-    _write_training_pid(proc.pid)
+    tracked_pid = _resolve_tracked_pid(proc.pid)
+    _write_training_pid(tracked_pid)
     try:
         return _wait_for_training_proc(proc, timeout_s=7200)
     finally:
