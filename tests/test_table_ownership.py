@@ -126,8 +126,14 @@ class TestOwnershipReconciliationEphemeral:
     """Boundary-touch: drive apply_ownership_reconciliation against real PG."""
 
     def _create_tables_owned_by(self, conn, owner: str, names: list[str]) -> None:
-        """CREATE small tables owned by `owner`. Uses SET ROLE so post-create
-        ownership is `owner` (CREATE TABLE assigns ownership to current_user)."""
+        """CREATE small tables, then ALTER OWNER to land at `owner`.
+
+        CREATE TABLE assigns ownership to current_user, so to seed a misowner
+        state we follow each CREATE with an explicit ALTER TABLE ... OWNER TO
+        {owner}. (SET ROLE would also work but requires the caller to have
+        membership in the target role; ALTER OWNER works whenever the caller
+        has WRITE privilege, which is the common ephemeral-PG test case.)
+        """
         with conn.cursor() as cur:
             for tname in names:
                 cur.execute(f"CREATE TABLE public.{tname} (id SERIAL PRIMARY KEY, payload TEXT)")

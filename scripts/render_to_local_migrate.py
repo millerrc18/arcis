@@ -442,15 +442,15 @@ def run_migration(
         # 2026-05-14 incident) get handed back to halcyon_app before the data
         # copy starts. Idempotent: a no-op when ownership is already correct.
         print("Reconciling public-schema ownership to halcyon_app...")
-        try:
-            apply_ownership_reconciliation(dest_url)
-        except Exception as exc:
-            print(
-                f"  WARN: ownership reconciliation raised: {exc!r}. "
-                f"Continuing with data copy; ownership may need manual fix via "
-                f"schema/migrations/2026-05-24_table_ownership_fix.sql.",
-                file=sys.stderr,
-            )
+        # SF1 from #92 review: fail-fast on unexpected reconciliation errors.
+        # The function already handles the safe not-privileged case via
+        # result["skipped"]=True (returns gracefully); any raised exception is
+        # a genuine misconfiguration (missing halcyon_app role, conn drop, etc.)
+        # and continuing with the data copy would leave the operator in the
+        # exact 2026-05-14 failure mode this PR fixes -- halcyon_app with rows
+        # but no DDL rights. Matches the --reconcile-only path's
+        # propagate-exceptions semantics for a uniform contract.
+        apply_ownership_reconciliation(dest_url)
         print()
 
     print("Step 2/2: copy data Render -> local, table by table...")
