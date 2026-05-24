@@ -18,8 +18,8 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.57 (gap-fill
-# between .56 and .58 — the operator's brief explicitly reserved .57 for #104
-# at the time those PRs merged out-of-sequence; honored here).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.59 (#103
+# reviewer-prompt + standards doc; skips .58 which already shipped on main
+# from PR #1169 / #118 venv-wrapper-PID-escape).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.57"
+VERSION = "v0.36.59"
