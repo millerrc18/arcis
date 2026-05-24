@@ -1,0 +1,138 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Arcis Tooling Configuration — single source of truth for paths, ports,
+# service names, and operator safety windows used by the tool suite.
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# HOW TO USE:
+#   Tools under src/tools/ MUST read paths, ports, service names, and
+#   safety windows from this file via src.tools._config.load_arcis_config().
+#   Hard-coded paths/ports/names in tool code is a review-block per #104.
+#
+# WHY THIS FILE EXISTS:
+#   Before #104, every tool would have to re-discover or hardcode where the
+#   SQLite DB lives, which port Ollama uses, which NSSM service name owns
+#   the watch loop. That couples tool internals to operator-specific
+#   layout and creates two-source-of-truth bugs when (e.g.) the operator
+#   moves the worktree or the prod-PG port changes.
+#
+# RELATION TO config/settings.local.yaml:
+#   settings.local.yaml = APPLICATION config (risk parameters, broker keys,
+#                                              council settings, scan cadence)
+#   arcis_config.yaml   = TOOLING config (where things live, which ports are
+#                                          forbidden, when restarts are unsafe)
+#   Two separate files because the audience is different: app config gets
+#   edited per-strategy by the operator; tooling config encodes invariants
+#   of THIS dev box / deploy topology and rarely changes.
+#
+# WHY NOT JUST USE settings.local.yaml's `paths` section?
+#   settings.local.yaml is loaded by `src/config/__init__.py` which couples
+#   to .env loading and the FastAPI app's startup. Tools need to load
+#   their config in isolation (e.g., during pytest collection BEFORE any
+#   app import), so a dedicated, leaner loader is necessary.
+#
+# Per task #104 (v0.36.57) — see CHANGELOG.
+
+# ─── PATHS ────────────────────────────────────────────────────────────────
+# Where things live on the operator's dev box + cloud topology. All paths
+# are POSIX-style (forward-slash) for cross-platform parsing — the loader
+# normalizes to Path objects which handle native separators at I/O time.
+# ──────────────────────────────────────────────────────────────────────────
+paths:
+  # Canonical SQLite DB (fallback / pre-cutover path; the prod PG sidecar
+  # at port 5433 is now the live store, but this path is still read by
+  # tooling for snapshot/diff workflows).
+  db_canonical: C:/arcis/data/ai_research_desk.sqlite3
+
+  # Runtime logs — `arcis.log` + `arcis_err.log` from the watch loop. Per
+  # CLAUDE.md these are auto-rotated 10MB × 7 files.
+  logs_runtime: C:/arcis/logs
+
+  # NSSM service stdout/stderr — service-level capture, separate from
+  # runtime logs above. Tools that want "what NSSM observed" read here.
+  logs_service: C:/arcis/halcyon-lab/data/logs
+
+  # Ollama model store — env var `OLLAMA_MODELS` must point here for the
+  # watchdog (#94) to find the fine-tuned model. The gotcha: a fresh
+  # Ollama install defaults to `~/.ollama/models` on the *current user*,
+  # but LocalSystem (NSSM service identity) sees a different home,
+  # so the env var must be set explicitly in AppEnvironmentExtra.
+  ollama_models: C:/Users/mille/.ollama/models
+
+  # Worktrees on the operator's dev box. main = the canonical repo;
+  # dualgpu = the dual-GPU experiment worktree from #94. The sim worktree
+  # (C:/arcis/hl-sim) was removed 2026-05-23 post-PR-1162 merge.
+  worktrees:
+    main: C:/arcis/halcyon-lab
+    dualgpu: C:/arcis/hl-dualgpu
+
+# ─── PORTS ────────────────────────────────────────────────────────────────
+# Port reservations. The `forbidden` list is the operator's no-go set —
+# tools that bind ports MUST consult this list and fail-fast on a match.
+# ──────────────────────────────────────────────────────────────────────────
+ports:
+  pg_prod: 5433       # Docker Compose Postgres (`halcyon-pg`) — prod store
+  pg_test: 5434       # ephemeral test PG (sim + pg-tests CI jobs)
+  ollama: 11434       # Ollama API endpoint
+
+  # Cloud-API range: tools that need an ephemeral port for the local
+  # FastAPI dashboard should pick within this range, NOT bind 8000 directly
+  # (collision risk with the Cloudflare-Tunnel target after 2026-05-10
+  # cutover).
+  cloud_api:
+    range_start: 8000
+    range_end: 8100
+
+  # Ad-hoc HTTP servers (test fixtures, dashboard previews) — per
+  # reference_local_ports memory: bind 127.0.0.1 explicitly, NOT localhost
+  # (the operator's box has EnterpriseDB on 0.0.0.0:8080 + IPv6 quirks).
+  adhoc_http: 8765
+
+  # Forbidden ports — tools that try to bind these MUST fail-fast with a
+  # clear error pointing to reference_local_ports memory.
+  forbidden:
+    - 8080            # permanently EnterpriseDB per reference_local_ports
+
+# ─── SERVICES ─────────────────────────────────────────────────────────────
+# NSSM service names. Per reference_watch_loop_management memory: the
+# operator restarts via `nssm restart <name>`, NEVER via
+# `python -m src.main startup` directly (creates a duplicate process that
+# races the NSSM-managed instance, observed 2026-05-06).
+# ──────────────────────────────────────────────────────────────────────────
+services:
+  watch_loop: ArcisWatchLoop
+  ollama_watchdog: ArcisOllamaWatchdog
+  dashboard: ArcisDashboard
+
+# ─── SAFETY WINDOWS ───────────────────────────────────────────────────────
+# Operator-declared windows where mutating tool ops are blocked unless
+# `emergency=True` is passed (and logged). The SafetyWindowGuard primitive
+# reads this section.
+# ──────────────────────────────────────────────────────────────────────────
+safety_windows:
+  # 21:30–22:30 ET overnight kickoff window. Per
+  # feedback_no_restart_during_overnight_window memory: mid-cycle restart
+  # interrupts long-running collectors and forces a redundant
+  # re-collection from scratch (~25 redundant API calls on a 21:33 restart
+  # observed 2026-05-18 v0.36.22 deploy). No data loss; just wasted
+  # broker/API quota + ~2min cycle delay.
+  no_restart_overnight:
+    start_et: "21:30"
+    end_et: "22:30"
+    reason: "mid-cycle restart forces redundant overnight re-launch"
+
+# ─── PG (Postgres safety signatures) ──────────────────────────────────────
+# Used by the ProdGuard primitive to reject DSN params that look like
+# production. Mirrors the signature list in src/simulation/lifecycle/
+# prod_guard.py (`_PROD_SIGNATURES`) so simulator + tools share the same
+# definition of "prod".
+# ──────────────────────────────────────────────────────────────────────────
+pg:
+  prod_dsn_signatures:                # any DSN containing one of these is "prod"
+    - "localhost:5433"
+    - "127.0.0.1:5433"
+    - "halcyon_app:"
+
+  # Canonical test DSN — what tests SHOULD use. Tools that take a DSN
+  # parameter and don't see this signature (or one explicitly allowlisted)
+  # should refuse to proceed.
+  test_dsn: "postgresql://test:test@127.0.0.1:5434/halcyon"

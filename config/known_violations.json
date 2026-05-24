@@ -140,6 +140,11 @@
       "rationale": "Pre-existing growth from 847 to 949 lines (before v0.36.13). Risk governor is a core safety component; splitting is a structural refactor out of scope for v0.36.13. Deferred to post-Sprint-6 cleanup track."
     },
     {
+      "file": "src/scheduler/ollama_watchdog.py",
+      "lines": 411,
+      "rationale": "Pre-existing as of v0.36.55 (a8ea0977) — surfaced (not introduced) by the v0.36.57 #104 tooling-foundation test run. File grew past 400 lines during the #94 dual-GPU re-cutover (introduced ArcisOllamaWatchdog NSSM service + GPU1 partition + crash-escalation logic). Real split candidates: extract _check_gpu_partition_health() into a helper module, or pull the model-tag fallback chain (re-introduced in v0.36.52) into a tiny _model_resolution.py. Refactor deferred — out of scope for #104 (tooling foundation, no application-code changes), and the file is tightly coupled around the watchdog poll loop's invariants."
+    },
+    {
       "file": "src/scheduler/overnight.py",
       "lines": 1327,
       "rationale": "v0.36.38 T1: +3 plan-gated collector wiring blocks (company_executives/stock_financials/price_targets)."

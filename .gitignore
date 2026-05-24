@@ -1,6 +1,7 @@
 # Local / secret configuration (may contain credentials)
 config/*.yaml
 !config/settings.example.yaml
+!config/arcis_config.yaml
 .mcp.json
 
 # Python

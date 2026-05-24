@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+## [v0.36.57] — 2026-05-24 — Tooling foundation (#104): central `arcis_config.yaml` + safety primitives (SafeOp / SafetyWindowGuard / ProdGuard) + JSON-lines tool-execution audit log
+
+Foundation for the entire Tier 1+ tool suite (#105 onward). **No tools are built in this PR** — pure infrastructure that future tools import. Gap-fill between v0.36.56 (gpu_health writer restore) and v0.36.58 (#118 venv wrapper-PID escape) — the operator's #104 brief explicitly reserved v0.36.57 for this task at the time those PRs merged out-of-sequence.
+
+Per `project_w21_attack_order` this is the second of four phase-4 early wedges (after #101 CI hygiene). Once it lands, #105 Tier 1 tools (DBQuery, LogTail, CIInvestigate, SymbolFind, TradingState) can launch in a future session against this foundation.
+
+### What ships
+
+- **`config/arcis_config.yaml`** — single source of truth for paths, ports, NSSM service names, safety windows, and prod-PG DSN signatures. Replaces the (previously diffuse) need for tool code to hardcode `C:/arcis/data/...` paths, `5433` ports, `ArcisWatchLoop` service names, the `21:30–22:30 ET` no-restart window, and the prod DSN signature list. Three concerns deliberately separate from `settings.local.yaml` (which is APPLICATION config — risk parameters, broker keys, council settings): tooling config encodes invariants of the dev box / deploy topology, application config is per-strategy. Schema cross-references each source memory (`reference_local_ports`, `feedback_no_restart_during_overnight_window`, `reference_watch_loop_management`) in YAML comments for operator-readable provenance.
+
+- **`src/tools/_config.py`** — pydantic-based loader for `arcis_config.yaml`. Lean by design (no `.env` coupling, no FastAPI dependency) so it loads in isolation during pytest collection. `load_arcis_config(path=None) → ArcisConfig` is the only public API; `ArcisConfigError` wraps `FileNotFoundError` / `yaml.YAMLError` / `pydantic.ValidationError` so callers catch ONE class. The keystone boundary-touch test (`test_load_arcis_config_pg_signatures_match_prod_guard`) cross-asserts equality between `pg.prod_dsn_signatures` and `src/simulation/lifecycle/prod_guard.py:_PROD_SIGNATURES` — drift between the two is the single-source-of-truth violation this loader prevents.
+
+- **`src/tools/_safety.py`** — three composable decorators:
+  - `@safe_op(name=..., mutates=...)` — dry-run dispatch + audit-log every call. For `mutates=True` tools without `confirm=True`, returns a `DryRunResult` WITHOUT calling the wrapped function (function bodies only see the real-execution path). `DryRunResult` is a frozen dataclass with `__repr__` (operator-readable multi-line) + `to_json()` (parent-agent consumption) — operator-confirmed Q1 default during build (this thread).
+  - `@safety_window("window_name", now_et=...)` — refuses ops inside operator-declared safety windows (e.g., `no_restart_overnight` 21:30–22:30 ET) unless `emergency=True` is passed (logged with `emergency=True` in params for grep-ability later). **Pluggable clock seam** per the #97 simulator's freezegun pattern — operator-confirmed Q2. Cross-midnight windows handled (`22:00–06:00` etc.).
+  - `@prod_guard(dsn_param=...)` — rejects DSNs matching `pg.prod_dsn_signatures` unless **both** `ARCIS_ALLOW_PROD_PG=1` env AND `confirm=True` kwarg are set (env alone OR confirm alone is rejected — defense in depth). Generalizes `src/simulation/lifecycle/prod_guard.py`'s monkeypatch-on-psycopg2 pattern to a per-tool decorator usable by any DSN-taking tool.
+
+- **`src/tools/_execution_log.py`** — JSON-lines tool-call audit at `data/logs/tool-execution.log` (operator-confirmed Q3 — co-located with NSSM service logs). Every event: timestamp (ISO 8601 with America/New_York offset, per the operator's ET-default discipline), tool_name, sanitized params, result (`success` / `dry_run` / `safety_window_block` / `prod_guard_block` / `error`), duration_ms, optional session_id. Sanitization handles two patterns: secret-keyed values (`password`, `api_key`, `token`, `secret`, `bot_token`, `access_key`) are wholesale-redacted; DSN-shaped values are partial-redacted (preserve scheme/user/host/db, redact password). Rotation at 10 MB to `.log.1` (one keep-back) mirrors NSSM service log rotation policy.
+
+### Verification — boundary-touch discipline
+
+**51 tests across 4 files:**
+- `tests/tools/test_config.py` (10 tests) — loader, schema validation, secret-key drift cross-check
+- `tests/tools/test_execution_log.py` (15 tests) — event shape, secret sanitization, ET-offset timestamp, rotation, all 5 result kinds
+- `tests/tools/test_safety.py` (21 tests) — `DryRunResult` shape, SafeOp dry-run/confirm/error/log states, SafetyWindowGuard block/allow/emergency-bypass/cross-midnight, ProdGuard rejection/test-DSN-allow/env+confirm-bypass-defense-in-depth
+- `tests/tools/test_safe_op_integration.py` (5 tests) — **the keystone boundary-touch test** the operator's #104 brief asked for: a fake tool composed with all three decorators driven through each of the 5 terminal states (dry-run / safety-block / prod-block / confirmed-success / emergency-bypass), asserting on the REAL audit-log file contents at each step. Critical invariant: SafetyError-class exceptions from inner guards do NOT double-log via safe_op's except clause — they propagate cleanly so the audit shows ONE specific `safety_window_block` or `prod_guard_block` event per blocked call, not a duplicate `error`.
+
+The integration test is the discipline the operator's brief framed as "test the REAL behavior, not just 'the decorator is applied'" — single-primitive tests verify each guard in isolation; the integration test verifies the composition. Anticipates the standard #103 (boundary-touch-tests) will formalize.
+
+### Disclosure — pre-existing structural violation surfaced
+
+`src/scheduler/ollama_watchdog.py` is at 411 lines (max 400). Verified pre-existing as of `a8ea0977` (this PR's branch base = the v0.36.55 main HEAD). NOT introduced by #104. Added to `config/known_violations.json` with rationale: file grew past the limit during the #94 dual-GPU re-cutover (`ArcisOllamaWatchdog` NSSM service + GPU1 partition + crash-escalation + model-tag fallback chain re-introduced in v0.36.52). Refactor candidates: extract `_check_gpu_partition_health()` helper module, or pull model-resolution into a tiny `_model_resolution.py`. Real split deferred — out of scope for tooling-foundation work + watchdog is tightly coupled around poll-loop invariants.
+
+### Follow-ups unlocked
+
+- **#105 Tier 1 tools** (DBQuery, LogTail, CIInvestigate, SymbolFind, TradingState) can now import these primitives. Estimated ~1 day per attack-order.
+- **#106 Tier 2 tools** + **#108 specialized agents** + **#109 `arcis:operate` skill** all inherit the safety + audit-log discipline from this foundation.
+
+### Read first when extending the tool suite
+
+- `feedback_audit_workflow_constraints` (least-privilege + crash-vs-finding distinction — generalizes to any future security/audit workflow)
+- `feedback_strict_rigor_no_handwave` (verification mandatory: tests assert on REAL behavior, not decorator presence)
+- `reference_local_ports` (8080 = EnterpriseDB; bind 127.0.0.1 explicitly)
+- `feedback_no_restart_during_overnight_window` (the safety-window source of truth)
+- `reference_watch_loop_management` (NSSM service names)
+
 ## [v0.36.58] — 2026-05-24 — Fix Windows venv wrapper-PID escape in `_launch_and_wait_training` — closes #94 phase-3 hard-kill GPU0-leak risk (#118)
 
 Companion fix to v0.36.56. The 2026-05-24 GPU0 partition smoke (PR #1168 / `scripts/gpu0_training_partition_smoke.py`) observed a **40-PID gap** between `subprocess.Popen.pid` (3408480) and the smoke subprocess's `os.getpid()` (3408520). Investigation confirmed `.venv\Scripts\python.exe` on Windows is a thin launcher shim that re-execs the real interpreter as a CHILD `python.exe`. `_write_training_pid(proc.pid)` was therefore recording the **wrapper PID, not the GPU-using child**, creating a hard-kill silent-leak hazard: `training_control._cooperative_then_hard_stop` calls `proc.terminate()` (= `TerminateProcess` on Windows) which does NOT cascade to children. The GPU-using child could survive a "successful" training-stop with VRAM allocated until manual intervention. Cooperative-stop path was always fine because the child python itself watches `ARCIS_STOP_FLAG` directly — the leak surfaces only when cooperative-stop times out and hard-kill fires.
