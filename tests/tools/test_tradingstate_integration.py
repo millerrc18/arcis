@@ -389,6 +389,91 @@ def test_state_missing_training_metric_is_none(tmp_path):
         conn.close()
 
 
+# ── Test (b2): Corrupt SQLite created_at → stale=True + WARNING (no silent now()) ──
+
+def test_state_corrupt_audit_created_at_is_stale_not_silently_fresh(tmp_path, caplog):
+    """
+    Unparseable audit_reports.created_at must yield stale=True + WARNING log,
+    NOT silently substitute datetime.now() (which would mark the corrupt row
+    "fresh" and hide the corruption from the operator).
+
+    Verify-by-mutation: reverting _build_audit_dict's except clause to
+    `created_at_dt = datetime.now(timezone.utc)` (pre-fix behavior) makes
+    stale=False here — and this assertion fails. The pre-fix path was a
+    fail-quiet pattern called out in feedback_strict_rigor_no_handwave.
+    """
+    import logging
+    import sqlite3
+
+    # Use SQLite fallback path so we control the created_at string (PG would
+    # coerce to a real datetime before psycopg2 returns it; only the SQLite
+    # str-path is reachable with a corrupt value).
+    sqlite_path = tmp_path / "fallback.sqlite"
+    conn = sqlite3.connect(sqlite_path)
+    conn.execute("""
+        CREATE TABLE shadow_trades (
+            trade_id TEXT PRIMARY KEY,
+            ticker TEXT,
+            source TEXT,
+            status TEXT,
+            entry_price REAL,
+            actual_entry_time TEXT,
+            quarantined INTEGER,
+            recommendation_id TEXT
+        )
+    """)
+    conn.execute("CREATE TABLE recommendations (recommendation_id TEXT, thesis_text TEXT)")
+    conn.execute("""
+        CREATE TABLE audit_reports (
+            audit_id TEXT,
+            created_at TEXT,
+            overall_assessment TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE schedule_metrics (
+            metric_date TEXT,
+            metric_name TEXT,
+            metric_value REAL
+        )
+    """)
+    # Insert audit row with deliberately-corrupt created_at string
+    audit_id = "test-corrupt-audit-id"
+    conn.execute(
+        "INSERT INTO audit_reports VALUES (?, ?, 'STABLE')",
+        (audit_id, "not-a-valid-iso-timestamp-XYZ"),
+    )
+    conn.commit()
+    conn.close()
+
+    log = tmp_path / "exec.log"
+    state_fn = _build_state(log)
+
+    # Force PG fallback by pointing at unreachable DSN
+    bad_pg_dsn = "host=127.0.0.1 port=1 dbname=halcyon user=test password=test"
+
+    with caplog.at_level(logging.WARNING, logger="src.tools.tradingstate.core"):
+        result = state_fn(dsn=bad_pg_dsn, sqlite_path=sqlite_path)
+
+    assert result["data_source"] == "sqlite_fallback"
+    audit = result["most_recent_audit"]
+    assert audit is not None, "audit row was inserted; should not be None"
+    assert audit["audit_id"] == audit_id
+    assert audit["stale"] is True, (
+        "corrupt created_at MUST yield stale=True to surface corruption "
+        "(silent datetime.now() substitution is the fail-quiet anti-pattern)"
+    )
+    assert audit["created_at"] == "not-a-valid-iso-timestamp-XYZ", (
+        "raw corrupt string preserved in output for diagnostics"
+    )
+    # WARNING log must mention 'unparseable' so operator can grep for it
+    assert any(
+        "unparseable" in rec.message.lower()
+        for rec in caplog.records
+        if rec.levelno == logging.WARNING
+    ), f"expected WARNING about unparseable created_at, got: {[r.message for r in caplog.records]}"
+
+
 # ── Test (c): SQLite fallback ─────────────────────────────────────────────────
 
 def test_state_sqlite_fallback(tmp_path):

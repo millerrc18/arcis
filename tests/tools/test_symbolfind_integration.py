@@ -366,7 +366,16 @@ def test_cli_json_envelope_on_error(tmp_path):
         text=True,
         encoding="utf-8",
         env=env,
-        cwd="C:/arcis/halcyon-lab/.claude/worktrees/agent-af0e8b919dd9bee54",
+        # cwd must resolve relative to the actual repo root so the test is
+        # portable across worktrees. parents[2] = repo root (this file lives at
+        # <repo>/tests/tools/test_symbolfind_integration.py). The original
+        # hardcoded agent-worktree path here was a time-bomb — agent worktrees
+        # are periodically reaped (per operator memory
+        # `reference_agent_worktree_accumulation.md`), so the test would
+        # silently start failing once the worktree was cleaned up. Sibling
+        # tests in this directory (test_dbquery_integration,
+        # test_ciinvestigate_integration) use the same pattern.
+        cwd=str(Path(__file__).resolve().parents[2]),
     )
 
     assert proc.returncode == 1, (

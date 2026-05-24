@@ -56,7 +56,8 @@ def _cli_find(symbol: str, kind: str, path: str | None, json_mode: bool) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Locate Python symbol definitions and references via rg."
+        prog="python -m src.tools.symbolfind",
+        description="Locate Python symbol definitions and references via rg.",
     )
     parser.add_argument("symbol", help="Python symbol name to search for.")
     parser.add_argument(

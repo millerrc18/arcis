@@ -10,6 +10,7 @@ Tests: tests/tools/test_tradingstate_integration.py
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 import psycopg2
+
+logger = logging.getLogger(__name__)
 
 from src.tools._config import load_arcis_config
 from src.tools._db import DBHelperError
@@ -48,11 +51,28 @@ def _build_audit_dict(audit_row: Optional[dict]) -> Optional[dict]:
     created_at = audit_row["created_at"]
 
     # psycopg2 returns timezone-aware datetime for TIMESTAMPTZ; SQLite returns str.
+    # If the SQLite-stored string is not ISO-parseable (corrupt or hand-edited
+    # row), we MUST NOT silently substitute datetime.now() (which would yield
+    # stale=False and make the operator see "fresh audit" when the row is
+    # actually broken — fail-quiet pattern called out in
+    # feedback_strict_rigor_no_handwave). Instead: log a WARNING and treat as
+    # stale, so the operator sees "stale=True" which prompts them to inspect.
     if isinstance(created_at, str):
         try:
             created_at_dt = datetime.fromisoformat(created_at)
         except ValueError:
-            created_at_dt = datetime.now(timezone.utc)
+            logger.warning(
+                "tradingstate: unparseable audit_reports.created_at=%r "
+                "(audit_id=%s) — treating as stale to surface corruption to operator",
+                created_at,
+                audit_row.get("audit_id"),
+            )
+            return {
+                "audit_id": audit_row["audit_id"],
+                "created_at": created_at,
+                "overall_assessment": audit_row["overall_assessment"],
+                "stale": True,
+            }
         if created_at_dt.tzinfo is None:
             created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
     else:
