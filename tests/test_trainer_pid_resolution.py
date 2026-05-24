@@ -201,7 +201,12 @@ def test_resolve_real_windows_venv_subprocess_returns_child():
         env=env,
     )
     try:
-        resolved = _resolve_tracked_pid(p.pid, settle_timeout_s=3.0)
+        # Match the production default (5.0s). Dual-QA reviewers (2026-05-24)
+        # observed worst-case child-emergence latency up to 2.3s on this box
+        # and ~20% of cold-spawn trials never had a python child appear at all
+        # within 3s. Lower timeout was flaky without improving signal — the
+        # production code uses 5.0s, so the integration test should too.
+        resolved = _resolve_tracked_pid(p.pid, settle_timeout_s=5.0)
         # Discovery in gpu0_training_partition_smoke.py 2026-05-24: child PID
         # differs from Popen.pid on Windows venv (40-PID gap typical).
         assert resolved != p.pid, (
