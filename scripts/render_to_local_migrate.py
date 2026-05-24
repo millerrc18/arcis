@@ -511,13 +511,38 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the create_all_tables step (use when schema already in sync).",
     )
+    parser.add_argument(
+        "--reconcile-only",
+        action="store_true",
+        help=(
+            "Skip Render->local data copy entirely and only run ownership "
+            "reconciliation against DATABASE_URL. Use post-restore from a "
+            "snapshot (v0.36.60 / #92) when the schema is already populated "
+            "but tables are owned by the restore-user instead of halcyon_app. "
+            "Requires DATABASE_URL to be a privileged role (superuser or "
+            "member of halcyon_app); SOURCE_DATABASE_URL is not consulted."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    source_url = os.environ.get("SOURCE_DATABASE_URL", "")
     dest_url = os.environ.get("DATABASE_URL", "")
+
+    if args.reconcile_only:
+        # Standalone reconciliation path -- no source URL, no data copy, no
+        # interactive prompt. Invoked from scripts/recovery/restore_pg_from_snapshot.ps1
+        # at step 7.5 (post-GRANT, pre-verification) and operator-runnable
+        # anytime drift surfaces on a healthy DB.
+        _validate_url(dest_url, "DATABASE_URL")
+        print(f"Reconciling ownership on: {_redact_password(dest_url)}")
+        result = apply_ownership_reconciliation(dest_url)
+        if result["skipped"]:
+            sys.exit(1)
+        return
+
+    source_url = os.environ.get("SOURCE_DATABASE_URL", "")
     table_filter = [t.strip() for t in args.tables.split(",")] if args.tables else None
 
     run_migration(

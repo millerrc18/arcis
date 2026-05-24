@@ -60,12 +60,17 @@ ALTER TABLE public.vix_term_structure  OWNER TO halcyon_app;
 
 -- Sequences (2 -- the other 3 tables have non-SERIAL PKs and no associated sequence).
 -- Note: ALTER TABLE OWNER above already CASCADES owner to a SERIAL-auto-created
--- linked sequence (pg_depend deptype='a'). These lines are therefore typically
--- no-ops on top of the cascade -- kept as belt-and-suspenders to (a) document
--- the policy explicitly, (b) cover any future migration where someone re-runs
--- ONLY the sequence block, and (c) recover from any post-cascade re-drift.
--- Order matters: they MUST come AFTER the matching ALTER TABLE to satisfy PG's
--- "linked sequence owner must match table owner" invariant.
+-- linked sequence (pg_depend deptype='a'), so on a clean run these two lines
+-- are no-ops on top of the cascade. Kept as belt-and-suspenders to (a) document
+-- the policy explicitly in the migration text, (b) cover any future migration
+-- where someone re-runs ONLY the sequence block, and (c) recover from any
+-- post-cascade re-drift if a later operation re-owns the sequence in isolation.
+-- Order with the table block is not load-bearing here -- both target halcyon_app
+-- so PG's "linked sequence owner must match table owner" invariant is satisfied
+-- regardless of ordering. (If the targets ever differ, ALTER SEQUENCE on a
+-- linked sequence to a different owner than its table raises "Sequence X is
+-- linked to table Y" -- discovered empirically 2026-05-24, see
+-- tests/test_table_ownership.py::test_table_alter_cascades_to_linked_sequence.)
 ALTER SEQUENCE public.traffic_light_state_id_seq OWNER TO halcyon_app;
 ALTER SEQUENCE public.vix_term_structure_id_seq  OWNER TO halcyon_app;
 

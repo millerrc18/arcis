@@ -16,6 +16,14 @@
 #   8. GRANT ALL ON ALL TABLES + ALTER DEFAULT PRIVILEGES (per memory
 #      feedback_drop_schema_grant_pattern — without this, halcyon_app
 #      can SELECT but not UPDATE → watch loop restart loop)
+#   8.5. ALTER TABLE/SEQUENCE OWNER TO halcyon_app for every public-schema
+#      object (v0.36.60 / #92). The restore in step 7 runs as halcyon
+#      superuser, so all restored tables are owned by halcyon, not by
+#      halcyon_app. The GRANT block in step 8 lets halcyon_app SELECT/
+#      UPDATE/INSERT, but DDL (CREATE INDEX, ALTER TABLE, DROP) still fails.
+#      This step closes that drift IN the authoritative recovery path so
+#      operators don't need a separate post-restore reconciliation pass.
+#      Mirrors apply_ownership_reconciliation() in render_to_local_migrate.py.
 #   9. Verify table count matches registry expectation
 #  10. Verify spot-check row counts (shadow_trades, recommendations, etc.)
 #  11. Cleanup snapshot file inside container
@@ -228,6 +236,68 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $AppUserName
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO $ReadonlyUserName;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO $ReadonlyUserName;
 "@
+
+# ---------------------------------------------------------------------------
+# Step 7.5 — reconcile table + sequence ownership to halcyon_app
+# v0.36.60 / #92: the restore in step 7 ran as halcyon superuser, so every
+# restored table is owned by halcyon. The GRANT block above lets halcyon_app
+# SELECT/UPDATE/INSERT, but DDL (CREATE INDEX, ALTER TABLE, DROP) still
+# fails. This was the 2026-05-14 root cause — fixing it inline here closes
+# the loop in the AUTHORITATIVE recovery path so future restores cannot
+# re-introduce the drift.
+#
+# Uses a DO block + dynamic EXECUTE so the script doesn't need to enumerate
+# the table list (which would drift from the registry). PG's ALTER TABLE
+# OWNER cascades to SERIAL-linked sequences automatically (pg_depend
+# deptype='a'), so the sequence loop catches only standalone sequences.
+#
+# This mirrors apply_ownership_reconciliation() in
+# scripts/render_to_local_migrate.py. The two implementations MUST stay in
+# sync — if you edit one, sibling-check the other.
+# ---------------------------------------------------------------------------
+
+Log "Reconciling table + sequence ownership to $AppUserName (#92 wire-up)..."
+RunPsql -step "reconcile-ownership" -sql @"
+DO `$`$
+DECLARE
+    r RECORD;
+    altered_tables INT := 0;
+    altered_seqs INT := 0;
+BEGIN
+    FOR r IN
+        SELECT tablename FROM pg_tables
+        WHERE schemaname='public' AND tableowner != '$AppUserName'
+        ORDER BY tablename
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I OWNER TO $AppUserName', r.tablename);
+        altered_tables := altered_tables + 1;
+    END LOOP;
+    FOR r IN
+        SELECT c.relname FROM pg_class c
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_authid a ON a.oid=c.relowner
+        WHERE c.relkind='S' AND n.nspname='public' AND a.rolname != '$AppUserName'
+        ORDER BY c.relname
+    LOOP
+        EXECUTE format('ALTER SEQUENCE public.%I OWNER TO $AppUserName', r.relname);
+        altered_seqs := altered_seqs + 1;
+    END LOOP;
+    RAISE NOTICE 'Ownership reconciliation: % table(s), % sequence(s) altered to $AppUserName',
+        altered_tables, altered_seqs;
+END
+`$`$;
+"@
+
+# Canary verification: a halcyon_app DDL operation that would have failed
+# pre-reconciliation (CREATE INDEX requires ownership). Pick a known table
+# from the v0.36.60 #92 misowned set so the check exercises the fix path.
+Log "Verifying halcyon_app can perform DDL post-reconciliation (canary)..."
+$ddlCanary = docker exec $ContainerName psql -U $AppUserName -d $DatabaseName -c `
+    "CREATE INDEX IF NOT EXISTS idx_92_ddl_canary ON public.shadow_trades (status); DROP INDEX IF EXISTS public.idx_92_ddl_canary;" 2>&1
+if ($ddlCanary -match "permission denied|must be owner") {
+    Die 5 "DDL canary FAILED post-reconciliation: $AppUserName cannot CREATE INDEX on shadow_trades. Reconciliation incomplete: $ddlCanary"
+}
+Log "DDL canary OK"
 
 # ---------------------------------------------------------------------------
 # Step 8 — post-restore verification
