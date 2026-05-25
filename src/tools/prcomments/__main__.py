@@ -26,7 +26,8 @@ import sys
 from pathlib import Path
 
 from src.tools._cli_envelope import run_cli
-from src.tools.prcomments.core import _post_impl, _read_impl
+from src.tools.prcomments.core import post, read
+from src.tools._safety import DryRunResult
 
 
 def _render_read(pr: int, comments) -> str:
@@ -46,7 +47,7 @@ def _render_post(result: dict) -> str:
 
 def _run_read(pr: int, *, repo: str | None, json: bool) -> str:
     """Execute read and return formatted output string."""
-    comments = _read_impl(pr, repo=repo)
+    comments = read(pr, repo=repo)
     if json:
         return json_mod.dumps([
             {"author": c.author, "body": c.body, "created_at": c.created_at, "url": c.url}
@@ -57,7 +58,9 @@ def _run_read(pr: int, *, repo: str | None, json: bool) -> str:
 
 def _run_post(pr: int, body: str, *, confirm: bool, repo: str | None, json: bool) -> str:
     """Execute post and return formatted output string."""
-    result = _post_impl(pr, body, repo=repo)
+    result = post(pr, body, confirm=confirm, repo=repo)
+    if isinstance(result, DryRunResult):
+        return repr(result) if not json else json_mod.dumps(result.to_json())
     if json:
         return json_mod.dumps(result)
     return _render_post(result)

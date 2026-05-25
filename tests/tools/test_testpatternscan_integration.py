@@ -395,3 +395,137 @@ def test_thing(mock_app):
     assert final_db_url == initial_db_url, (
         f"DATABASE_URL changed during scan: {initial_db_url!r} -> {final_db_url!r}"
     )
+
+
+def test_da4_subprocess_no_module_import_via_bomb_marker(tmp_path):
+    """(n) DA4 redesign: subprocess + fixture-bomb-module + marker-file approach.
+
+    PRIOR TEST (m) WAS VACUOUS because:
+    - sys.modules cached src.api.app from pytest collection — subsequent import_module() was no-op
+    - load_dotenv() already ran during collection — poison-trap installed too late
+    - DATABASE_URL env preservation only catches env mutation, not module import event
+
+    REDESIGN: spawn a fresh subprocess scanning a fixture test file that @patches a BOMB module
+    whose top-level code writes a marker file. If scanner correctly uses find_spec + ast.parse
+    (DA4 PURE-AST), the bomb module is never imported (ast.parse does NOT execute Python).
+    If the scanner regresses to import_module, the bomb fires and writes the marker.
+
+    Verify-by-mutation: replace _module_top_level_names body with importlib.import_module + dir()
+    -> marker file appears -> this test fails.
+    """
+    # 1. Create the bomb module
+    bomb_marker = tmp_path / "bomb_fired.marker"
+    bomb_module_dir = tmp_path / "bomb_pkg"
+    bomb_module_dir.mkdir()
+    (bomb_module_dir / "__init__.py").write_text("", encoding="utf-8")
+    bomb_module = bomb_module_dir / "bomb_module.py"
+    bomb_module.write_text(
+        "from pathlib import Path\n"
+        f"Path({repr(str(bomb_marker))}).write_text('BOMB FIRED')\n"
+        "SOMETHING_PATCHED = 42\n",
+        encoding="utf-8",
+    )
+
+    # 2. Create a test file that @patches the bomb module
+    test_file = tmp_path / "test_bomb_target.py"
+    test_file.write_text(
+        "from unittest.mock import patch\n"
+        "@patch('bomb_pkg.bomb_module.SOMETHING_PATCHED')\n"
+        "def test_thing(mock_x):\n"
+        "    mock_x.return_value = 42\n"
+        "    assert 1 == 1\n",
+        encoding="utf-8",
+    )
+
+    # 3. Spawn subprocess scanning that test file with bomb_pkg findable
+    import os as _os
+    repo_root = Path(__file__).resolve().parents[2]
+    env = {
+        **_os.environ,
+        "PYTHONPATH": str(tmp_path) + _os.pathsep + _os.environ.get("PYTHONPATH", ""),
+    }
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "src.tools.testpatternscan",
+            "--path", str(tmp_path),
+            "--kinds", "patch_drift",
+            "--json",
+        ],
+        env=env,
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    # 4. Critical assertion: subprocess completed cleanly AND no marker file appeared
+    assert result.returncode == 0, (
+        f"scan crashed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert not bomb_marker.exists(), (
+        f"DA4 violation: bomb_module was imported during scan (PURE-AST resolver regressed to "
+        f"import_module). Marker file appeared at {bomb_marker}."
+    )
+
+
+def test_vacuous_rule_does_not_flag_pytest_raises_context_manager(tmp_path):
+    """(o) VacuousRule: `with pytest.raises(ValueError):` must NOT trigger vacuous finding.
+
+    Reviewer B finding #4: VacuousRule had 40 false positives on own tests/ because it
+    didn't recognize pytest.raises, pytest.fail as assertions.
+
+    Verify-by-mutation: Remove the `with pytest.raises(...)` check from _has_assert_call
+    -> this test file gets a vacuous finding -> test fails.
+    """
+    from src.tools.testpatternscan import scan
+
+    # Write a test file using pytest.raises context manager (proper assertion pattern)
+    test_file = tmp_path / "test_raises.py"
+    test_file.write_text(
+        "from unittest.mock import patch\n"
+        "import pytest\n"
+        "\n"
+        "@patch('foo.bar')\n"
+        "def test_raises_value_error(mock_bar):\n"
+        "    mock_bar.side_effect = ValueError('nope')\n"
+        "    with pytest.raises(ValueError):\n"
+        "        mock_bar()\n",
+        encoding="utf-8",
+    )
+
+    results = scan(path=tmp_path, kinds=["vacuous"])
+    vacuous = [f for f in results if f.rule == "vacuous"]
+    assert len(vacuous) == 0, (
+        f"Expected 0 vacuous findings for test using pytest.raises, got {vacuous}. "
+        "VacuousRule must recognize `with pytest.raises(...):` as an assertion."
+    )
+
+
+def test_vacuous_rule_does_not_flag_pytest_fail(tmp_path):
+    """(p) VacuousRule: `pytest.fail('msg')` must NOT trigger vacuous finding.
+
+    Verify-by-mutation: Remove `pytest.fail` from _has_assert_call
+    -> test file gets a vacuous finding -> test fails.
+    """
+    from src.tools.testpatternscan import scan
+
+    test_file = tmp_path / "test_fail.py"
+    test_file.write_text(
+        "from unittest.mock import patch\n"
+        "import pytest\n"
+        "\n"
+        "@patch('foo.bar')\n"
+        "def test_should_never_reach(mock_bar):\n"
+        "    mock_bar.return_value = None\n"
+        "    result = mock_bar()\n"
+        "    if result is not None:\n"
+        "        pytest.fail('mock should have returned None')\n",
+        encoding="utf-8",
+    )
+
+    results = scan(path=tmp_path, kinds=["vacuous"])
+    vacuous = [f for f in results if f.rule == "vacuous"]
+    assert len(vacuous) == 0, (
+        f"Expected 0 vacuous findings for test using pytest.fail, got {vacuous}. "
+        "VacuousRule must recognize pytest.fail as an assertion."
+    )

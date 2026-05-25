@@ -180,3 +180,15 @@ def query(
     jsonb columns.
     """
     return _query_impl(sql, dsn=dsn, limit=limit)
+
+
+@safe_op(name="dbquery", mutates=False)
+@prod_guard(dsn_param="dsn")
+def query_with_truncated(
+    sql: str,
+    *,
+    dsn: Optional[str] = None,
+    limit: int = 1000,
+) -> tuple[list[dict], bool]:
+    """Decorated public variant of query() returning (rows, truncated). For CLI markdown footer."""
+    return _query_impl_with_truncated(sql, dsn=dsn, limit=limit)

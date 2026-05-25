@@ -214,7 +214,19 @@ def _now_et() -> datetime:
     Pluggable: tests inject a lambda via the `now_et` decorator parameter
     to drive deterministic 'inside window' / 'outside window' scenarios.
     Mirrors the #97 lifecycle simulator's freezegun pattern.
+
+    Test seam: ARCIS_NOW_ET_OVERRIDE env var (format: 'YYYY-MM-DDTHH:MM:SS')
+    redirects to a fixed datetime for subprocess-based safety_window tests.
+    Do not use in production.
     """
+    import os
+    override = os.environ.get("ARCIS_NOW_ET_OVERRIDE")
+    if override:
+        try:
+            naive = datetime.fromisoformat(override)
+            return naive.replace(tzinfo=_ET)
+        except ValueError:
+            pass
     return datetime.now(_ET)
 
 

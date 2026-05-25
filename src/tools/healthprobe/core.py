@@ -175,6 +175,7 @@ def check(
     *,
     services: Optional[list[str]] = None,
     stale_seconds: Optional[int] = None,
+    cfg: Optional[ArcisConfig] = None,
 ) -> dict:
     """Composite read-only health check for Arcis NSSM services.
 
@@ -183,6 +184,8 @@ def check(
                        ['ArcisWatchLoop', 'ArcisOllamaWatchdog', 'ArcisDashboard'].
         stale_seconds: Override per-service heartbeat staleness threshold.
                        Applied uniformly when specified.
+        cfg:           Optional pre-loaded ArcisConfig. If None, loads via
+                       load_arcis_config() (respects ARCIS_CONFIG_PATH_OVERRIDE).
 
     Returns:
         ProbeResult dict with 'services', 'overall', 'as_of_et'.
@@ -191,4 +194,4 @@ def check(
         HealthProbeError: catastrophic failure (cfg load). Per-service
                          failures are absorbed into per-service verdicts.
     """
-    return _check_impl(services=services, stale_seconds=stale_seconds)
+    return _check_impl(services=services, stale_seconds=stale_seconds, cfg=cfg)

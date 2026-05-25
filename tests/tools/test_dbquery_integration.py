@@ -325,3 +325,48 @@ def test_cli_write_blocked_returns_json_envelope_exit_1(fixture_table):
             "DSN password appeared in newly-written tool-execution.log lines — "
             "libpq key=value redaction regression"
         )
+
+
+# ── Test (h) — CLI prod-DSN via subprocess blocks via @prod_guard ─────────────
+
+
+def test_cli_prod_dsn_signature_blocks_via_prod_guard():
+    """(h) CLI subprocess with prod-signature DSN → exit 1 + ProdGuardError envelope.
+
+    Verifies that the CLI __main__.py uses the DECORATED public API (query_with_truncated)
+    NOT the undecorated _query_impl_with_truncated. Without @prod_guard, the DSN would
+    attempt a real connection (and fail with a network error or succeed if prod is up),
+    NOT raise ProdGuardError.
+
+    Verify-by-mutation: Revert __main__.py to use _query_impl_with_truncated (undecorated)
+    → this test fails because the prod DSN either connects or raises a psycopg2 error,
+      but NOT ProdGuardError.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "src.tools.dbquery",
+            "SELECT 1",
+            "--dsn", _PROD_DSN,
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(repo_root),
+        env={
+            **__import__("os").environ,
+            "ARCIS_ALLOW_PROD_PG": "",  # ensure not set
+        },
+        timeout=15,
+    )
+
+    assert result.returncode == 1, (
+        f"Expected exit 1 (prod guard block), got {result.returncode}. "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    envelope = json.loads(result.stdout)
+    assert "error" in envelope, f"Expected error envelope: {envelope}"
+    assert envelope["error"]["type"] == "ProdGuardError", (
+        f"Expected ProdGuardError, got {envelope['error']['type']!r}. "
+        "If NssmMissingError or psycopg2 error: CLI is calling undecorated impl (bypass NOT fixed)."
+    )

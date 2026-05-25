@@ -14,12 +14,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from src.tools.processmanager.nssm import ServiceState, nssm_status
+from src.tools._subprocess import NssmMissingError
+from src.tools.processmanager.nssm import NssmCommandFailedError, ServiceState, nssm_status
 
 
 def _check_service_state(service: str) -> ServiceState:
-    """Query NSSM for the current service state."""
-    return nssm_status(service)
+    """Query NSSM for the current service state.
+
+    Per spec §3.2: per-service failures absorbed into UNKNOWN verdict, never raised.
+    HealthProbe always returns a result — it never raises just because a service is down.
+    """
+    try:
+        return nssm_status(service)
+    except (NssmMissingError, NssmCommandFailedError, Exception):
+        return ServiceState.UNKNOWN
 
 
 def _check_port(port: int, host: str = "127.0.0.1") -> bool:
@@ -53,6 +61,9 @@ def _check_heartbeat(
     """
     if not path.exists():
         return False, "file_missing"
+
+    if not path.is_file():
+        return False, "not_a_file"
 
     try:
         if mode == "iso":
