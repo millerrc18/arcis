@@ -53,6 +53,7 @@ _VALID_RESULTS = frozenset({
     "safety_window_block",
     "prod_guard_block",
     "error",
+    "secret_leak_block",   # NEW (#106 Tier 2 — emitted by PRComments.post on PRCommentLeakError)
 })
 
 # Substring patterns that mark a kwarg as a secret. Case-insensitive
