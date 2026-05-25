@@ -54,6 +54,7 @@ class PathsConfig(BaseModel):
     logs_runtime: Path
     logs_service: Path
     ollama_models: Path
+    watchdog_heartbeat: Path = Path("C:/arcis/halcyon-lab/data/watchdog.txt")
     worktrees: dict[str, Path]
 
 
