@@ -51,6 +51,13 @@ paths:
   # runtime logs above. Tools that want "what NSSM observed" read here.
   logs_service: C:/arcis/halcyon-lab/data/logs
 
+  # Watchdog heartbeat file — written by src/scheduler/watch.py at the end of
+  # each scheduler cycle (NSSM AppDirectory: C:/arcis/halcyon-lab/data/).
+  # Explicit config key per DD-10 / FB2: decouples ProcessManager.restart and
+  # HealthProbe.heartbeat from db_canonical.parent (wrong dir: C:/arcis/data/)
+  # and from statusline.py's _resolve_data_root() discovery walk.
+  watchdog_heartbeat: "C:/arcis/halcyon-lab/data/watchdog.txt"
+
   # Ollama model store — env var `OLLAMA_MODELS` must point here for the
   # watchdog (#94) to find the fine-tuned model. The gotcha: a fresh
   # Ollama install defaults to `~/.ollama/models` on the *current user*,

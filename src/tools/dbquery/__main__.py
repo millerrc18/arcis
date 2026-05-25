@@ -14,7 +14,7 @@ import argparse
 import json as json_mod
 
 from src.tools._cli_envelope import run_cli
-from src.tools.dbquery.core import _query_impl_with_truncated
+from src.tools.dbquery.core import query_with_truncated
 
 
 def _render_markdown(rows: list[dict], truncated: bool) -> str:
@@ -49,7 +49,7 @@ def _run(sql: str, *, dsn: str | None, limit: int, json: bool) -> str:
     Called by run_cli(**vars(args_namespace)). Raises WriteNotPermittedError
     or DBQueryError on failure — run_cli handles the JSON envelope.
     """
-    rows, truncated = _query_impl_with_truncated(sql, dsn=dsn, limit=limit)
+    rows, truncated = query_with_truncated(sql, dsn=dsn, limit=limit)
 
     if json:
         return json_mod.dumps(rows, default=str)

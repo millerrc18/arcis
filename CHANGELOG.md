@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+## [v0.36.63] — 2026-05-25 — Tier 2 Tools (#106): five composable Python-API + CLI tools (first mutating tools)
+
+Implements Arcis #106 Tier 2 tools building on the #104 safety foundation + #105 Tier 1 patterns. Introduces the **first mutating tools** in the suite (ProcessManager start/stop/restart, PRComments post), with corresponding @safety_window first-production-consumer (no_restart_overnight) and secret-leak pre-flight (PRCommentLeakError + new `secret_leak_block` audit kind).
+
+### Added — five tools
+
+- **ProcessManager** (`src/tools/processmanager/`) — nssm wrapper for the 3 Arcis services. POSITIVE 7-state vocabulary (`SERVICE_RUNNING`/`STARTING`/`STOPPING`/`PAUSED`/`PAUSE_PENDING`/`CONTINUE_PENDING`/`STOPPED`/`UNKNOWN`) — does NOT inherit `archive_bootcamp_2026_04_24.py:157-169` NEGATIVE-style parse. `restart` is the FIRST production consumer of `@safety_window('no_restart_overnight')`. **DA2 sustained-running wait-and-verify (DD-16):** after first `RUNNING` observation, polls 3 more 1s intervals; any non-`RUNNING` observation resets the consecutive-counter (catches NSSM AppRestartDelay flap where a crashing-then-relaunched service shows transient `RUNNING`). Overall deadline 33s. Log-evidence check happens AFTER sustained-running confirmation, not during. PID-scoped `taskkill /f /t /pid <pid>` (NEVER `/im`, NEVER `Stop-Process -Name`) per `ollama_watchdog.py:226-227` discipline.
+
+- **HealthProbe** (`src/tools/healthprobe/`) — composite read-only check: NSSM state + heartbeat freshness + port reachability + recent ERROR count. Per-service staleness defaults 60s (watch_loop) / 30s (ollama_watchdog) / 300s (dashboard). Verdict matrix worst-of `OK` / `DEGRADED` / `DOWN`. Imports `nssm_status` from ProcessManager (Tier-2 → Tier-2 read-only inheritance) and `tail` from Tier 1 v0.36.62 logtail (FB3 hard dependency — no fallback).
+
+- **PRComments** (`src/tools/prcomments/`) — greenfield `gh pr comment` wrapper with content-based **secret-leak pre-flight** (`PRCommentLeakError`). Uses `gh pr comment --body-file -` via stdin pipe (DD-14 — never `--body STRING` to avoid shell-escaping risk). FB6: gh >= 2.0 documented (not pre-flighted); auth failure surfaced as `GhCommandFailedError` with hint kwarg; rate-limit stderr passthrough verbatim (no retry/backoff). NO `@safety_window` (GitHub writes are low-risk + rate-limited).
+
+- **CapabilityRegistryQuery** (`src/tools/capabilityregistry/`) — pure-registry inspection via `dataclasses.asdict(src.schema.registry.TABLES)`. V1 — no DBQuery composition (Tier 3 ContractCheck deferred). The PERMITTED EXCEPTION (`from src.schema.registry import TABLES`) to the §2.2 forbidden-imports list applies ONLY here (DD-13).
+
+- **TestPatternScan** (`src/tools/testpatternscan/`) — AST-based static analyzer for 4 test anti-patterns. Defaults: `vacuous` + `patch_drift` ON; `mock_only` + `side_effect_unreached` opt-in via `--kinds`. **DA4 PURE-AST resolver (DD-5):** PatchDriftRule uses `importlib.util.find_spec` (import-free) + `ast.parse` of `.origin` file + top-level name collection — NEVER `importlib.import_module`, NEVER `__import__`. Scanning a test that patches `src.api.app.X` does NOT trigger `load_dotenv` / DB connections / FastAPI app instantiation (verified by poison-trap test).
+
+### Added — foundation helpers
+
+- **`src/tools/_secrets.py`** — content-based secret scanner. 15 high-confidence patterns (DA3-extended: `ghp_` / `github_pat_` / `gho_` / `ghs_` / `ghu_` / `glpat-` / `sk-` / `sk_live_` / `pk_live_` / `xox*` / JWT 3-segment / `password=` / `Authorization: Bearer` / PEM / `AKIA`) + high-entropy fallback (40+ char base64-like) catching AWS secret access keys + unknown vendor tokens. Returns 3-tuple `(is_leak, redacted_preview, kind)` where `kind ∈ {'known_prefix', 'high_entropy_unknown', 'none'}`. T1 cycle-1 Security fix: always runs the high-entropy fallback after the known-prefix loop (defense-in-depth — multi-match bodies get BOTH regions redacted).
+
+- **`src/tools/_subprocess.py`** — shared `run(args, *, timeout, check, input_data)` wrapper enforcing `capture_output=True`, `text=True`, `encoding='utf-8'`, NEVER `shell=True`. Cached `resolve_exe(name)` via `@lru_cache(maxsize=4)` with `NssmMissingError` / `GhMissingError` install hints (gh hint includes ≥ 2.0 requirement).
+
+### Added — config
+
+- **`paths.watchdog_heartbeat`** (DD-10/FB2) — new explicit config key, default `C:/arcis/halcyon-lab/data/watchdog.txt`. Replaces the would-be-wrong `cfg.paths.db_canonical.parent / 'watchdog.txt'` (which resolves to `C:/arcis/data/watchdog.txt`, NOT the actual NSSM AppDirectory). Decouples ProcessManager.restart + HealthProbe.heartbeat from `db_canonical.parent` derivation and from `scripts/statusline.py:38-55`'s `_resolve_data_root()` discovery walk. Statusline can opt-in post-merge.
+
+### Extended
+
+- **`_VALID_RESULTS`** in `src/tools/_execution_log.py` gains `'secret_leak_block'` — emitted by PRComments.post on `PRCommentLeakError`. `tests/tools/test_execution_log.py` parametrize extended atomically + new `test_valid_results_frozenset_exhaustive` asserts the frozenset equals the exact 6-element literal (FB1 drift detector).
+
+### Test coverage
+
+- 178 tests in `tests/tools/` (was 101 at v0.36.62 ship), +77 new across the 7 task deliverables.
+- Real-seam smoke tests (FB5/DD-15) with `@pytest.mark.skipif(shutil.which('X') is None)` gates:
+  - `test_processmanager_real_nssm_smoke` — verifies real `nssm.exe status` parses against `_STATE_MAP`
+  - `test_prcomments_real_gh_smoke` — verifies real `gh pr view --json comments` JSON maps to `PRComment` dataclass
+- DA2 flap-detection test uses canned `[RUNNING, STOPPED, RUNNING, RUNNING, RUNNING]` sequence; asserts `elapsed_s > 5s` AND consecutive-counter reset on STOPPED AND log-evidence check happens AFTER sustained-running.
+- DA4 side-effect-safety test installs poison-traps on `dotenv.load_dotenv`, `sqlite3.connect`, `psycopg2.connect` + asserts `DATABASE_URL` env unchanged after scanning a test that `@patch('src.api.app.X')`.
+
+### Anti-patterns explicitly NOT inherited (DD-8)
+
+| Anti-pattern | Cited at | Tier-2 alternative |
+|---|---|---|
+| `_sc_query_running` (no-timeout + bare `except`) | `src/scheduler/watch.py:130-147` | `_subprocess.run(..., timeout=N)` + typed errors |
+| Double-soft swallow wrapping `_sc_query_running` | `src/scheduler/watch.py:1161-1163` | Typed errors propagate all the way up |
+| Silent `FileNotFoundError` on missing nssm | `scripts/archive_bootcamp_2026_04_24.py:166` | `NssmMissingError(SubprocessError)` with install hint |
+| NEGATIVE state parse (`'SERVICE_STOPPED' not in stdout`) | `scripts/archive_bootcamp_2026_04_24.py:157-169` | POSITIVE `_STATE_MAP` iteration (7-state vocab) |
+| Kill-by-name (`taskkill /im`) | (already avoided) | PID-scoped only (mirrors `ollama_watchdog.py:180-260`) |
+| CWD-relative `Path('data/watchdog.txt')` + discovery-walk read | `src/scheduler/watch.py:1722-1734` + `scripts/statusline.py:38-55` | `cfg.paths.watchdog_heartbeat` (DD-10) — explicit config key |
+
+### References
+
+- Spec: `docs/audits/2026-05-24-tier2-tools/specs/2026-05-24-tier2-tools-design.md`
+- Plan: `docs/audits/2026-05-24-tier2-tools/plans/2026-05-24-tier2-tools.md`
+- Foundation: v0.36.57 #104 (`_config.py`, `_safety.py`, `_execution_log.py`) + v0.36.62 #105 (`_db.py`, `_cli_envelope.py`, `logtail`, `dbquery`, `tradingstate`, `symbolfind`, `ciinvestigate`)
+- Memory: `feedback_complete_efforts_no_deferral` (all review-driven changes addressed in this PR — T1 cycle-1 Security fix for multi-match leak landed in the same sprint, no follow-up deferred)
+
 ## [v0.36.62] — 2026-05-24 — Tier 1 Tools (#105): five composable Python-API + CLI tools
 
 Implements Arcis #105 Tier 1 tools building on the v0.36.57 #104 foundation (`_config.py`, `_safety.py`, `_execution_log.py`). Five tools, each shipped as a per-tool subpackage callable via Python API or `python -m src.tools.<name>` CLI.
