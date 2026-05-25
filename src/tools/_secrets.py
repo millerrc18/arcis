@@ -56,8 +56,14 @@ def detect_secret_in_text(body: str) -> tuple[bool, str, str]:
 
     Scan order:
         1. All 15 known-prefix patterns are applied (all matches redacted).
-        2. If none matched, the high-entropy fallback is checked.
-        3. If nothing matched, the original body is returned unchanged.
+        2. High-entropy fallback is ALWAYS applied next — defense-in-depth
+           per T1 Security review: a body containing BOTH a known-prefix
+           token AND a separate high-entropy secret previously had only
+           the known token redacted (the secondary secret leaked via
+           audit-log preview). Always running the fallback redacts both.
+        3. `kind` label reflects whether ANY known-prefix matched (takes
+           precedence in the label since known-prefix is HIGH-confidence);
+           else 'high_entropy_unknown'; else 'none'.
     """
     redacted = body
     known_hit = False
@@ -65,9 +71,12 @@ def detect_secret_in_text(body: str) -> tuple[bool, str, str]:
         if pat.search(redacted):
             known_hit = True
             redacted = pat.sub('***REDACTED***', redacted)
+    # ALWAYS run the high-entropy fallback (T1 Security cycle-1 fix).
+    high_entropy_hit = bool(_HIGH_ENTROPY_PATTERN.search(redacted))
+    if high_entropy_hit:
+        redacted = _HIGH_ENTROPY_PATTERN.sub('***REDACTED***', redacted)
     if known_hit:
         return True, redacted, 'known_prefix'
-    if _HIGH_ENTROPY_PATTERN.search(redacted):
-        redacted = _HIGH_ENTROPY_PATTERN.sub('***REDACTED***', redacted)
+    if high_entropy_hit:
         return True, redacted, 'high_entropy_unknown'
     return False, body, 'none'
