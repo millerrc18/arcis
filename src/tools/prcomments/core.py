@@ -191,7 +191,11 @@ def _post_impl(
     if result.returncode != 0:
         hint = None
         stderr_lower = result.stderr.lower()
-        if "auth" in stderr_lower or "authentication required" in stderr_lower:
+        # Precise auth-failure check — Reviewer B cycle-3 sibling-search fix.
+        # The loose 'auth' substring would falsely match repo-permission errors like
+        # 'you are not authorized to push', misleading the operator to `gh auth login`
+        # when the actual fix is repo collaborator settings.
+        if "authentication required" in stderr_lower or "gh auth login" in stderr_lower:
             hint = "Run `gh auth status` then `gh auth login` if needed."
         raise GhCommandFailedError(
             returncode=result.returncode,
