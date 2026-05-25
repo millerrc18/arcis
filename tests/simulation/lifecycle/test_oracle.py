@@ -390,3 +390,38 @@ def test_invariant_9_hash_differs_on_real_data_change(pg_conn):
     finally:
         observer.detach()
     assert baseline != changed
+
+
+# ── rollback-between-checks contract ──────────────────────────────────────────
+
+
+class _RollbackCountingConn:
+    """Thin wrapper that counts rollback() calls; delegates everything else."""
+
+    def __init__(self, real_conn):
+        object.__setattr__(self, "_real", real_conn)
+        object.__setattr__(self, "rollback_count", 0)
+
+    def rollback(self):
+        object.__setattr__(self, "rollback_count", self.rollback_count + 1)
+        return self._real.rollback()
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_assert_all_rollback_count(pg_conn):
+    """assert_all() must call conn.rollback() exactly once per invariant (9 total).
+
+    Verifies the try/finally rollback-between-checks contract from spec §3.2.
+    """
+    ledger, fake, marks = _clean_world(pg_conn)
+    observer = SwallowedErrorObserver().install()
+    try:
+        wrapped = _RollbackCountingConn(pg_conn)
+        _build_oracle(wrapped, ledger, fake, observer, marks).assert_all()
+    finally:
+        observer.detach()
+    assert wrapped.rollback_count == 9, (
+        f"expected 9 rollbacks, got {wrapped.rollback_count}"
+    )

@@ -86,24 +86,33 @@ class Oracle:
         self.clock = clock
 
     def assert_all(self) -> list[InvariantResult]:
-        """Run every invariant and return its InvariantResult, in 1..9 order."""
-        return [
-            _checks_db.check_attribution(self.conn),
-            _checks_db.check_zero_orphans(self.conn),
-            _checks_db.check_zero_synthetic_closes(self.conn),
-            _checks_signal.check_db_open_equals_broker(
-                self.conn, self.fake_trading_client
-            ),
-            _checks_signal.check_capital_conservation(
-                self.capital_ledger, self.db_reported_pnl
-            ),
-            _checks_signal.check_honest_metrics(
+        """Run every invariant and return its InvariantResult, in 1..9 order.
+
+        Each check runs inside a try/finally that rolls back `self.conn` on exit,
+        so a check failure (or an InFailedSqlTransaction state from the prior
+        check) does not poison the next check. Rollback on a clean / unstarted
+        transaction is a no-op in psycopg2, so signal-only checks are unaffected.
+        """
+        results: list[InvariantResult] = []
+        invocations = (
+            lambda: _checks_db.check_attribution(self.conn),
+            lambda: _checks_db.check_zero_orphans(self.conn),
+            lambda: _checks_db.check_zero_synthetic_closes(self.conn),
+            lambda: _checks_signal.check_db_open_equals_broker(
+                self.conn, self.fake_trading_client),
+            lambda: _checks_signal.check_capital_conservation(
+                self.capital_ledger, self.db_reported_pnl),
+            lambda: _checks_signal.check_honest_metrics(
                 self.capital_ledger, self.marks,
-                self.governor_drawdown_pct, self.observer,
-            ),
-            _checks_db.check_corpus_integrity(self.conn),
-            _checks_signal.check_no_wedged_processes(
-                self.pidfile, self.pidfile_identity
-            ),
-            _checks_db.check_deterministic_reproducibility(self.conn),
-        ]
+                self.governor_drawdown_pct, self.observer),
+            lambda: _checks_db.check_corpus_integrity(self.conn),
+            lambda: _checks_signal.check_no_wedged_processes(
+                self.pidfile, self.pidfile_identity),
+            lambda: _checks_db.check_deterministic_reproducibility(self.conn),
+        )
+        for invoke in invocations:
+            try:
+                results.append(invoke())
+            finally:
+                self.conn.rollback()
+        return results
