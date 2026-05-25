@@ -29,13 +29,13 @@ def check_db_open_equals_broker(conn, fake_trading_client) -> InvariantResult:
     FakeTradingClient.get_all_positions() reports. Any mismatch (extra DB open,
     extra broker position, or a quantity divergence) fails.
     """
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT ticker, actual_shares FROM shadow_trades "
-        "WHERE status = 'open' "
-        "ORDER BY ticker, actual_shares"
-    )
-    db_open = {(t, float(q or 0.0)) for t, q in cur.fetchall()}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, actual_shares FROM shadow_trades "
+            "WHERE status = 'open' "
+            "ORDER BY ticker, actual_shares"
+        )
+        db_open = {(t, float(q or 0.0)) for t, q in cur.fetchall()}
     broker = {
         (p.symbol, float(p.qty)) for p in fake_trading_client.get_all_positions()
     }

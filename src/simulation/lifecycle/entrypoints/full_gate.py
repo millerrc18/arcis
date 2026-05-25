@@ -28,17 +28,21 @@ from __future__ import annotations
 
 import src.simulation.lifecycle.bootstrap as _bootstrap  # FIRST: pins safe env
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
 import psycopg2
 
 from src.schema.postgres import create_all_tables
+from src.simulation.lifecycle import _leak_detector
 from src.simulation.lifecycle.clock import ET
 from src.simulation.lifecycle.oracle import InvariantResult
 from src.simulation.lifecycle.prod_guard import install_prod_guard
 from src.simulation.lifecycle.scenario import ScenarioRunner
 from src.simulation.lifecycle.verdict import Verdict, VerdictReporter, classify
+
+LOG = logging.getLogger(__name__)
 
 _FULL_GATE_DAYS = 5
 _FULL_GATE_START = datetime(2026, 5, 22, 4, tzinfo=ET)
@@ -60,10 +64,9 @@ def _provision_pg(dsn: str):
     create_all_tables(dsn)
     conn = psycopg2.connect(dsn)
     conn.autocommit = True
-    cur = conn.cursor()
-    for tbl in _TABLES:
-        cur.execute(f"TRUNCATE TABLE {tbl} CASCADE")
-    cur.close()
+    with conn.cursor() as cur:
+        for tbl in _TABLES:
+            cur.execute(f"TRUNCATE TABLE {tbl} CASCADE")
     conn.autocommit = False
     return conn
 
@@ -72,6 +75,7 @@ def run_full_gate() -> FullGateResult:
     """Provision the 5434 PG, run the authoritative scenario, return its Verdict."""
     install_prod_guard()
     dsn = _bootstrap.SIM_DATABASE_URL
+    baseline = _leak_detector.snapshot_backends(dsn, application_name_filter=None)
     conn = _provision_pg(dsn)
     try:
         runner = ScenarioRunner(conn=conn, start=_FULL_GATE_START, sim_dsn=dsn)
@@ -79,6 +83,11 @@ def run_full_gate() -> FullGateResult:
     finally:
         conn.rollback()
         conn.close()
+        after = _leak_detector.snapshot_backends(dsn, application_name_filter=None)
+        LOG.info(
+            "[full_gate] conn-leak diagnostic:\n%s",
+            _leak_detector.format_delta(baseline, after),
+        )
     results = list(scenario.final_results)
     report = VerdictReporter(tier="full").render(results)
     return FullGateResult(verdict=classify(results), report=report, results=results)

@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+## [v0.36.64] — 2026-05-25 — Sim conn-lifecycle leak fix + PROD audit (#100)
+
+### Fixed
+
+- sim test-harness: connection-lifecycle leak (#100). Back-to-back smoke /
+  full_gate runs no longer accumulate idle-in-txn / idle-stale PG backends.
+  Primary fix: Oracle.assert_all() now rolls back self.conn in a try/finally
+  per invariant, so a half-aborted transaction from check N cannot poison
+  check N+1. Secondary fix: 7 cursor sites in oracle/_checks_db.py,
+  oracle/_checks_signal.py, and scenario.py converted to
+  `with conn.cursor() as cur:`. Plus 2 autocommit cursor sites in
+  entrypoints/full_gate.py and entrypoints/smoke.py (operator-added expansion).
+
+### Added
+
+- `src/simulation/lifecycle/_leak_detector.py` — pure-query helper that
+  snapshots pg_stat_activity. Supports `application_name_filter` for
+  single-tenant isolation. Prints operator-readable recovery hint to
+  stderr when the test PG is at max_connections (the exact failure mode
+  the helper is designed to diagnose).
+- `tests/simulation/lifecycle/test_no_conn_leak.py` — inner-mechanism
+  witness test (PRIMARY) + 3x-loop accumulator backstop. Env var
+  `SIM_LEAK_LOOP_ITERATIONS` opts the backstop into stress mode.
+- `docs/audits/2026-05-24-sim-conn-leak/audits/2026-05-24-prod-leak-audit.md` —
+  PROD code-path audit (document-only). Three follow-up tasks filed:
+  #100-followup-A (bracket_attach.py:126 LEAK on exception path, P2),
+  #100-followup-B (broker_exception_logger.py:51 explicit close discipline, P2),
+  #100-followup-C (watch.py:1495 _check_row_counts PARTIAL — no close on except
+  branch, P3, batch with watch.py audit).
+
+### Unchanged (explicit)
+
+- PROD watch-loop conn pool behavior is bit-for-bit identical.
+- `prod_guard.install_prod_guard()` sentinel and monkeypatch untouched.
+- `Oracle` signature is unchanged.
+
 ## [v0.36.63] — 2026-05-25 — Tier 2 Tools (#106): five composable Python-API + CLI tools (first mutating tools)
 
 Implements Arcis #106 Tier 2 tools building on the #104 safety foundation + #105 Tier 1 patterns. Introduces the **first mutating tools** in the suite (ProcessManager start/stop/restart, PRComments post), with corresponding @safety_window first-production-consumer (no_restart_overnight) and secret-leak pre-flight (PRCommentLeakError + new `secret_leak_block` audit kind).

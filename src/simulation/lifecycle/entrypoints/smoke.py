@@ -37,17 +37,21 @@ from __future__ import annotations
 
 import src.simulation.lifecycle.bootstrap  # noqa: F401  — FIRST: pins safe env
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
 import psycopg2
 
+from src.simulation.lifecycle import _leak_detector
 from src.simulation.lifecycle.bootstrap import SIM_DATABASE_URL
 from src.simulation.lifecycle.clock import ET
 from src.simulation.lifecycle.oracle import InvariantResult
 from src.simulation.lifecycle.prod_guard import install_prod_guard
 from src.simulation.lifecycle.scenario import ScenarioRunner
 from src.simulation.lifecycle.verdict import Verdict, VerdictReporter, classify
+
+LOG = logging.getLogger(__name__)
 
 _SMOKE_DAYS = 1
 _SMOKE_START = datetime(2026, 5, 22, 4, tzinfo=ET)
@@ -81,16 +85,16 @@ def _truncate_smoke_tables() -> None:
     """
     conn = psycopg2.connect(SIM_DATABASE_URL)
     conn.autocommit = True
-    cur = conn.cursor()
-    for tbl in _SMOKE_TRUNCATE_TABLES:
-        cur.execute(f"TRUNCATE TABLE {tbl} CASCADE")
-    cur.close()
+    with conn.cursor() as cur:
+        for tbl in _SMOKE_TRUNCATE_TABLES:
+            cur.execute(f"TRUNCATE TABLE {tbl} CASCADE")
     conn.close()
 
 
 def run_smoke() -> SmokeResult:
     """Run the short-scenario smoke run; return a NON-authoritative verdict."""
     install_prod_guard()
+    baseline = _leak_detector.snapshot_backends(SIM_DATABASE_URL, application_name_filter=None)
     _truncate_smoke_tables()
     conn = psycopg2.connect(SIM_DATABASE_URL)
     conn.autocommit = True
@@ -100,6 +104,11 @@ def run_smoke() -> SmokeResult:
     finally:
         conn.rollback()
         conn.close()
+        after = _leak_detector.snapshot_backends(SIM_DATABASE_URL, application_name_filter=None)
+        LOG.info(
+            "[smoke] conn-leak diagnostic:\n%s",
+            _leak_detector.format_delta(baseline, after),
+        )
     results = list(scenario.final_results)
     report = VerdictReporter(tier="smoke").render(results)
     return SmokeResult(

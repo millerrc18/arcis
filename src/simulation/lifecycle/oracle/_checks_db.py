@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import closing
 
 from src.shadow_trading.reconcile import SYNTHETIC_EXIT_REASONS
 from src.simulation.lifecycle.oracle._result import InvariantResult
@@ -32,14 +33,14 @@ def check_attribution(conn) -> InvariantResult:
     recommendation behind it. (Reconciled rows are caught separately by
     invariant 2; here we only assert the attribution link for the rest.)
     """
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT trade_id FROM shadow_trades "
-        "WHERE (order_type IS NULL OR order_type <> 'reconciled') "
-        "  AND recommendation_id IS NULL "
-        "ORDER BY trade_id"
-    )
-    unattributed = [r[0] for r in cur.fetchall()]
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            "SELECT trade_id FROM shadow_trades "
+            "WHERE (order_type IS NULL OR order_type <> 'reconciled') "
+            "  AND recommendation_id IS NULL "
+            "ORDER BY trade_id"
+        )
+        unattributed = [r[0] for r in cur.fetchall()]
     passed = not unattributed
     detail = (
         "every non-reconciled trade links a recommendation"
@@ -61,13 +62,13 @@ def check_zero_orphans(conn) -> InvariantResult:
     observable via the SwallowedErrorObserver), but its EFFECT is an orphan /
     reconciled row, which lands here.
     """
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT trade_id FROM shadow_trades "
-        "WHERE order_type = 'reconciled' OR recommendation_id IS NULL "
-        "ORDER BY trade_id"
-    )
-    orphans = [r[0] for r in cur.fetchall()]
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            "SELECT trade_id FROM shadow_trades "
+            "WHERE order_type = 'reconciled' OR recommendation_id IS NULL "
+            "ORDER BY trade_id"
+        )
+        orphans = [r[0] for r in cur.fetchall()]
     passed = not orphans
     detail = (
         "no orphan / reconciled rows"
@@ -89,15 +90,15 @@ def check_zero_synthetic_closes(conn) -> InvariantResult:
     synthetic exit_reason in reconcile.py automatically extends this gate
     (no drift between prod and the oracle).
     """
-    cur = conn.cursor()
     placeholders = ", ".join(["%s"] * len(SYNTHETIC_EXIT_REASONS))
-    cur.execute(
-        f"SELECT trade_id FROM shadow_trades "
-        f"WHERE exit_reason IN ({placeholders}) "
-        f"ORDER BY trade_id",
-        tuple(sorted(SYNTHETIC_EXIT_REASONS)),
-    )
-    synthetic = [r[0] for r in cur.fetchall()]
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            f"SELECT trade_id FROM shadow_trades "
+            f"WHERE exit_reason IN ({placeholders}) "
+            f"ORDER BY trade_id",
+            tuple(sorted(SYNTHETIC_EXIT_REASONS)),
+        )
+        synthetic = [r[0] for r in cur.fetchall()]
     passed = not synthetic
     detail = (
         "no synthetic / reconciled_stale closes"
@@ -117,14 +118,14 @@ def check_corpus_integrity(conn) -> InvariantResult:
     (non-quarantined, non-synthetic) training examples, no model version may be
     registered. A registered model on an empty measured corpus is a violation.
     """
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT COUNT(*) FROM training_examples "
-        "WHERE COALESCE(quarantined, 0) = 0 AND source <> 'synthetic'"
-    )
-    measured = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM model_versions")
-    models = cur.fetchone()[0]
+    with closing(conn.cursor()) as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM training_examples "
+            "WHERE COALESCE(quarantined, 0) = 0 AND source <> 'synthetic'"
+        )
+        measured = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM model_versions")
+        models = cur.fetchone()[0]
     promotion_on_empty = measured == 0 and models > 0
     passed = not promotion_on_empty
     detail = (
@@ -171,21 +172,21 @@ def canonical_snapshot_hash(conn) -> str:
     Two identical seeded runs hash identically; any real data change differs.
     """
     hasher = hashlib.sha256()
-    cur = conn.cursor()
-    for table, order_cols, value_cols in _SNAPSHOT_QUERIES:
-        cols = ", ".join(value_cols)
-        order_by = ", ".join(order_cols)
-        cur.execute(f"SELECT {cols} FROM {table} ORDER BY {order_by}")
-        hasher.update(f"::{table}::".encode())
-        for row in cur.fetchall():
-            # json.dumps with sort_keys + default=str is a documented canonical
-            # serializer — stable across CPython rebuilds and across container
-            # images. repr() on Decimal/datetime/None is NOT a documented
-            # canonical format, so use json for cross-environment determinism
-            # (#98 review should-fix #6, 2026-05-23).
-            hasher.update(
-                json.dumps(list(row), sort_keys=True, default=str).encode()
-            )
+    with closing(conn.cursor()) as cur:
+        for table, order_cols, value_cols in _SNAPSHOT_QUERIES:
+            cols = ", ".join(value_cols)
+            order_by = ", ".join(order_cols)
+            cur.execute(f"SELECT {cols} FROM {table} ORDER BY {order_by}")
+            hasher.update(f"::{table}::".encode())
+            for row in cur.fetchall():
+                # json.dumps with sort_keys + default=str is a documented canonical
+                # serializer — stable across CPython rebuilds and across container
+                # images. repr() on Decimal/datetime/None is NOT a documented
+                # canonical format, so use json for cross-environment determinism
+                # (#98 review should-fix #6, 2026-05-23).
+                hasher.update(
+                    json.dumps(list(row), sort_keys=True, default=str).encode()
+                )
     return hasher.hexdigest()
 
 

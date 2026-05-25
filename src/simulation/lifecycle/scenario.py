@@ -486,7 +486,6 @@ class ScenarioRunner:
         Returns a list of dicts with the inv9-hashed columns (and a few extras
         the runner needs for marks / leg lookup).
         """
-        cur = self.conn.cursor()
         cols = (
             "trade_id",
             "recommendation_id",
@@ -500,14 +499,15 @@ class ScenarioRunner:
             "actual_entry_price",
         )
         sql = f"SELECT {', '.join(cols)} FROM shadow_trades"
-        if status is not None:
-            sql += " WHERE status = %s"
-            cur.execute(sql + " ORDER BY trade_id", (status,))
-        else:
-            cur.execute(sql + " ORDER BY trade_id")
-        rows: list[dict] = []
-        for raw in cur.fetchall():
-            rows.append(dict(zip(cols, raw)))
+        with self.conn.cursor() as cur:
+            if status is not None:
+                sql += " WHERE status = %s"
+                cur.execute(sql + " ORDER BY trade_id", (status,))
+            else:
+                cur.execute(sql + " ORDER BY trade_id")
+            rows: list[dict] = []
+            for raw in cur.fetchall():
+                rows.append(dict(zip(cols, raw)))
         return rows
 
     # ── Oracle checkpoint (the 9 invariants) ───────────────────────────────
