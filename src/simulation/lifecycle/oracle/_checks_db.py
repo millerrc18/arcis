@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import closing
 
 from src.shadow_trading.reconcile import SYNTHETIC_EXIT_REASONS
 from src.simulation.lifecycle.oracle._result import InvariantResult
@@ -32,7 +33,7 @@ def check_attribution(conn) -> InvariantResult:
     recommendation behind it. (Reconciled rows are caught separately by
     invariant 2; here we only assert the attribution link for the rest.)
     """
-    with conn.cursor() as cur:
+    with closing(conn.cursor()) as cur:
         cur.execute(
             "SELECT trade_id FROM shadow_trades "
             "WHERE (order_type IS NULL OR order_type <> 'reconciled') "
@@ -61,7 +62,7 @@ def check_zero_orphans(conn) -> InvariantResult:
     observable via the SwallowedErrorObserver), but its EFFECT is an orphan /
     reconciled row, which lands here.
     """
-    with conn.cursor() as cur:
+    with closing(conn.cursor()) as cur:
         cur.execute(
             "SELECT trade_id FROM shadow_trades "
             "WHERE order_type = 'reconciled' OR recommendation_id IS NULL "
@@ -90,7 +91,7 @@ def check_zero_synthetic_closes(conn) -> InvariantResult:
     (no drift between prod and the oracle).
     """
     placeholders = ", ".join(["%s"] * len(SYNTHETIC_EXIT_REASONS))
-    with conn.cursor() as cur:
+    with closing(conn.cursor()) as cur:
         cur.execute(
             f"SELECT trade_id FROM shadow_trades "
             f"WHERE exit_reason IN ({placeholders}) "
@@ -117,7 +118,7 @@ def check_corpus_integrity(conn) -> InvariantResult:
     (non-quarantined, non-synthetic) training examples, no model version may be
     registered. A registered model on an empty measured corpus is a violation.
     """
-    with conn.cursor() as cur:
+    with closing(conn.cursor()) as cur:
         cur.execute(
             "SELECT COUNT(*) FROM training_examples "
             "WHERE COALESCE(quarantined, 0) = 0 AND source <> 'synthetic'"
@@ -171,7 +172,7 @@ def canonical_snapshot_hash(conn) -> str:
     Two identical seeded runs hash identically; any real data change differs.
     """
     hasher = hashlib.sha256()
-    with conn.cursor() as cur:
+    with closing(conn.cursor()) as cur:
         for table, order_cols, value_cols in _SNAPSHOT_QUERIES:
             cols = ", ".join(value_cols)
             order_by = ", ".join(order_cols)
