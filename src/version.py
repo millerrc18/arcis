@@ -24,4 +24,4 @@ update CHANGELOG.md alongside.
 # test_version.py hardcoded v0.36.50 asserts + test_schema.py mock-target
 # drift on _fetch_closed_trades_*).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.63"
+VERSION = "v0.36.64"
