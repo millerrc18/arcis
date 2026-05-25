@@ -216,7 +216,8 @@ def test_no_rotate_when_under_10mb(tmp_path):
 
 
 @pytest.mark.parametrize("result", [
-    "success", "dry_run", "safety_window_block", "prod_guard_block", "error"
+    "success", "dry_run", "safety_window_block", "prod_guard_block", "error",
+    "secret_leak_block",
 ])
 def test_write_event_accepts_all_result_kinds(tmp_path, result):
     from src.tools._execution_log import write_event
@@ -226,3 +227,17 @@ def test_write_event_accepts_all_result_kinds(tmp_path, result):
 
     event = json.loads(log.read_text(encoding="utf-8"))
     assert event["result"] == result
+
+
+def test_valid_results_frozenset_exhaustive():
+    """Lock the _VALID_RESULTS frozenset against silent drift.
+
+    Verify-by-mutation: if a future change adds a 7th result kind to
+    _execution_log._VALID_RESULTS without updating this assertion, this
+    test fails RED — forcing the test author to acknowledge the change.
+    """
+    from src.tools._execution_log import _VALID_RESULTS
+    assert _VALID_RESULTS == frozenset({
+        'success', 'dry_run', 'safety_window_block', 'prod_guard_block',
+        'error', 'secret_leak_block',
+    })
