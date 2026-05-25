@@ -13,7 +13,8 @@ import argparse
 import json as json_mod
 
 from src.tools._cli_envelope import run_cli
-from src.tools.processmanager.core import RestartResult, ServiceState, _restart_impl, _start_impl, _status_impl, _stop_impl
+from src.tools.processmanager.core import RestartResult, ServiceState, restart, start, status, stop
+from src.tools._safety import DryRunResult
 
 
 def _render_status_markdown(service: str, state: ServiceState) -> str:
@@ -39,25 +40,31 @@ def _render_restart_markdown(service: str, result: RestartResult) -> str:
 
 def _run(verb: str, service: str, *, confirm: bool, emergency: bool, json: bool) -> str:
     if verb == "status":
-        state = _status_impl(service)
+        result = status(service)
         if json:
-            return json_mod.dumps({"service": service, "state": state.value})
-        return _render_status_markdown(service, state)
+            return json_mod.dumps({"service": service, "state": result.value})
+        return _render_status_markdown(service, result)
 
     if verb == "start":
-        state = _start_impl(service)
+        result = start(service, confirm=confirm)
+        if isinstance(result, DryRunResult):
+            return repr(result) if not json else json_mod.dumps(result.to_json())
         if json:
-            return json_mod.dumps({"service": service, "state": state.value})
-        return _render_status_markdown(service, state)
+            return json_mod.dumps({"service": service, "state": result.value})
+        return _render_status_markdown(service, result)
 
     if verb == "stop":
-        state = _stop_impl(service)
+        result = stop(service, confirm=confirm)
+        if isinstance(result, DryRunResult):
+            return repr(result) if not json else json_mod.dumps(result.to_json())
         if json:
-            return json_mod.dumps({"service": service, "state": state.value})
-        return _render_status_markdown(service, state)
+            return json_mod.dumps({"service": service, "state": result.value})
+        return _render_status_markdown(service, result)
 
     if verb == "restart":
-        result = _restart_impl(service)
+        result = restart(service, confirm=confirm, emergency=emergency)
+        if isinstance(result, DryRunResult):
+            return repr(result) if not json else json_mod.dumps(result.to_json())
         if json:
             return json_mod.dumps({
                 "service": service,

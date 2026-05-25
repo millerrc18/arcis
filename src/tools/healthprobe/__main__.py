@@ -48,18 +48,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run(services=None, stale_seconds=None, json=False):
     from src.tools._config import load_arcis_config
-    from src.tools.healthprobe.core import _check_impl
+    from src.tools.healthprobe.core import check
 
-    # Support test-seam env override for cfg path
+    # Test seam: ARCIS_CONFIG_PATH_OVERRIDE env var redirects cfg load to a
+    # specific path (test-only; do not use in production).
     override = os.environ.get("ARCIS_CONFIG_PATH_OVERRIDE")
     if override:
         cfg = load_arcis_config(Path(override))
     else:
-        cfg = load_arcis_config()
+        cfg = None
 
     svc_list = [s.strip() for s in services.split(",")] if services else None
 
-    result = _check_impl(services=svc_list, stale_seconds=stale_seconds, cfg=cfg)
+    result = check(services=svc_list, stale_seconds=stale_seconds, cfg=cfg)
 
     # Format as markdown table
     lines = [

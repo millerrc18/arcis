@@ -124,7 +124,8 @@ def _read_impl(pr: int, *, repo: Optional[str] = None) -> list[PRComment]:
 
     if result.returncode != 0:
         hint = None
-        if "auth" in result.stderr.lower():
+        stderr_lower = result.stderr.lower()
+        if "authentication required" in stderr_lower or "gh auth login" in stderr_lower:
             hint = "Run `gh auth status` then `gh auth login` if needed."
         raise GhCommandFailedError(
             returncode=result.returncode,

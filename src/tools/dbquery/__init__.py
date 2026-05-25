@@ -5,6 +5,6 @@
 # Config keys: pg.test_dsn
 # Tests: tests/tools/test_dbquery_integration.py
 
-from src.tools.dbquery.core import DBQueryError, WriteNotPermittedError, query
+from src.tools.dbquery.core import DBQueryError, WriteNotPermittedError, query, query_with_truncated
 
-__all__ = ["query", "WriteNotPermittedError", "DBQueryError"]
+__all__ = ["query", "query_with_truncated", "WriteNotPermittedError", "DBQueryError"]

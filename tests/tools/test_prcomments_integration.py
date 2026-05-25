@@ -499,6 +499,92 @@ def test_cli_gh_missing_json_envelope(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# (m) CLI post without --confirm -> dry-run output via subprocess
+# ---------------------------------------------------------------------------
+
+
+def test_cli_post_without_confirm_returns_dry_run_via_subprocess():
+    """(m) CLI post without --confirm -> exit 0 + dry-run output (no actual gh call).
+
+    Verifies __main__.py uses the DECORATED post() (with @safe_op mutates=True),
+    NOT _post_impl (undecorated). Without @safe_op, the subprocess would call gh
+    (failing with GhMissingError on empty PATH), NOT return dry-run.
+
+    Verify-by-mutation: Revert __main__.py to call _post_impl (undecorated)
+    -> subprocess exits 1 with GhMissingError when PATH is stripped.
+    """
+    import os
+
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "src.tools.prcomments",
+            "post", "1",
+            "--body", "hello world",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={
+            **os.environ,
+            "PATH": "",  # strip gh from PATH — real post would fail
+        },
+        timeout=15,
+    )
+    # Dry-run exits 0 (no exception raised)
+    assert result.returncode == 0, (
+        f"Expected exit 0 (dry-run), got {result.returncode}. "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}. "
+        "If exit 1 with GhMissingError: __main__ calling _post_impl (undecorated bypass)."
+    )
+    out = result.stdout
+    assert "prcomments" in out or "dry_run" in out.lower() or "DryRunResult" in out, (
+        f"Expected dry-run output containing 'prcomments'. Got: {out!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (n) Auth hint precision — "you are not authorized" must NOT trigger hint
+# ---------------------------------------------------------------------------
+
+
+def test_read_permission_denied_stderr_does_not_trigger_auth_hint(monkeypatch, tmp_path):
+    """(n) Non-auth 403/permission stderr does NOT trigger the auth hint.
+
+    Reviewer B nit: `'auth' in stderr_lower` was too loose — would trigger on
+    'you are not authorized to push'.
+
+    Verify-by-mutation: Revert to `if 'auth' in stderr_lower:` -> this test fails
+    because 'auth' appears in 'You are not authorized...' and hint is set.
+    """
+    import subprocess as sp
+
+    from src.tools.prcomments import GhCommandFailedError
+
+    stderr_msg = "HTTP 403: You do not have permission to write to this resource"
+
+    def fake_run(cmd, *, timeout, check=False, input_data=None):
+        return sp.CompletedProcess(args=cmd, returncode=1, stdout="", stderr=stderr_msg)
+
+    monkeypatch.setattr("src.tools.prcomments.core.run", fake_run)
+    monkeypatch.setattr("src.tools.prcomments.core.resolve_exe", lambda name: _FAKE_GH_PATH)
+
+    log = tmp_path / "exec.log"
+    read = _build_read(log)
+
+    with pytest.raises(GhCommandFailedError) as exc_info:
+        read(pr=1, repo="owner/repo")
+
+    exc = exc_info.value
+    assert exc.hint is None, (
+        f"Expected hint=None for permission-denied stderr (not an auth failure), "
+        f"got hint={exc.hint!r}. "
+        "Auth hint must only fire on 'authentication required' or 'gh auth login' in stderr."
+    )
+
+
 @pytest.mark.skipif(shutil.which("gh") is None, reason="gh.exe not on PATH")
 def test_fb5_real_seam_smoke_read(tmp_path):
     """FB5 real-seam smoke: call read(pr=1174, repo='millerrc18/halcyon-lab').

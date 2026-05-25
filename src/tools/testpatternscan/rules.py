@@ -146,8 +146,18 @@ class VacuousRule:
             if isinstance(child, ast.Assert):
                 return True
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
-                if child.func.attr.startswith("assert_") or child.func.attr == "assert":
+                attr = child.func.attr
+                if attr.startswith("assert_") or attr == "assert":
                     return True
+                if attr in ("fail", "warns", "deprecated_call"):
+                    if isinstance(child.func.value, ast.Name) and child.func.value.id == "pytest":
+                        return True
+            if isinstance(child, ast.With):
+                for item in child.items:
+                    ce = item.context_expr
+                    if isinstance(ce, ast.Call) and isinstance(ce.func, ast.Attribute):
+                        if ce.func.attr in ("raises", "warns", "deprecated_call"):
+                            return True
         return False
 
 

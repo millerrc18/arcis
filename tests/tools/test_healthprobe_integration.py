@@ -402,3 +402,94 @@ def test_cli_json_cfg_load_failure_returns_error_envelope(tmp_path):
     assert "type" in envelope["error"]
     assert "message" in envelope["error"]
     assert "tool" in envelope["error"]
+
+
+# ── (i) NssmMissingError absorption per spec §3.2 ────────────────────────────
+
+
+def test_check_with_nssm_missing_absorbs_to_down_verdict(tmp_path):
+    """(i) _check_service_state raises NssmMissingError -> absorbed into DOWN verdict.
+
+    Per spec §3.2: HealthProbe absorbs per-service failures and NEVER raises
+    just because a service is down. Without the try/except wrapper in
+    _check_service_state, NssmMissingError would propagate out of check() uncaught,
+    violating the spec.
+
+    Verify-by-mutation: Remove try/except in _check_service_state (checks.py:20-22)
+    -> NssmMissingError propagates -> pytest.raises catches it -> test FAILS.
+    """
+    from src.tools._subprocess import NssmMissingError
+
+    log = tmp_path / "exec.log"
+
+    hb = tmp_path / "watchdog.txt"
+    hb.write_text("alive", encoding="utf-8")
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
+    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+
+    fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+    fn = _build_check(log, fake_cfg)
+
+    def raise_nssm_missing(service):
+        raise NssmMissingError("nssm not on PATH")
+
+    with patch("src.tools.healthprobe.checks.nssm_status", side_effect=raise_nssm_missing):
+        with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+            result = fn()
+
+    # MUST NOT raise — per spec §3.2 contract
+    assert result["overall"] == "DOWN", (
+        f"Expected overall DOWN when nssm is missing, got {result['overall']!r}"
+    )
+    for svc, sh in result["services"].items():
+        assert sh["verdict"] == "DOWN", (
+            f"Service {svc}: expected verdict DOWN (state=UNKNOWN -> DOWN), got {sh['verdict']!r}"
+        )
+
+
+# ── (j) Heartbeat path is a directory -> not_a_file reason ───────────────────
+
+
+def test_heartbeat_path_is_directory_returns_not_a_file(tmp_path):
+    """(j) Heartbeat path is a directory (not a file) -> reason='not_a_file'.
+
+    KC2 gap: prior code only checked path.exists(), which is True for directories.
+    path.is_file() check distinguishes directory from missing file.
+
+    Verify-by-mutation: Remove `if not path.is_file(): return False, 'not_a_file'`
+    -> directory path.exists() is True, code proceeds to read_text/stat,
+       which raises IsADirectoryError -> caught by bare except -> reason='parse_error'.
+       Test fails because 'parse_error' != 'not_a_file'.
+    """
+    from src.tools.processmanager.nssm import ServiceState
+
+    log = tmp_path / "exec.log"
+
+    # Make the heartbeat path a DIRECTORY (not a file)
+    hb_dir = tmp_path / "watchdog_dir"
+    hb_dir.mkdir()
+    assert hb_dir.is_dir()
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
+    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+
+    fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb_dir, logs_runtime=logs_dir)
+    fn = _build_check(log, fake_cfg)
+
+    with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+        with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+            result = fn()
+
+    wl = result["services"]["ArcisWatchLoop"]
+    assert wl["heartbeat_fresh"] is False
+    assert wl["heartbeat_reason"] == "not_a_file", (
+        f"Expected 'not_a_file', got {wl['heartbeat_reason']!r}. "
+        "If 'parse_error': path.is_file() check not added to _check_heartbeat."
+    )

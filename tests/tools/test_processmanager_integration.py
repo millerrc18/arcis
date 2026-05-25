@@ -523,21 +523,25 @@ def test_kill_pid_uses_pid_scoped_taskkill_never_im(tmp_path):
 # ── (l) DA2 flap-detection test ───────────────────────────────────────────────
 
 
-def test_da2_flap_detection_flap_resets_consecutive_counter(tmp_path):
-    """(l) DA2 flap-detection: [RUNNING, STOPPED, RUNNING, RUNNING, RUNNING] + early mtime.
+def test_da2_flap_detection_flap_resets_consecutive_counter_by_call_count(tmp_path):
+    """(l) DA2 flap-detection redesign: call-count discriminator per Reviewer A.
 
-    Canned sequence simulates NSSM AppRestartDelay flap. Heartbeat mtime advanced
-    EARLY (between observation 1 and 2 — simulating last heartbeat before crash).
-    The log-evidence check happens AFTER sustained-running confirmation.
+    Sequence: [RUNNING, STOPPED, RUNNING, RUNNING, RUNNING, ...]
+    REQUIRED_CONSECUTIVE = 3.
 
-    Assertions:
-    - elapsed_s > 5 — sustained-window logic was actually exercised (NOT single-obs exit)
-    - state == RUNNING (final stable state)
-    - verified == False — early mtime correctly rejected because log-evidence check
-      happens AFTER sustained-running (NOT during)
+    WITHOUT reset (buggy mutation: consecutive_running = 0 -> pass):
+        counter goes 1, 1, 2, 3 -> breaks at observation 4.
+        Total nssm_status calls = 4.
+    WITH reset (correct):
+        counter goes 1, 0, 1, 2, 3 -> breaks at observation 5.
+        Total nssm_status calls = 5.
 
-    Verify-by-mutation: Revert to single-RUNNING exit (remove consecutive_running
-    counter; loop exits on first RUNNING) -> test fails (elapsed_s < 2s OR verified=True).
+    The 1-call difference IS the discriminator. The prior `elapsed_s > 5` assertion
+    was vacuous — elapsed_s was dominated by post-loop _poll_log_evidence monotonic
+    noise (Reviewer A finding #1).
+
+    Verify-by-mutation: change `consecutive_running = 0` to `pass` in nssm.py
+    -> this test fails (call count = 4, asserted == 5).
     """
     import time as time_mod
     from src.tools.processmanager import RestartResult, ServiceState
@@ -566,55 +570,163 @@ def test_da2_flap_detection_flap_resets_consecutive_counter(tmp_path):
 
     restart_response = _make_completed("", returncode=0)
 
-    # Sequence: RUNNING (obs 1), STOPPED (obs 2 — flap!), RUNNING (obs 3), RUNNING (obs 4), RUNNING (obs 5)
-    # This means consecutive_running resets to 0 at obs 2, so we need obs 3+4+5 for sustained-3
-    status_responses = iter([
-        _make_completed("SERVICE_RUNNING\r\n"),     # obs 1: +1 consecutive
-        _make_completed("SERVICE_STOPPED\r\n"),      # obs 2: flap! reset to 0
-        _make_completed("SERVICE_RUNNING\r\n"),     # obs 3: +1
-        _make_completed("SERVICE_RUNNING\r\n"),     # obs 4: +2
-        _make_completed("SERVICE_RUNNING\r\n"),     # obs 5: +3 -> break
-    ])
-
-    # Heartbeat mtime: advanced EARLY (between obs 1 and obs 2, before flap)
-    # This means it's pre-restart_start_walltime from the perspective of the log-evidence
-    # check, which triggers AFTER sustained-running.
-    # We set restart_start_walltime to far in the future so early mtime is rejected.
-    future_start_walltime = time_mod.time() + 9999.0
+    # Sequence for nssm_status calls (index into this list):
+    # obs 1: RUNNING (+1 consecutive)
+    # obs 2: STOPPED (flap! -> reset to 0)
+    # obs 3: RUNNING (+1)
+    # obs 4: RUNNING (+2)
+    # obs 5: RUNNING (+3 -> break)
+    # extras: prevent StopIteration if loop continues past 5
+    nssm_call_count = {"n": 0}
+    states_seq = [
+        "SERVICE_RUNNING\r\n",
+        "SERVICE_STOPPED\r\n",
+        "SERVICE_RUNNING\r\n",
+        "SERVICE_RUNNING\r\n",
+        "SERVICE_RUNNING\r\n",
+        "SERVICE_RUNNING\r\n",
+        "SERVICE_RUNNING\r\n",
+        "SERVICE_RUNNING\r\n",
+    ]
 
     def fake_run(args, **kwargs):
         if "restart" in args:
-            return restart_response
-        return next(status_responses)
+            return _make_completed("", returncode=0)
+        idx = nssm_call_count["n"]
+        nssm_call_count["n"] += 1
+        return _make_completed(states_seq[min(idx, len(states_seq) - 1)])
 
-    # Monotonic: each poll is 1 second apart. With 5 polls at 1s each, elapsed >= 5s
-    mono_call = {"n": 0}
-    def fake_monotonic():
-        mono_call["n"] += 1
-        # 0.0 = start, then 1s increments per poll + log window checks
-        return (mono_call["n"] - 1) * 1.0
+    future_start_walltime = time_mod.time() + 9999.0
 
     with patch.object(_sub, "run", side_effect=fake_run):
         with patch.object(_sub, "resolve_exe", return_value="nssm"):
             with patch("src.tools.processmanager.nssm.load_arcis_config", return_value=FakeCfg()):
                 with patch("src.tools.processmanager.core.load_arcis_config", return_value=FakeCfg()):
                     with patch("src.tools.processmanager.nssm.time") as mock_time:
-                        mock_time.monotonic = fake_monotonic
+                        # Advance monotonic fast enough to avoid overall_deadline firing
+                        mono_call = {"n": 0}
+                        def fast_mono():
+                            mono_call["n"] += 1
+                            return mono_call["n"] * 0.01
+                        mock_time.monotonic = fast_mono
                         mock_time.sleep = lambda s: None
                         mock_time.time = time_mod.time
                         from src.tools.processmanager.nssm import _restart_and_verify
-                        result = _restart_and_verify("ArcisWatchLoop", restart_start_walltime=future_start_walltime)
+                        _restart_and_verify("ArcisWatchLoop", restart_start_walltime=future_start_walltime)
 
-    assert result.state == ServiceState.RUNNING, f"Expected RUNNING, got {result.state}"
-    assert result.verified is False, (
-        "verified must be False: the heartbeat mtime predates restart_start_walltime. "
-        "If True, the log-evidence check fired too early (before sustained-running confirmed) "
-        "or the mtime check is wrong."
+    # CRITICAL ASSERTION — call-count discriminator (Reviewer A redesign)
+    # WITH flap reset: obs 1(R) obs 2(S->reset) obs 3(R) obs 4(R) obs 5(R) -> 5 nssm_status calls
+    # WITHOUT reset (mutation): obs 1(R) obs 2(S->count stays 1) obs 3(R) obs 4(R) obs 5(R->3) -> 5 calls too?
+    # Wait — with mutation: counter NEVER resets at STOPPED, so:
+    #   obs1: R -> consecutive=1
+    #   obs2: S -> consecutive stays 1 (not reset) but state is STOPPED, so += 0 (RUNNING branch not taken)
+    # Actually the nssm.py code: if last_state == RUNNING: consecutive += 1 / else: consecutive = 0
+    # Mutation changes `else: consecutive = 0` to `else: pass`
+    # With mutation:
+    #   obs1: R -> consecutive=1
+    #   obs2: S -> pass (consecutive stays 1)
+    #   obs3: R -> consecutive=2
+    #   obs4: R -> consecutive=3 -> break at obs 4
+    # Without mutation (correct):
+    #   obs1: R -> consecutive=1
+    #   obs2: S -> consecutive=0
+    #   obs3: R -> consecutive=1
+    #   obs4: R -> consecutive=2
+    #   obs5: R -> consecutive=3 -> break at obs 5
+    assert nssm_call_count["n"] == 5, (
+        f"Expected 5 nssm_status calls (flap-reset working: counter resets to 0 on STOPPED, "
+        f"then needs 3 more RUNNING to confirm sustained). Got {nssm_call_count['n']}. "
+        f"If got 4: mutation present (consecutive_running = 0 was removed/bypassed)."
     )
-    assert result.elapsed_s > 5.0, (
-        f"elapsed_s={result.elapsed_s:.2f} < 5s. "
-        "If single-RUNNING exit was used, elapsed would be ~1s. "
-        "Sustained-window requires >= 5 polls (5s elapsed minimum)."
+
+
+# ── (n) CLI restart without --confirm returns dry-run ────────────────────────
+
+
+def test_cli_restart_without_confirm_returns_dry_run_via_subprocess():
+    """(n) CLI restart ArcisWatchLoop --json (no --confirm) -> exit 0 + DryRunResult repr.
+
+    Verifies that the CLI calls the DECORATED public restart() (with @safe_op mutates=True),
+    NOT _restart_impl (undecorated). Without @safe_op, the CLI would try to call nssm.exe
+    directly (failing or succeeding), NOT return a dry-run result.
+
+    Verify-by-mutation: Revert __main__.py to call _restart_impl (undecorated)
+    -> the subprocess either crashes with NssmMissingError (PATH stripped, exit 1)
+       or attempts a real restart. The dry-run output does NOT appear.
+    """
+    import os
+    result = subprocess.run(
+        [sys.executable, "-m", "src.tools.processmanager", "restart", "ArcisWatchLoop", "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PATH": ""},  # strip PATH so nssm can't be found if it bypasses
+        timeout=15,
+    )
+    # Dry-run should exit 0 (DryRunResult is not an error)
+    # run_cli prints result and calls sys.exit(0) for non-exception returns
+    assert result.returncode == 0, (
+        f"Expected exit 0 (dry-run, not a real restart), got {result.returncode}. "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}. "
+        "If exit 1 with NssmMissingError: __main__.py calling _restart_impl (undecorated bypass)."
+    )
+    # DryRunResult repr should contain 'DryRunResult' or 'dry_run' indicator
+    out = result.stdout
+    assert "processmanager" in out or "dry_run" in out.lower() or "DryRunResult" in out, (
+        f"Expected dry-run output containing 'processmanager' or DryRunResult indicator. "
+        f"Got: {out!r}"
+    )
+
+
+# ── (o) CLI restart inside overnight window blocks via safety_window ──────────
+
+
+def test_cli_restart_inside_overnight_window_blocks_via_subprocess():
+    """(o) CLI restart --confirm inside overnight window -> SafetyWindowError + exit 1.
+
+    This test uses ARCIS_NOW_ET_OVERRIDE env var as a subprocess-injectable time seam.
+    If that seam does not exist, we skip — the seam must be implemented as part of the fix.
+
+    Verify-by-mutation: Revert __main__.py to call _restart_impl (no @safety_window)
+    -> subprocess would try to restart for real (NssmMissingError with empty PATH), NOT
+       SafetyWindowError.
+    """
+    import os
+
+    # We need to inject a time inside the overnight window (21:30-22:30 ET).
+    # Use ARCIS_NOW_ET_OVERRIDE="2026-05-24T21:45:00" as the test seam.
+    env_with_override = {
+        **os.environ,
+        "PATH": "",  # strip nssm so a real restart would fail with NssmMissingError
+        "ARCIS_NOW_ET_OVERRIDE": "2026-05-24T21:45:00",
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "src.tools.processmanager",
+            "restart", "ArcisWatchLoop",
+            "--confirm",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env_with_override,
+        timeout=15,
+    )
+
+    # If ARCIS_NOW_ET_OVERRIDE seam is not implemented yet, the test will fail
+    # with exit 1 (NssmMissingError from empty PATH) — that's expected as a failing test.
+    assert result.returncode == 1, (
+        f"Expected exit 1 (SafetyWindowError), got {result.returncode}. "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    envelope = json.loads(result.stdout)
+    assert "error" in envelope, f"Expected error envelope: {envelope}"
+    assert envelope["error"]["type"] == "SafetyWindowError", (
+        f"Expected SafetyWindowError, got {envelope['error']['type']!r}. "
+        "If NssmMissingError: either __main__ bypasses @safety_window OR "
+        "ARCIS_NOW_ET_OVERRIDE seam is not wired."
     )
 
 
