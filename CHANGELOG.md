@@ -26,9 +26,11 @@
   witness test (PRIMARY) + 3x-loop accumulator backstop. Env var
   `SIM_LEAK_LOOP_ITERATIONS` opts the backstop into stress mode.
 - `docs/audits/2026-05-24-sim-conn-leak/audits/2026-05-24-prod-leak-audit.md` —
-  PROD code-path audit (document-only). Two follow-up tasks filed:
+  PROD code-path audit (document-only). Three follow-up tasks filed:
   #100-followup-A (bracket_attach.py:126 LEAK on exception path, P2),
-  #100-followup-B (broker_exception_logger.py:51 explicit close discipline, P2).
+  #100-followup-B (broker_exception_logger.py:51 explicit close discipline, P2),
+  #100-followup-C (watch.py:1495 _check_row_counts PARTIAL — no close on except
+  branch, P3, batch with watch.py audit).
 
 ### Unchanged (explicit)
 
