@@ -18,8 +18,7 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.65 (#107
-# Tier 3 meta-quality tools: ContractCheck v1, GitArchaeology v1,
-# DocConsistency v1).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.66 (#117
+# hotfix: _collect_gpu_metrics multi-GPU parser fix).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.65"
+VERSION = "v0.36.66"

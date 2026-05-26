@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+## [v0.36.66] — 2026-05-25 — Multi-GPU parser fix in _collect_gpu_metrics (#117 hotfix)
+
+### Fixed
+
+- **`_collect_gpu_metrics()` multi-GPU support (#117)** — the watchloop was silently
+  dropping all GPU metrics on the dual-GPU dev rig (RTX 3090 + RTX 3060) because the
+  nvidia-smi CSV output contains TWO rows but `.strip().split(",")` collapsed them into
+  9 fields, the `float()` on `"91.65\n0"` raised `ValueError`, and the broad
+  `except Exception` swallowed it. Now splits by newlines first (`splitlines()`), uses
+  the first row (primary training GPU = RTX 3090 per `project_gpu_upgrade.md`);
+  single-GPU consumers are unaffected.
+
+### Changed
+
+- **`_collect_gpu_metrics()` exception handling tightened** — removed the bare
+  `Exception` catch that was masking parse errors silently. Now only catches
+  `FileNotFoundError` + `TimeoutExpired` (subprocess failure modes) AND
+  `ValueError`/`IndexError` with `logger.warning` first, so parse drift is visible
+  going forward rather than being dropped to debug-only logging.
+
+### Tests
+
+- 4 new tests in `tests/monitoring/test_system_metrics.py`:
+  - `test_collect_gpu_metrics_multi_gpu_uses_first_row` — dual-GPU stdout parsed via first row; all 5 fields correct.
+  - `test_collect_gpu_metrics_single_gpu_unchanged` — single-GPU consumers unaffected.
+  - `test_collect_gpu_metrics_value_error_returns_none_with_warning` — malformed stdout returns `_gpu_none()` AND emits `logger.warning`.
+  - `test_collect_gpu_metrics_committed_baseline_matches` — regression-lock using the verbatim `stdout` from the committed ContractCheck baseline; all 5 keys non-None post-fix.
+
+### References
+
+- `src/monitoring/system_metrics.py:33-59` — `_collect_gpu_metrics()` fix
+- `data/contracts/nvidia-smi-watchloop/2026-05-26T02-23-36Z.json` — ContractCheck baseline that surfaced this bug (`parse_ok: false` because the watchloop's parser shape didn't match live dual-GPU output)
+
+### Surfaced by
+
+- **#107** (ContractCheck v1's first baseline). The 2-line stdout was committed as a forensic artifact precisely to enable this hotfix to be regression-tested against the captured live state.
+
 ### Added — #108 specialized investigator agents (no version bump; docs-only)
 
 No version bump: this PR adds 4 investigator-class agent prompts + 4 golden-question
