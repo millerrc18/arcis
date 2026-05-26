@@ -1554,7 +1554,18 @@ def _do_dispatch_escalated(event_type: str, payload: dict, severity: str, channe
                 f"\nForensic detail: SELECT * FROM notifications_sent WHERE event_type = '{event_type}' "
                 f"ORDER BY sent_at DESC LIMIT 1;"
             )
-            if send_email(subject=subject, body=body):
+            # NOTE: This is a CARVE-OUT — Telegram-failure escalation must fire email IMMEDIATELY.
+            # Do NOT route through src.notifications.email_digest.enqueue_for_email_digest() — see #115 DD-14.
+            email_ok = send_email(subject=subject, body=body)
+            # Audit-trail row with distinguishable event_type='escalated_telegram_fail' so the
+            # escalation carve-out is queryable independently of send_email's internal 'email_send' row.
+            _write_notification_sent(
+                event_type="escalated_telegram_fail",
+                channel="email",
+                status="ok" if email_ok else "failed",
+                error_msg=None if email_ok else f"send_email returned False for {event_type}",
+            )
+            if email_ok:
                 success = True
         except (
             urllib3.exceptions.HTTPError,
