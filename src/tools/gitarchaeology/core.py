@@ -423,10 +423,10 @@ def diff(
     repo: Optional[str] = None,
     timeout_s: int = 30,
     max_output_bytes: Optional[int] = None,
-) -> dict:
+) -> str:
     """Run `git diff <ref_a>..<ref_b> [-- <path>]`.
 
-    Returns dict with 'diff' key containing the unified diff text.
+    Returns the unified diff text verbatim (per spec §5.1, §5.3).
 
     DA4: max_output_bytes defaults to 10_000_000 if None.
     """
@@ -439,7 +439,7 @@ def diff(
 
     stdout = _git(argv, timeout_s=timeout_s, repo=repo, max_output_bytes=max_output_bytes, op_name="diff")
 
-    return {"diff": stdout}
+    return stdout
 
 
 @safe_op(name="gitarchaeology", mutates=False)
