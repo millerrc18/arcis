@@ -163,7 +163,7 @@ print(json.dumps({
 
 **Intent:** Detect drift between the fenced bash blocks in `audits/<verb>.md` runbooks and the corresponding inline bash in `.github/workflows/periodic-discipline.yml`. These two surfaces must stay in sync — the CI workflow is supposed to be a faithful copy of the runbook fences.
 
-**Implementation:** Normalize both surfaces (strip comment lines, collapse whitespace, ignore shebang), then diff:
+**Implementation:** Parse the workflow YAML via `yaml.safe_load`, extract tool invocations per CI job (not a union of all jobs), then compare each verb's runbook tools against its corresponding job's tools only. Verbs with no CI job (e.g., `curate-memory`, `full`) are skipped silently — they are intentionally local-only.
 
 ```bash
 python -c "
