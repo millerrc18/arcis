@@ -1,5 +1,19 @@
 """GitArchaeology CLI entry point.
 
+Purpose: Argparse front-end for the 7 read-only git ops. Forbidden mutating
+         ops (commit / push / reset / rebase / checkout / branch -D /
+         clean -f / cherry-pick / stash drop / tag -d) are structurally
+         absent — they fail at argparse parse time with `invalid choice`.
+
+Called by: operator (`python -m src.tools.gitarchaeology <op>`),
+           git-historian agent (#108) via subprocess
+Calls:     src.tools.gitarchaeology.core (all 7 ops),
+           src.tools._cli_envelope (run_cli JSON envelope)
+Owns tables: none
+Config keys: none
+Tests: tests/tools/test_gitarchaeology_integration.py (T7;
+       including test_forbidden_op_argparse_rejected)
+
 Usage:
   python -m src.tools.gitarchaeology <subcommand> [options]
 
@@ -15,10 +29,6 @@ Subcommands (7 read-only ops):
 Each subcommand also accepts:
   --json                   Output JSON envelope (errors also JSON).
   --max-output-bytes N     Override per-op default output size cap (DA4).
-
-FORBIDDEN ops (structural defense — argparse rejects them at parse time):
-  commit, push, reset, rebase, checkout, branch-D, clean-f,
-  cherry-pick, stash-drop, tag-d
 """
 
 from __future__ import annotations

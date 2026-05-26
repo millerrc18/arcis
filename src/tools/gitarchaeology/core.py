@@ -30,140 +30,62 @@ from pathlib import Path
 from typing import Optional
 
 from src.tools._safety import safe_op
-from src.tools._subprocess import GitMissingError, resolve_exe  # noqa: F401 (re-exported)
-from src.tools._subprocess import run as _subprocess_run
+from src.tools._subprocess import GitMissingError  # noqa: F401 (re-exported)
+from src.tools.gitarchaeology._errors import (  # noqa: F401 (re-exported)
+    GitArchaeologyError,
+    GitArgError,
+    GitInvocationError,
+    GitOutputTruncatedError,
+    GitParseError,
+)
+from src.tools.gitarchaeology._helpers import (  # noqa: F401 (used by ops)
+    _git,
+    _parse_show_output,
+    _parse_standard_blame_output,
+)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# Error classes
-# ═══════════════════════════════════════════════════════════════════
-
-
-class GitArchaeologyError(RuntimeError):
-    """Root error class for GitArchaeology ops."""
-
-
-class GitInvocationError(GitArchaeologyError):
-    """Raised when git subprocess exits non-zero."""
-
-
-class GitArgError(GitArchaeologyError):
-    """Raised on invalid arguments to a GitArchaeology API call.
-
-    Examples:
-      - blame() called with start_line > end_line
-      - log() called with custom format= but no format_columns=
-      - blame() called on a >5000-line file without line-range
-    """
-
-
-class GitParseError(GitArchaeologyError):
-    """Raised when git output cannot be mapped to the expected shape (DA3).
-
-    Fields:
-      offending_line:   the raw output line that could not be parsed
-      expected_columns: how many tab-separated columns were expected
-      op:               which op triggered the error (e.g., 'log')
-    """
-
-    def __init__(
-        self,
-        message: str,
-        offending_line: str,
-        expected_columns: int,
-        op: str,
-    ) -> None:
-        super().__init__(message)
-        self.offending_line = offending_line
-        self.expected_columns = expected_columns
-        self.op = op
-
-
-class GitOutputTruncatedError(GitArchaeologyError):
-    """Raised when git output exceeds per-op max_output_bytes (DA4).
-
-    Fields:
-      partial_output:      first max_output_bytes of stdout (codepoint-safe)
-      original_size_bytes: actual UTF-8 byte count of full output
-      op:                  which op triggered the error
-    """
-
-    def __init__(
-        self,
-        message: str,
-        partial_output: str,
-        original_size_bytes: int,
-        op: str,
-    ) -> None:
-        super().__init__(message)
-        self.partial_output = partial_output
-        self.original_size_bytes = original_size_bytes
-        self.op = op
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Shared helpers
-# ═══════════════════════════════════════════════════════════════════
-
+# Log format defaults (DA3): default 4-column TSV; custom format requires paired columns.
 _DEFAULT_LOG_FORMAT = "%H%x09%an%x09%ai%x09%s"
 _DEFAULT_LOG_COLUMNS = ["sha", "author", "date", "subject"]
 
 
-def _safe_truncate_utf8(text: str, max_bytes: int) -> str:
-    """Truncate `text` to at most `max_bytes` UTF-8 bytes at a codepoint boundary."""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text
-    truncated = encoded[:max_bytes]
-    return truncated.decode("utf-8", errors="ignore")
-
-
-def _git(
-    args: list[str],
-    *,
-    timeout_s: int,
-    repo: Optional[str],
-    max_output_bytes: int,
-    op_name: str,
-) -> str:
-    """Invoke git via _subprocess.run; enforce size limit; return stdout.
-
-    Raises:
-      GitMissingError:         git not on PATH (from resolve_exe)
-      GitInvocationError:      non-zero returncode
-      GitOutputTruncatedError: stdout exceeds max_output_bytes (DA4)
-    """
-    exe = resolve_exe("git")
-    full_args: list[str] = [exe]
-    if repo is not None:
-        full_args.extend(["-C", repo])
-    full_args.extend(args)
-
-    result = _subprocess_run(full_args, timeout=timeout_s)
-
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        msg = f"git {args[0]} failed (exit {result.returncode}): {stderr}"
-        if "fatal: detected dubious ownership" in stderr:
-            msg += " (run: git config --system --add safe.directory C:/arcis/halcyon-lab)"
-        raise GitInvocationError(msg)
-
-    stdout = result.stdout
-    size_bytes = len(stdout.encode("utf-8"))
-    if size_bytes > max_output_bytes:
-        partial = _safe_truncate_utf8(stdout, max_output_bytes)
-        raise GitOutputTruncatedError(
-            message=(
-                f"git {op_name} output ({size_bytes} bytes) exceeds "
-                f"max_output_bytes={max_output_bytes}; "
-                f"partial output available via GitOutputTruncatedError.partial_output"
-            ),
-            partial_output=partial,
-            original_size_bytes=size_bytes,
-            op=op_name,
+def _resolve_log_format(
+    format: str, format_columns: Optional[list[str]]
+) -> list[str]:
+    """DA3: validate format / format_columns pairing; return resolved columns."""
+    if format_columns is None:
+        if format != _DEFAULT_LOG_FORMAT:
+            raise GitArgError("custom format= requires format_columns= kwarg")
+        format_columns = _DEFAULT_LOG_COLUMNS
+    if format_columns[-1] not in {"subject", "body", "message"}:
+        raise GitArgError(
+            f"format_columns last entry must be subject/body/message, "
+            f"got {format_columns[-1]!r}"
         )
+    return format_columns
 
-    return stdout
+
+def _parse_log_output(stdout: str, format_columns: list[str]) -> list[dict]:
+    """DA3: parse tab-separated git-log output with explicit maxsplit."""
+    results: list[dict] = []
+    maxsplit = len(format_columns) - 1
+    for line in stdout.splitlines():
+        if not line:
+            continue
+        parts = line.split("\t", maxsplit)
+        if len(parts) < len(format_columns):
+            raise GitParseError(
+                message=(
+                    f"git log output line has {len(parts)} fields, "
+                    f"expected {len(format_columns)}"
+                ),
+                offending_line=line,
+                expected_columns=len(format_columns),
+                op="log",
+            )
+        results.append(dict(zip(format_columns, parts)))
+    return results
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -199,17 +121,7 @@ def log(
 
     DA4: max_output_bytes defaults to limit * 200 if None.
     """
-    if format_columns is None:
-        if format != _DEFAULT_LOG_FORMAT:
-            raise GitArgError("custom format= requires format_columns= kwarg")
-        format_columns = _DEFAULT_LOG_COLUMNS
-
-    if format_columns[-1] not in {"subject", "body", "message"}:
-        raise GitArgError(
-            f"format_columns last entry must be subject/body/message, "
-            f"got {format_columns[-1]!r}"
-        )
-
+    format_columns = _resolve_log_format(format, format_columns)
     if max_output_bytes is None:
         max_output_bytes = limit * 200
 
@@ -220,25 +132,7 @@ def log(
         argv.extend(["--", path])
 
     stdout = _git(argv, timeout_s=timeout_s, repo=repo, max_output_bytes=max_output_bytes, op_name="log")
-
-    results: list[dict] = []
-    maxsplit = len(format_columns) - 1
-    for line in stdout.splitlines():
-        if not line:
-            continue
-        parts = line.split("\t", maxsplit)
-        if len(parts) < len(format_columns):
-            raise GitParseError(
-                message=(
-                    f"git log output line has {len(parts)} fields, "
-                    f"expected {len(format_columns)}"
-                ),
-                offending_line=line,
-                expected_columns=len(format_columns),
-                op="log",
-            )
-        results.append(dict(zip(format_columns, parts)))
-    return results
+    return _parse_log_output(stdout, format_columns)
 
 
 @safe_op(name="gitarchaeology", mutates=False)
@@ -288,60 +182,7 @@ def blame(
     argv.extend(["--", file])
 
     stdout = _git(argv, timeout_s=timeout_s, repo=repo, max_output_bytes=max_output_bytes, op_name="blame")
-
-    results: list[dict] = []
-    line_no = start_line if start_line is not None else 1
-    for line in stdout.splitlines():
-        if not line:
-            continue
-        # Standard (non-porcelain) blame format: "<sha> (<author> <date> <line_no>) <content>"
-        # Split on first ')' to separate metadata from content
-        paren_end = line.find(")")
-        if paren_end == -1:
-            # Fallback: return raw line
-            results.append({"sha": "", "author": "", "content": line, "line": line_no})
-            line_no += 1
-            continue
-
-        meta = line[: paren_end + 1]
-        content = line[paren_end + 1 :]
-        if content.startswith(" "):
-            content = content[1:]
-
-        # Extract sha from start (first whitespace-delimited token)
-        sha = meta.split()[0] if meta else ""
-
-        # Extract author from inside parens
-        paren_start = meta.find("(")
-        if paren_start != -1:
-            inner = meta[paren_start + 1 : paren_end]
-            # inner = "Author Name 2026-05-25 10:00:00 +0000   42"
-            # Remove trailing line number
-            parts = inner.rsplit(None, 1)
-            if len(parts) == 2:
-                author_date_part = parts[0].strip()
-                line_no_from_blame = int(parts[1])
-                # Remove trailing date portion — last two tokens are date + tz
-                author_parts = author_date_part.rsplit(None, 2)
-                author = author_parts[0].strip() if len(author_parts) >= 1 else author_date_part
-            else:
-                author = inner.strip()
-                line_no_from_blame = line_no
-        else:
-            author = ""
-            line_no_from_blame = line_no
-
-        results.append(
-            {
-                "sha": sha,
-                "author": author,
-                "content": content,
-                "line": line_no_from_blame,
-            }
-        )
-        line_no += 1
-
-    return results
+    return _parse_standard_blame_output(stdout, start_line)
 
 
 @safe_op(name="gitarchaeology", mutates=False)
@@ -373,45 +214,7 @@ def show(
         argv.extend(["--", path])
 
     stdout = _git(argv, timeout_s=timeout_s, repo=repo, max_output_bytes=max_output_bytes, op_name="show")
-
-    result: dict = {"sha": sha, "author": "", "date": "", "subject": "", "body": "", "diff": ""}
-
-    lines = stdout.splitlines()
-    in_diff = False
-    diff_lines: list[str] = []
-    header_lines: list[str] = []
-
-    for line in lines:
-        if line.startswith("diff --git") or in_diff:
-            in_diff = True
-            diff_lines.append(line)
-        else:
-            header_lines.append(line)
-
-    result["diff"] = "\n".join(diff_lines)
-
-    # Parse commit header block
-    body_lines: list[str] = []
-    in_body = False
-    for line in header_lines:
-        if line.startswith("commit "):
-            result["sha"] = line[7:].strip()
-        elif line.startswith("Author:"):
-            result["author"] = line[7:].strip()
-        elif line.startswith("Date:"):
-            result["date"] = line[5:].strip()
-        elif line == "" and result["subject"]:
-            in_body = True
-        elif line == "" and not result["subject"]:
-            pass
-        elif in_body:
-            body_lines.append(line.lstrip())
-        elif result["date"] and not result["subject"] and line.strip():
-            # First non-empty line after Date: is the subject (indented by 4 spaces in git show)
-            result["subject"] = line.strip()
-
-    result["body"] = "\n".join(body_lines).strip()
-    return result
+    return _parse_show_output(stdout, sha)
 
 
 @safe_op(name="gitarchaeology", mutates=False)
