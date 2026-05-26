@@ -3597,3 +3597,68 @@ These files contain assertions referencing the old `vram_handoff` metric names a
 ---
 
 End of Dual-GPU Cutover Runbook section.
+
+---
+
+## `/arcis:periodic-discipline` — Plugin Infrastructure Drift Auditing (#111)
+
+Audits the Arcis plugin ecosystem (skills, memory, tools) for drift. Runs entirely within the
+Claude Code session — no new Python modules, no schema changes.
+
+### 4 verbs
+
+| Verb | What it does | When to use | Runs in CI? |
+|---|---|---|---|
+| `audit-skills` | Scans all SKILL.md files for stale runbook references, broken tool citations, and verb/allowlist drift | After merging a sprint that adds or modifies skills | Yes — every Monday 07:00 UTC |
+| `curate-memory` | Reviews `.claude/memory/` entries for accuracy against current code; flags stale invariants | After a sprint that changes key invariants or config | No — local-only (mutates memory files) |
+| `test-tools` | Validates Tier 1+2+3 tool CLIs are reachable, `--help` passes, and smoke-test contracts hold | After a sprint that adds or modifies tools | Yes — every Thursday 07:00 UTC |
+| `full` | Orchestrates audit-skills + curate-memory + test-tools in sequence; writes consolidated report | Quarterly infrastructure health review | No — local-only |
+
+**Local-only constraint**: `curate-memory` and `full` are never run in CI because they can modify
+`.claude/memory/` files. Only `audit-skills` and `test-tools` run on the cron schedule.
+
+### Invoking the skill
+
+```
+/arcis:periodic-discipline audit-skills
+/arcis:periodic-discipline test-tools
+/arcis:periodic-discipline curate-memory
+/arcis:periodic-discipline full
+```
+
+### Where reports land
+
+`data/periodic-discipline/reports/` — one JSON file per run, named by ISO timestamp and verb.
+The directory is tracked in git (`.gitkeep` in place); individual report files are gitignored.
+
+### CI cron schedule
+
+| Job | Schedule | Trigger |
+|---|---|---|
+| `audit-skills` | Every Monday 07:00 UTC | `.github/workflows/periodic-discipline.yml` |
+| `test-tools` | Every Thursday 07:00 UTC | `.github/workflows/periodic-discipline.yml` |
+
+CI outcome is **three-state**: GREEN-clean (no findings, exit 0), GREEN-findings (findings present,
+posted to job summary, exit 0), RED-crashed (scanner crashed, exit 1). Findings do not fail CI —
+they are reported for operator review.
+
+### Allowlist
+
+`.claude/plugins/arcis/skills/periodic-discipline/allowlist.yaml` — 27-entry seed of
+known-legitimate deviations that scanners should not flag. Edit this file to suppress a known
+false positive. Each entry requires a `reason` field explaining why the deviation is expected.
+
+### Self-validation
+
+The `workflow_parity` scanner (part of `audit-skills`) asserts that the workflow YAML jobs match
+the verb invocations in each runbook's bash block. If you rename a verb in a runbook, the scanner
+will flag parity drift until the workflow YAML is updated to match.
+
+### Reference docs
+
+Full runbooks and scanner catalogue at:
+- `.claude/plugins/arcis/skills/periodic-discipline/SKILL.md`
+- `.claude/plugins/arcis/skills/periodic-discipline/audits/` — per-verb runbooks
+- `.claude/plugins/arcis/skills/periodic-discipline/references/` — findings schema, lockfile
+  protocol, scanner catalogue
+- `docs/audits/2026-05-26-arcis-periodic-discipline/spec.md` — original specification

@@ -18,7 +18,7 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.67 (#109
-# /arcis:operate skill ships).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.68 (#111
+# /arcis:periodic-discipline meta-skill ships).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.67"
+VERSION = "v0.36.68"
