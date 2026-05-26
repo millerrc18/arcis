@@ -190,7 +190,7 @@ The turn-50 constraint MUST appear in both the agent's TASK Workflow and its CON
 
 ---
 
-## Bash-Subprocess Tool Invocation Appendix
+## Bash-subprocess Tool Invocation Appendix
 
 All investigator-class agents (#108) invoke Tier 1+2 tools exclusively via Bash subprocess. This appendix documents the complete contract that every such invocation must follow.
 
@@ -247,7 +247,7 @@ The shared envelope contract is implemented in `src/tools/_cli_envelope.py` via 
 | JSON parse failure | Report the raw stdout verbatim — do not discard it. |
 | Bash `timeout` exceeded | Surface with the `timeout_exceeded` marker so callers distinguish from tool-internal errors. |
 
-### Shell-Quoting Convention for Embedded SQL / Regex / Payload Strings
+### §2.3.1 Shell-Quoting Convention for Embedded SQL / Regex / Payload Strings
 
 The Bash tool executes command strings. When embedding SQL, regex, or other payloads as positional arguments, use **single-quotes** to preserve literal `$`, `<`, `>`, `*`, `?`, `&`, `|`, parentheses, and backticks:
 
@@ -257,7 +257,7 @@ cd "$(git rev-parse --show-toplevel)" && python -m src.tools.dbquery 'SELECT cou
 
 For payloads that contain literal single quotes, use the bash `'\''` escape OR switch to the stdin-pipe pattern (see below). Double-quoting payloads invites bash variable expansion — avoid unless specifically needed (e.g., `cd "$WORKTREE_PATH"` deliberately expands the variable).
 
-### Stdin-Pipe Pattern for Body-Content Delivery
+### §2.3.2 Stdin-Pipe Pattern for Body-Content Delivery
 
 Investigator-class agents have no `Write`/`Edit` in their `allowed-tools` and cannot create temp files on disk. For any subprocess that needs to receive multi-line text content (notably `prcomments post`'s body argument), use the stdin-pipe pattern:
 
