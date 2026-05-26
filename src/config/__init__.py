@@ -95,6 +95,21 @@ _config_cache: dict | None = None
 
 _logger = logging.getLogger(__name__)
 
+# Email-consolidation (#115) deprecation-warning sentinels. Each warning
+# fires ONCE per process to avoid log spam on every reload_config() call.
+# Pattern mirrors src/email/notifier.py:21 (_yaml_password_warning_emitted).
+_email_deprecation_warning_emitted = False
+_bootcamp_email_mode_warning_emitted = False
+_old_path_enabled_warning_emitted = False
+
+# Email-consolidation (#115) weekly-tier-time DOW parser. Mon=0..Sun=6 to
+# match datetime.weekday(). Used by parse_weekly_tier_time below + by
+# Task 5's flush_tier scheduler.
+_DOW_TO_WEEKDAY = {
+    "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
+    "FRI": 4, "SAT": 5, "SUN": 6,
+}
+
 # Detects common placeholder patterns from settings.example.yaml (#132).
 # Matches: "your-api-key", "YOUR_KEY_HERE", "placeholder", "example", ""
 _PLACEHOLDER_RE = re.compile(r"^your[-_]|placeholder|example|YOUR_|^$", re.IGNORECASE)
@@ -107,6 +122,191 @@ _CRITICAL_KEYS = [
     ("anthropic", "api_key"),
     ("telegram", "bot_token"),
 ]
+
+
+def parse_weekly_tier_time(value: str) -> tuple[int, int, int]:
+    """Parse the weekly tier-time string ``'<DOW> HH:MM'`` (DD-10, DA-NIT-20).
+
+    DOW is one of Mon/Tue/Wed/Thu/Fri/Sat/Sun (case-insensitive). HH is
+    00-23, MM is 00-59. Returns ``(weekday, hour, minute)`` where weekday
+    follows :meth:`datetime.weekday` semantics (Mon=0..Sun=6).
+
+    Raises:
+        ValueError: with an operator-actionable remediation message when
+            the input does not match ``'<DOW> HH:MM'`` exactly.
+    """
+    if not isinstance(value, str):
+        raise ValueError(
+            f"email.tier_times.weekly must be a string like 'Sun 18:00', got "
+            f"{type(value).__name__}={value!r}. Format: '<DOW> HH:MM' where "
+            f"DOW is one of Mon/Tue/Wed/Thu/Fri/Sat/Sun (case-insensitive)."
+        )
+
+    parts = value.strip().split()
+    if len(parts) != 2:
+        raise ValueError(
+            f"email.tier_times.weekly={value!r} is malformed. Expected format "
+            f"'<DOW> HH:MM' where DOW is one of Mon/Tue/Wed/Thu/Fri/Sat/Sun "
+            f"(case-insensitive). Example: 'Sun 18:00'."
+        )
+
+    dow_str, hm_str = parts[0].upper(), parts[1]
+    if dow_str not in _DOW_TO_WEEKDAY:
+        raise ValueError(
+            f"email.tier_times.weekly={value!r}: unknown day-of-week {parts[0]!r}. "
+            f"Must be one of Mon/Tue/Wed/Thu/Fri/Sat/Sun (case-insensitive)."
+        )
+
+    hm_parts = hm_str.split(":")
+    if len(hm_parts) != 2:
+        raise ValueError(
+            f"email.tier_times.weekly={value!r}: time must be 'HH:MM' "
+            f"(24-hour), got {hm_str!r}."
+        )
+    try:
+        hour = int(hm_parts[0])
+        minute = int(hm_parts[1])
+    except ValueError as e:
+        raise ValueError(
+            f"email.tier_times.weekly={value!r}: time must be 'HH:MM' with "
+            f"integer hour (00-23) and minute (00-59), got {hm_str!r}."
+        ) from e
+
+    if not (0 <= hour <= 23) or not (0 <= minute <= 59):
+        raise ValueError(
+            f"email.tier_times.weekly={value!r}: time out of range. Hour "
+            f"must be 00-23, minute must be 00-59, got hour={hour} minute={minute}."
+        )
+
+    return (_DOW_TO_WEEKDAY[dow_str], hour, minute)
+
+
+def _apply_email_consolidation_defaults(config: dict) -> None:
+    """In-place post-load normalization for the email-consolidation schema (#115).
+
+    Per spec Section 4.5:
+      - Map deprecated ``email.digest_times.{premarket,eod}`` → ``email.tier_times``
+        when the new keys are absent. Emit ONE deprecation warning per process.
+      - Default ``email.tier_times.{preopen,postclose,weekly}`` when absent.
+      - Default ``email.tiers.<name>.{enabled, send_when_empty}`` per DD-33
+        (preopen/postclose send_when_empty=False; weekly send_when_empty=True).
+      - Default ``email.dual_write_hold_over.mode='shadow'`` (DD-20 revised).
+      - Map legacy ``email.dual_write_hold_over.old_path_enabled`` →
+        ``mode='shadow'`` (true) or ``mode='off'`` (false) when ``mode`` is
+        absent. Emit deprecation warning.
+      - Validate weekly tier_time via :func:`parse_weekly_tier_time` and
+        re-raise ``ValueError`` so misconfiguration fails at load, not
+        silently at flush time.
+      - Collapse ``bootcamp.email_mode`` in {'full_stream','daily_summary'} →
+        'digest' with deprecation warning (DD-11). 'silent'/'digest' are
+        passed through unchanged.
+    """
+    global _email_deprecation_warning_emitted
+    global _bootcamp_email_mode_warning_emitted
+    global _old_path_enabled_warning_emitted
+
+    email_cfg = config.setdefault("email", {})
+
+    # ── tier_times: migrate from legacy digest_times when absent ─────
+    existing_tier_times = email_cfg.get("tier_times") or {}
+    legacy_digest_times = email_cfg.get("digest_times") or {}
+
+    new_tier_times = dict(existing_tier_times)  # operator-set values win
+
+    # Emit deprecation warning ONLY when legacy keys exist AND operator
+    # has NOT migrated (i.e. new tier_times keys absent).
+    legacy_present = bool(legacy_digest_times)
+    new_present = bool(existing_tier_times)
+    if legacy_present and not new_present:
+        if not _email_deprecation_warning_emitted:
+            _email_deprecation_warning_emitted = True
+            _logger.warning(
+                "email.digest_times.{premarket,midday,eod,evening} is "
+                "deprecated; use email.tier_times.{preopen,postclose,weekly} "
+                "instead. The legacy keys are being mapped (premarket→preopen, "
+                "eod→postclose); midday/evening are folded into postclose. See "
+                "spec #115 Section 4.5."
+            )
+        # Map the legacy values forward. New tier_times missing entirely,
+        # so it is safe to write any mapped keys we have.
+        if "premarket" in legacy_digest_times and "preopen" not in new_tier_times:
+            new_tier_times["preopen"] = legacy_digest_times["premarket"]
+        if "eod" in legacy_digest_times and "postclose" not in new_tier_times:
+            new_tier_times["postclose"] = legacy_digest_times["eod"]
+
+    # Apply DD-10 defaults for any tier_times still missing.
+    new_tier_times.setdefault("preopen", "07:30")
+    new_tier_times.setdefault("postclose", "17:00")
+    new_tier_times.setdefault("weekly", "Sun 18:00")
+
+    # Validate the weekly value at load time (DD-10/DA-NIT-20). This raises
+    # ValueError on malformed input so the operator gets a remediation
+    # message immediately rather than a silent failure at flush time.
+    parse_weekly_tier_time(new_tier_times["weekly"])
+
+    email_cfg["tier_times"] = new_tier_times
+
+    # ── per-tier enabled + send_when_empty defaults (DD-07, DD-33) ───
+    tiers = email_cfg.setdefault("tiers", {})
+    for tier_name, default_send_when_empty in (
+        ("preopen", False),
+        ("postclose", False),
+        ("weekly", True),
+    ):
+        tier_entry = tiers.setdefault(tier_name, {})
+        tier_entry.setdefault("enabled", True)
+        tier_entry.setdefault("send_when_empty", default_send_when_empty)
+
+    # ── digest_truncation defaults (DD-05 revised, DD-19) ────────────
+    truncation = email_cfg.setdefault("digest_truncation", {})
+    truncation.setdefault("top_k_per_section", 10)
+    truncation.setdefault("overflow_strategy", "attach_overflow_file")
+    truncation.setdefault("overflow_attach_format", "plain")
+
+    # ── holidays defaults (DD-21) ────────────────────────────────────
+    holidays = email_cfg.setdefault("holidays", {})
+    holidays.setdefault("skip_preopen_on_market_holidays", True)
+    holidays.setdefault("skip_postclose_on_market_holidays", True)
+
+    # ── dual_write_hold_over (DD-20 revised) ─────────────────────────
+    holdover = email_cfg.setdefault("dual_write_hold_over", {})
+    holdover.setdefault("enabled", True)
+    holdover.setdefault("shadow_output_dir", "tmp/digest-shadow")
+
+    explicit_mode = "mode" in holdover
+    legacy_old_path = "old_path_enabled" in holdover
+    if legacy_old_path and not explicit_mode:
+        # Legacy alias: map old_path_enabled → mode. Emit deprecation warning.
+        if not _old_path_enabled_warning_emitted:
+            _old_path_enabled_warning_emitted = True
+            _logger.warning(
+                "email.dual_write_hold_over.old_path_enabled is deprecated; "
+                "use email.dual_write_hold_over.mode={'shadow','time_aligned',"
+                "'off'} directly. Mapping old_path_enabled=%r → mode=%r. See "
+                "spec #115 DD-20 (revised).",
+                holdover["old_path_enabled"],
+                "shadow" if holdover["old_path_enabled"] else "off",
+            )
+        holdover["mode"] = "shadow" if holdover["old_path_enabled"] else "off"
+    else:
+        # Default when neither explicit mode nor legacy alias present.
+        holdover.setdefault("mode", "shadow")
+
+    holdover.setdefault("old_path_enabled", True)  # preserve legacy key shape
+
+    # ── bootcamp.email_mode collapse (DD-11) ─────────────────────────
+    bootcamp_cfg = config.get("bootcamp") or {}
+    bc_mode = bootcamp_cfg.get("email_mode")
+    if bc_mode in {"full_stream", "daily_summary"}:
+        if not _bootcamp_email_mode_warning_emitted:
+            _bootcamp_email_mode_warning_emitted = True
+            _logger.warning(
+                "bootcamp.email_mode=%r is deprecated; the value set has "
+                "collapsed to {'silent','digest'}. Aliasing %r → 'digest'. See "
+                "spec #115 DD-11.",
+                bc_mode, bc_mode,
+            )
+        config["bootcamp"]["email_mode"] = "digest"
 
 
 def validate_config(config: dict) -> list[str]:
@@ -133,8 +333,13 @@ def load_config() -> dict:
     if _config_cache is not None:
         return _config_cache
 
-    # __file__ is src/config/__init__.py, so parent.parent reaches project root
-    config_dir = Path(__file__).resolve().parent.parent.parent / "config"
+    # __file__ is src/config/__init__.py, so parent.parent reaches project root.
+    # ARCIS_CONFIG_DIR overrides for test fixtures (tmp_path injection).
+    _override = os.environ.get("ARCIS_CONFIG_DIR")
+    if _override:
+        config_dir = Path(_override)
+    else:
+        config_dir = Path(__file__).resolve().parent.parent.parent / "config"
     local_path = config_dir / "settings.local.yaml"
     example_path = config_dir / "settings.example.yaml"
 
@@ -153,6 +358,11 @@ def load_config() -> dict:
 
     with open(config_path, "r", encoding="utf-8") as f:
         _config_cache = yaml.safe_load(f) or {}
+
+    # Email-consolidation (#115) — apply deprecation mapping + defaults.
+    # Runs BEFORE validate_config so placeholder warnings reflect post-
+    # normalization state.
+    _apply_email_consolidation_defaults(_config_cache)
 
     # Validate config for placeholder keys
     config_warnings = validate_config(_config_cache)
