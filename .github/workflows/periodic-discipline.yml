@@ -142,7 +142,7 @@ jobs:
 
           # Scanner 4: workflow_parity
           python -c "
-          import re, json, os, sys
+          import re, json, os, sys, yaml
           from pathlib import Path
 
           ts = os.environ.get('PD_TS', '')
@@ -153,18 +153,27 @@ jobs:
 
           wf_path = Path('.github/workflows/periodic-discipline.yml')
           if not wf_path.exists():
-              # Workflow not yet created (e.g., before T3) — no finding, exit cleanly
               sys.exit(0)
 
-          wf_tools = extract_tool_invocations(wf_path.read_text(encoding='utf-8'))
+          wf_data = yaml.safe_load(wf_path.read_text(encoding='utf-8'))
+          wf_per_job = {}
+          for job_name, job_def in (wf_data.get('jobs') or {}).items():
+              job_text = ''
+              for step in (job_def.get('steps') or []):
+                  if 'run' in step:
+                      job_text += step['run']
+              wf_per_job[job_name] = set(extract_tool_invocations(job_text))
 
           for verb in ['audit-skills', 'curate-memory', 'test-tools']:
               rb_path = Path(f'.claude/plugins/arcis/skills/periodic-discipline/audits/{verb}.md')
               if not rb_path.exists():
                   continue
-              rb_tools = extract_tool_invocations(rb_path.read_text(encoding='utf-8'))
-              missing_in_wf = set(rb_tools) - set(wf_tools)
-              missing_in_rb = set(wf_tools) - set(rb_tools)
+              if verb not in wf_per_job:
+                  continue
+              rb_tools = set(extract_tool_invocations(rb_path.read_text(encoding='utf-8')))
+              wf_tools = wf_per_job[verb]
+              missing_in_wf = rb_tools - wf_tools
+              missing_in_rb = wf_tools - rb_tools
               for tool in sorted(missing_in_wf):
                   print(json.dumps({'invocation_id': invocation_id, 'verb': 'audit-skills', 'scanner': 'workflow_parity', 'root_cause_key': f'workflow_drift:{verb}:{tool}:missing_in_workflow', 'severity': 'critical', 'first_seen_utc': ts, 'advisory': False, 'payload': {'verb': verb, 'tool': tool, 'direction': 'missing_in_workflow'}}))
               for tool in sorted(missing_in_rb):

@@ -3644,9 +3644,10 @@ they are reported for operator review.
 
 ### Allowlist
 
-`.claude/plugins/arcis/skills/periodic-discipline/allowlist.yaml` — 27-entry seed of
-known-legitimate deviations that scanners should not flag. Edit this file to suppress a known
-false positive. Each entry requires a `reason` field explaining why the deviation is expected.
+`.claude/plugins/arcis/skills/periodic-discipline/allowlist.yaml` — 1-entry seed
+(advisory:placeholder); 26 lines of inline namespace documentation. Edit this file to suppress a
+known false positive. Each entry requires a `reason` field explaining why the deviation is
+expected.
 
 ### Self-validation
 

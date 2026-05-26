@@ -25,8 +25,9 @@
   - **3 reference docs**: `references/findings-schema.md` (structured finding envelope format),
     `references/lockfile.md` (per-run lockfile preventing concurrent audit runs),
     `references/scanners.md` (catalogue of 9 scanner functions used across verbs).
-  - **Allowlist** (`allowlist.yaml`) — 27-entry seed listing known-legitimate deviations that
-    scanners should not flag as findings.
+  - **Allowlist** (`allowlist.yaml`) — 1-entry seed (advisory:placeholder); 26 lines of inline
+    namespace documentation. Edit to suppress known false positives; each entry requires a `reason`
+    field.
 
 - **CI cron workflow** (`.github/workflows/periodic-discipline.yml`):
   - Two scheduled jobs: `audit-skills` (every Monday 07:00 UTC) and `test-tools` (every Thursday
@@ -45,11 +46,15 @@
 - `tests/skills/test_periodic_discipline.py` — 17 acceptance tests covering verb presence,
   allowlist format, report-path invariants, findings-schema envelope shape, lockfile protocol,
   and scanner catalogue completeness.
-- `tests/skills/test_periodic_discipline_boundary.py` — 6 boundary tests covering local-only
-  verb restriction, empty-findings exit codes, and concurrent-run lockfile guard.
+- `tests/skills/test_periodic_discipline_boundary.py` — 6 test functions / 54 pytest-collected
+  cases (parametrized over tool list) covering local-only verb restriction, empty-findings exit
+  codes, and concurrent-run lockfile guard.
 - `tests/tools/test_workflow_parity_scanner.py` — 5 tests for the `workflow_parity` scanner
   covering YAML ↔ runbook parity, job-name extraction, and drift-detection logic.
-- **Total: 28 new tests** (verified via AST parse).
+- **Tests: 28 test functions added (79 collected when parametrized)**: `tests/skills/test_periodic_discipline.py`
+  (17 functions / 20 collected), `tests/skills/test_periodic_discipline_boundary.py` (6 functions /
+  54 collected via 13-tool parametrization), `tests/tools/test_workflow_parity_scanner.py` (5 functions /
+  5 collected). All vacuous-test-discipline verified via `TestVacuousCheckVerification` class.
 
 ## [v0.36.67] — 2026-05-26 — `/arcis:operate` skill — incident response + change orchestration (#109)
 
