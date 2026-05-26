@@ -2,6 +2,89 @@
 
 ## [Unreleased]
 
+### Added — #108 specialized investigator agents (no version bump; docs-only)
+
+No version bump: this PR adds 4 investigator-class agent prompts + 4 golden-question
+reference files + agent-conventions.md addenda. All capabilities land via auto-discovery
+(no plugin.json update required — confirmed by spec §8 DD-8). `src/version.py`,
+`pyproject.toml`, and `plugin.json` are NOT modified.
+
+- **`db-investigator`** (`.claude/plugins/arcis/agents/db-investigator.md`) — READ-ONLY
+  DB forensics agent composing DBQuery + CapabilityRegistryQuery + SymbolFind + LogTail
+  via Bash subprocess. Surface (4-6 calls) / deep (15-30 calls) investigation modes.
+  First-in-class consumer of the Tier 1+2 tool surface. NEVER issues mutating SQL
+  (DBQuery enforces read-only at the tool layer; agent CONSTRAINTS repeats intent).
+
+- **`ci-investigator`** (`.claude/plugins/arcis/agents/ci-investigator.md`) — CI failure
+  classifier (REAL / TEST / FLAKY / STALE-BASE) composing CIInvestigate + PRComments +
+  SymbolFind + LogTail. CAN MUTATE via `PRComments.post` but only with explicit TARGET_PR
+  in DYNAMIC CONTEXT (TARGET-PR-SCOPING guardrail). Repost-idempotent via DA4: SHA-256
+  fingerprint footer (`<!-- [fingerprint:<8-hex>] -->`) appended to every post; pre-post
+  `prcomments read` scan; `ALLOW_REPOST=false` default; `post_status=skipped_duplicate`
+  when matching fingerprint found. Uses stdin-pipe pattern (`cat <<'EOF' | ... --body-file
+  -`) per §2.3.2 — NEVER `--body STRING` to avoid shell-escaping risk.
+
+- **`git-historian`** (`.claude/plugins/arcis/agents/git-historian.md`) — READ-ONLY
+  temporal archaeology via direct git CLI + SymbolFind + PRComments.read. No commits,
+  push, reset, or rebase allowed (enforced by CONSTRAINTS enumeration). Refactors to #107
+  GitArchaeology Tier 3 when that tool lands (DD-10).
+
+- **`live-monitor`** (`.claude/plugins/arcis/agents/live-monitor.md`) — READ-ONLY
+  observational snapshot composing ProcessManager.status (ONLY — NOT restart/start/stop) +
+  HealthProbe + LogTail + TradingState + CIInvestigate. NEVER issues restart/start/stop
+  (that boundary belongs to #109 `arcis:operate`). Captures ET wall-clock as Workflow Step
+  0 via `TZ='America/New_York' date` for overnight-window evaluation (21:30-22:30 ET
+  restart recommendations forbidden per `feedback_no_restart_during_overnight_window`).
+
+- **4 golden-question reference files** at `.claude/plugins/arcis/docs/agent-tests/`:
+  `db-investigator-golden.md`, `ci-investigator-golden.md`, `git-historian-golden.md`,
+  `live-monitor-golden.md` (3-5 questions each). Document expected response shape
+  (sections, citation density, classification correctness) for #111 skill-audit baseline.
+  Includes DA4 repost-refusal case for ci-investigator (no TARGET_PR → refuse post →
+  return markdown for manual posting).
+
+- **`agent-conventions.md` addenda** (`.claude/plugins/arcis/docs/agent-conventions.md`):
+  - §Naming Addendum (DD-1): investigator-class bare-name exception — `db-investigator`
+    etc. intentionally omit the `arcis-` prefix because they are cross-skill assets
+    consumed by #109/#110/#111 and the operator directly.
+  - §maxTurns Addendum (DD-2/DD-17): `maxTurns: 60` precedent established by
+    `coding-rigor-reviewer.md`. Turn-50 budget-stop: at turn ≥50 the agent STOPS issuing
+    new tool calls and reserves remaining turns for OUTPUT FORMAT composition.
+    `coverage_assessment` is a REQUIRED field on ALL FOUR investigator-class OUTPUT
+    FORMATs.
+  - §Bash-subprocess Tool Invocation Appendix: DA1 worktree-portable cwd via
+    `cd "$(git rev-parse --show-toplevel)"` + optional `WORKTREE_PATH` DYNAMIC CONTEXT
+    override (replaces hardcoded `cd C:/arcis/halcyon-lab`); DA2 mandatory per-call Bash
+    `timeout` parameter with tiered defaults (60000ms standard / 90000ms heavy-query /
+    120000ms full-gate); §2.3.1 single-quote convention for shell safety; §2.3.2 stdin-
+    pipe pattern (`cat <<'EOF' | ... --body-file -`).
+  - §5 OUTPUT FORMAT Addendum (DD-11): registered investigator-class custom-tag enum —
+    `<db_report>`, `<ci_report>`, `<git_report>`, `<live_report>`. Domain-semantic tags
+    (refactoring to `<findings>` would lose meaning). DA6 `coverage_assessment` field
+    required on all four.
+  - §Cross-Cutting-Conventions Appendix: DA3 empty-result classification (empty primary
+    collection = `informational` severity, never silently dropped); DA5 JSONB/TEXT
+    200-char truncation rule (`*_jsonb`/`*_detail`/`*_payload`/`*_body` columns truncated
+    at ≤200 chars with `[truncated]` marker); DA4 fingerprint-footer convention for
+    repost-idempotent posters.
+
+- **First-time encoding of `feedback_complete_efforts_no_deferral`** operator memory
+  directly in agent prompts (EPISTEMIC LENS section, per DD-13): "If during the
+  investigation you discover an adjacent issue, DOCUMENT IT INSIDE this report — do not
+  punt to out of scope." This ensures the directive shapes the agent's cognitive frame
+  during findings-generation, not just as a rule in CONSTRAINTS.
+
+#### Cross-cutting conventions applied to all 4 agents
+
+| Convention | Code | Description |
+|---|---|---|
+| Worktree-portable cwd | DA1 | `cd "$(git rev-parse --show-toplevel)"` + optional `WORKTREE_PATH` override |
+| Mandatory per-call timeout | DA2 | 60000ms standard / 90000ms heavy-query / 120000ms full-gate; no implicit 120s ceiling |
+| Empty-result classification | DA3 | Empty primary collection → `informational` severity, explicitly documented |
+| ci-investigator repost-idempotency | DA4 | SHA-256 fingerprint footer + pre-post scan + `ALLOW_REPOST=false` + `skipped_duplicate` status |
+| JSONB/TEXT truncation | DA5 | `*_jsonb`/`*_detail`/`*_payload`/`*_body` ≤200 chars + `[truncated]` marker |
+| Turn-50 budget-stop | DA6 | Stop new tool calls at turn ≥50; mandatory `coverage_assessment` field on all 4 OUTPUT FORMATs |
+
 ## [v0.36.64] — 2026-05-25 — Sim conn-lifecycle leak fix + PROD audit (#100)
 
 ### Fixed
