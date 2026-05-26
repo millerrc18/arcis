@@ -105,8 +105,8 @@
     },
     {
       "file": "src/notifications/email_digest.py",
-      "lines": 764,
-      "rationale": "Sprint #115 T5 baseline 393; T6 added 5 rendering functions (preopen + postclose tier rendering, 4 per-section helpers each, empty-suppression marker writer, top-K truncation, defensive payload accessors) for ~370L net. Per DD-29 the design intentionally chose a flat module layout: routing dict + 5 public functions + private helpers tightly coupled to the queue table schema and routing matrix. Splitting renderers into a sibling email_digest_render.py is the cleanest follow-up, but the per-section helpers were extracted to satisfy the 60-line function cap (longest fn is now _render_preopen_html at ~32L) and the file remains coherent. Real split deferred to post-Sprint-#115 cleanup once Task 7 weekly rendering is in place and the boundary stabilizes."
+      "lines": 1029,
+      "rationale": "Sprint #115 T5 baseline 393; T6 +~370L (preopen + postclose rendering); T7 +~260L (weekly tier rendering subsuming Saturday training + CTO content per DD-12: _collect_weekly_data orchestrator + 4 per-section collectors + 6 per-section renderers + dispatcher hookup). Per DD-29 the design intentionally chose a flat module layout: routing dict + 5 public functions + private helpers tightly coupled to the queue table schema and routing matrix. Per-section helpers were extracted to satisfy the 60-line function cap (longest fn is now _render_weekly_performance_section at ~28L) and the file remains coherent. Real split into sibling email_digest_render.py is deferred to post-Sprint-#115 cleanup once the renderer boundary stabilizes."
     },
     {
       "file": "src/notifications/telegram.py",
