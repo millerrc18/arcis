@@ -38,10 +38,11 @@ from src.tools.gitarchaeology._errors import (  # noqa: F401 (re-exported)
     GitOutputTruncatedError,
     GitParseError,
 )
-from src.tools.gitarchaeology._helpers import (  # noqa: F401 (used by ops)
+from src.tools.gitarchaeology._helpers import (  # noqa: F401 (used by ops; re-exported for tests)
     _git,
     _parse_show_output,
     _parse_standard_blame_output,
+    _safe_truncate_utf8,
 )
 
 
