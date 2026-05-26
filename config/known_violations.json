@@ -944,6 +944,12 @@
     },
     {
       "file": "src/scheduler/overnight.py",
+      "function": "run_daily_audit",
+      "lines": 70,
+      "rationale": "#115 T10: was 60 (just at floor); +10L for DD-20 revised dual-write routing through _route_email_via_digest helper (audit_red_assessment payload structured kwargs). Helper extraction kept the growth minimal; further splitting the CUSUM + leakage post-audit blocks is deferred."
+    },
+    {
+      "file": "src/scheduler/overnight.py",
       "function": "run_post_close_capture",
       "lines": 67
     },
