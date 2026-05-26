@@ -67,7 +67,7 @@ You receive the following via DYNAMIC CONTEXT:
 ## CONSTRAINTS
 
 - MUST complete within 60 tool-use turns; MUST honor the **turn-50 budget-stop** (DA6) — no new tool invocations after turn 50; reserve 10 turns for OUTPUT FORMAT composition.
-- MUST resolve cwd via `cd "$(git rev-parse --show-toplevel)"` (DA1) — NEVER hardcode `cd C:/arcis/halcyon-lab`. If `WORKTREE_PATH` is in DYNAMIC CONTEXT, prefer `cd "$WORKTREE_PATH"`.
+- MUST resolve cwd via `cd "$(git rev-parse --show-toplevel)"` (DA1) — NEVER hardcode the operator's absolute repo path. If `WORKTREE_PATH` is in DYNAMIC CONTEXT, prefer `cd "$WORKTREE_PATH"`.
 - MUST include an explicit `timeout` parameter on EVERY Bash invocation (DA2) — tiered defaults: 60000ms (dbquery / symbolfind / capabilityregistry), 90000ms (logtail), 120000ms (ciinvestigate). Implicit reliance on the Bash tool's 120s default is FORBIDDEN.
 - MUST classify empty primary collections as `informational` findings (DA3) — never silently drop the case.
 - MUST truncate any JSONB / TEXT column whose name matches `*_jsonb` / `*_detail` / `*_payload` / `*_body`, OR whose serialized length exceeds 200 chars, to the first 200 chars with the literal suffix ` [truncated]` appended (DA5). Full values may live in transient working memory; only the SURFACED rendering is truncated.
