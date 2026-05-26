@@ -135,7 +135,7 @@ jobs:
           #   5267 (#111 arcis:periodic-discipline 2026-05-26: +28 test functions / +79
           #         pytest-collected cases (parametrize expansion) across tests/skills/
           #         (54 collected: 17+54 boundary) and tests/tools/test_workflow_parity_
-          #         scanner.py (5). CLAUDE.md SQLite-only floor 5388->5416.)
+          #         scanner.py (5). CLAUDE.md SQLite-only floor 5388->5467.)
           # Bump when full-sweep grows past the previous floor.
           EXPECTED=5267
           echo "Tests passed: $ACTUAL (floor: $EXPECTED)"
