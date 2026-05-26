@@ -77,10 +77,11 @@ Two sub-findings:
 - `cli_unbootable`: tool exits non-zero on `--help` (broken CLI entirely)
 - `audit_log_silent`: tool booted but emitted no audit-log event for this session ID
 
-Note: `--help` is read-only and some tools may not emit an audit event for help-only
-invocations. The `audit_log_silent` finding is `minor` — informational rather than
-a confirmed decorator failure. See `references/scanners.md §cli_decorator_chain` for
-the full decorator-chain inspection logic used in more exhaustive checks.
+Note: `--help` is handled by argparse before any decorated function runs, so most tools
+will not write an audit-log event for it. `audit_log_silent` is therefore severity `info`
+(opt-in nudge, not blocking) — it documents the absence without asserting a defect.
+See `references/scanners.md §cli_decorator_chain` for the full decorator-chain inspection
+logic used in more exhaustive checks.
 
 ```bash
 for tool in $TOOLS; do
@@ -105,7 +106,7 @@ for tool in $TOOLS; do
 
     if [ -z "$EMITTED" ]; then
       jq -nc --arg tool "$tool" --arg ts "$PD_TS" \
-        '{invocation_id: env.INVOCATION_ID, verb: "test-tools", scanner: "audit_log_silent", root_cause_key: ("tool:" + $tool + ":no_audit_event_on_help"), severity: "minor", first_seen_utc: $ts, advisory: false, payload: {tool: $tool, note: "no audit-log event captured for --help invocation; may be expected for read-only operations"}}' \
+        '{invocation_id: env.INVOCATION_ID, verb: "test-tools", scanner: "audit_log_silent", root_cause_key: ("tool:" + $tool + ":no_audit_event_on_help"), severity: "info", first_seen_utc: $ts, advisory: false, payload: {tool: $tool, note: "--help exits before decorated function runs; no audit event is expected for read-only help invocations"}}' \
         >> "$RAW"
     fi
   fi
@@ -139,11 +140,13 @@ done
 ## Postamble
 
 ```bash
+# Capture raw count BEFORE deleting the file
+RAW_COUNT=$(jq 'length' "$RAW")
+
 # --- Dedup: earliest occurrence per root_cause_key wins ---
 jq -s 'group_by(.root_cause_key) | map(.[0])' "$RAW" > "$REPORT"
 rm -f "$RAW"
 
-RAW_COUNT=$(jq 'length' "${REPORT}.raw" 2>/dev/null || echo 0)
 DEDUPED_COUNT=$(jq 'length' "$REPORT")
 
 # --- Allowlist filter ---

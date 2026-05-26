@@ -169,11 +169,13 @@ jq -nc --arg ts "$PD_TS" \
 ## Postamble
 
 ```bash
+# Capture raw count BEFORE deleting the file
+RAW_COUNT=$(jq 'length' "$RAW")
+
 # --- Dedup: earliest occurrence per root_cause_key wins ---
 jq -s 'group_by(.root_cause_key) | map(.[0])' "$RAW" > "$REPORT"
 rm -f "$RAW"
 
-RAW_COUNT=$(jq 'length' "${REPORT}.raw" 2>/dev/null || echo 0)
 DEDUPED_COUNT=$(jq 'length' "$REPORT")
 
 # --- Allowlist filter ---
