@@ -181,3 +181,161 @@ def test_load_arcis_config_missing_file_raises(tmp_path):
         load_arcis_config(path=missing)
 
     assert "does-not-exist" in str(exc_info.value)
+
+
+# ── Tier 3 foundation: ContractDef / NormalizeRule / ContractsConfig ─────────
+
+
+def test_normalize_rule_defaults():
+    """NormalizeRule has all-optional fields with correct defaults including DA2 at_capture_redact."""
+    from src.tools._config import NormalizeRule
+
+    rule = NormalizeRule()
+    assert rule.tolerance is None
+    assert rule.mask_regex is None
+    assert rule.ignore is False
+    assert rule.at_capture_redact == []
+
+
+def test_normalize_rule_at_capture_redact_field_accepts_list():
+    """DA2: at_capture_redact accepts a non-empty list of regex strings."""
+    from src.tools._config import NormalizeRule
+
+    rule = NormalizeRule(at_capture_redact=["C:\\\\Users\\\\[a-zA-Z]+", "hostname:[^,]+"])
+    assert len(rule.at_capture_redact) == 2
+    assert "C:\\\\Users\\\\[a-zA-Z]+" in rule.at_capture_redact
+
+
+def test_contract_def_defaults():
+    """ContractDef has correct defaults for optional fields."""
+    from src.tools._config import ContractDef
+
+    contract = ContractDef(
+        cmd=["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+        description="test contract",
+    )
+    assert contract.timeout_s == 10
+    assert contract.parse_fields == []
+    assert contract.normalize == {}
+
+
+def test_contracts_config_empty_default():
+    """ContractsConfig entries defaults to empty dict."""
+    from src.tools._config import ContractsConfig
+
+    cfg = ContractsConfig()
+    assert cfg.entries == {}
+
+
+def test_arcis_config_contracts_field_defaults_to_empty_dict(tmp_path):
+    """Backward compat: ArcisConfig.contracts defaults to {} when YAML has no contracts: section."""
+    from src.tools._config import load_arcis_config
+
+    yaml_content = """
+paths:
+  db_canonical: /tmp/custom.sqlite3
+  logs_runtime: /tmp/logs
+  logs_service: /tmp/logs-svc
+  ollama_models: /tmp/ollama
+  worktrees:
+    main: /tmp/main
+    dualgpu: /tmp/dualgpu
+ports:
+  pg_prod: 9999
+  pg_test: 9998
+  ollama: 9997
+  cloud_api: {range_start: 7000, range_end: 7100}
+  adhoc_http: 6765
+  forbidden: [7777]
+services:
+  watch_loop: TestWatchLoop
+  ollama_watchdog: TestOllamaWatchdog
+  dashboard: TestDashboard
+safety_windows:
+  test_window:
+    start_et: "10:00"
+    end_et: "11:00"
+    reason: "test"
+pg:
+  prod_dsn_signatures: ["test_sig"]
+  test_dsn: "postgresql://test@127.0.0.1:9998/test"
+"""
+    yaml_path = tmp_path / "no_contracts.yaml"
+    yaml_path.write_text(yaml_content, encoding="utf-8")
+
+    cfg = load_arcis_config(path=yaml_path)
+    assert cfg.contracts == {}
+
+
+def test_arcis_config_contracts_loads_from_yaml(tmp_path):
+    """ArcisConfig.contracts section round-trips through YAML load with ContractDef fields."""
+    from src.tools._config import load_arcis_config
+
+    yaml_content = """
+paths:
+  db_canonical: /tmp/custom.sqlite3
+  logs_runtime: /tmp/logs
+  logs_service: /tmp/logs-svc
+  ollama_models: /tmp/ollama
+  worktrees:
+    main: /tmp/main
+    dualgpu: /tmp/dualgpu
+ports:
+  pg_prod: 9999
+  pg_test: 9998
+  ollama: 9997
+  cloud_api: {range_start: 7000, range_end: 7100}
+  adhoc_http: 6765
+  forbidden: [7777]
+services:
+  watch_loop: TestWatchLoop
+  ollama_watchdog: TestOllamaWatchdog
+  dashboard: TestDashboard
+safety_windows:
+  test_window:
+    start_et: "10:00"
+    end_et: "11:00"
+    reason: "test"
+pg:
+  prod_dsn_signatures: ["test_sig"]
+  test_dsn: "postgresql://test@127.0.0.1:9998/test"
+contracts:
+  test-contract:
+    cmd:
+      - nvidia-smi
+      - --query-gpu=utilization.gpu
+      - --format=csv,noheader,nounits
+    description: "test contract"
+    timeout_s: 5
+    parse_fields:
+      - gpu_util_pct
+    normalize:
+      gpu_util_pct:
+        tolerance: 5.0
+"""
+    yaml_path = tmp_path / "with_contracts.yaml"
+    yaml_path.write_text(yaml_content, encoding="utf-8")
+
+    cfg = load_arcis_config(path=yaml_path)
+    assert "test-contract" in cfg.contracts
+    contract = cfg.contracts["test-contract"]
+    assert contract.timeout_s == 5
+    assert contract.parse_fields == ["gpu_util_pct"]
+    assert contract.normalize["gpu_util_pct"].tolerance == 5.0
+
+
+def test_nvidia_smi_watchloop_contract_in_real_config():
+    """Real arcis_config.yaml contains nvidia-smi-watchloop with DA1 recalibrated tolerances."""
+    from src.tools._config import load_arcis_config
+
+    cfg = load_arcis_config()
+    assert "nvidia-smi-watchloop" in cfg.contracts
+    contract = cfg.contracts["nvidia-smi-watchloop"]
+    assert contract.timeout_s == 5
+    assert "gpu_util_pct" in contract.parse_fields
+    assert "gpu_vram_used_mb" in contract.parse_fields
+    # DA1 recalibrated tolerances
+    assert contract.normalize["gpu_util_pct"].tolerance == 5.0
+    assert contract.normalize["gpu_vram_used_mb"].tolerance == 2048.0
+    assert contract.normalize["gpu_temp_c"].tolerance == 10.0
+    assert contract.normalize["gpu_power_w"].tolerance == 50.0

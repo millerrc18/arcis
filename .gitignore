@@ -40,6 +40,9 @@ logs/
 data/
 !data/reference/
 !data/reference/**
+!data/contracts/
+!data/contracts/**
+!data/docconsistency-allowlist.yaml
 
 # Training artifacts
 # Match files inside the dir (not the dir itself) so allowlisted

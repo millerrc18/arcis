@@ -36,7 +36,15 @@ class GhMissingError(subprocess.SubprocessError):
     """Raised when gh.exe cannot be located on PATH."""
 
 
-@lru_cache(maxsize=4)
+class GitMissingError(subprocess.SubprocessError):
+    """Raised when git.exe cannot be located on PATH."""
+
+
+class NvidiaSmiMissingError(subprocess.SubprocessError):
+    """Raised when nvidia-smi.exe cannot be located on PATH."""
+
+
+@lru_cache(maxsize=6)
 def resolve_exe(name: str) -> str:
     """Return the absolute path to `name` on PATH, or raise a descriptive error.
 
@@ -53,6 +61,14 @@ def resolve_exe(name: str) -> str:
             raise GhMissingError(
                 'gh not on PATH. Install via winget install GitHub.cli or https://cli.github.com/ '
                 '(>= 2.0 required for --body-file - stdin)'
+            )
+        if name == 'git':
+            raise GitMissingError(
+                'git not on PATH. Install via winget install Git.Git or download from https://git-scm.com/'
+            )
+        if name == 'nvidia-smi':
+            raise NvidiaSmiMissingError(
+                'nvidia-smi not on PATH. Install via NVIDIA GPU driver package from https://www.nvidia.com/drivers/'
             )
         raise subprocess.SubprocessError(f'{name} not on PATH')
     return exe

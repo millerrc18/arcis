@@ -143,3 +143,59 @@ pg:
   # parameter and don't see this signature (or one explicitly allowlisted)
   # should refuse to proceed.
   test_dsn: "postgresql://test:test@127.0.0.1:5434/halcyon"
+
+# ─── CONTRACTS (ContractCheck v1 baselines) ───────────────────────────
+# Snapshots of external-CLI invocations whose argv shape + parsed output
+# the production code pins. Drift in argv (operator changes the call)
+# OR drift in output (vendor changes the CLI's behavior, e.g., nvidia-smi
+# emits [N/A] where it used to emit integers) signals upstream regression.
+#
+# The v0.36.29 [N/A] incident is the north-star: nvidia-smi started
+# emitting '[N/A]' for power.draw on a fresh driver install; the watchloop
+# silently degraded to 'GPU data unavailable' via its broad except clause.
+# ContractCheck v1 catches that by recording the live output once, then
+# diffing on every subsequent invocation.
+#
+# Adding a new contract — PRE-RECORD AUDIT CHECKLIST (DA2):
+#   1. Manually run the proposed `cmd` and inspect raw stdout.
+#   2. Identify PII in the output: usernames, hostnames, computer names,
+#      absolute paths containing them, MAC addresses, IP addresses, license
+#      keys. (nvidia-smi --query-gpu CSV emits pure numerics — no PII.
+#      nvidia-smi --query-compute-apps emits process paths containing
+#      C:\Users\... — IS PII.)
+#   3. For each PII class, add an `at_capture_redact` regex entry to that
+#      field's `normalize:` section. Recording-time sanitization replaces
+#      matches with '<REDACTED>' BEFORE baseline JSON is written. See spec §4.4a.
+#   4. Append a new entry below (see nvidia-smi-watchloop for the shape).
+#   5. Run `python -m src.tools.contractcheck record <name>` — writes
+#      data/contracts/<name>/<ISO-timestamp>.json + latest_ref.txt.
+#   6. Inspect the resulting baseline JSON to CONFIRM redaction worked
+#      (grep for known PII strings — must return zero matches).
+#   7. Commit both artifacts. (data/contracts/ is gitignore-allowlisted.)
+contracts:
+  nvidia-smi-watchloop:
+    description: |
+      Watchloop GPU metrics invocation — pinned to
+      src/monitoring/system_metrics.py:36-45 verbatim. Five queried fields
+      in CSV, no header, no units. 5-second timeout.
+    cmd:
+      - nvidia-smi
+      - --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw
+      - --format=csv,noheader,nounits
+    timeout_s: 5
+    parse_fields:
+      - gpu_util_pct
+      - gpu_vram_used_mb
+      - gpu_vram_total_mb
+      - gpu_temp_c
+      - gpu_power_w
+    normalize:
+      gpu_util_pct:
+        tolerance: 5.0         # ±5% absolute (operator runs watchloop at near-idle most of the time)
+      gpu_vram_used_mb:
+        tolerance: 2048.0      # ±2GB (transient cache + active model weights swap-in/out)
+      gpu_temp_c:
+        tolerance: 10.0        # ±10°C (idle ~45°C vs warm-load ~55°C; thermal swing modest at idle workloads)
+      gpu_power_w:
+        tolerance: 50.0        # ±50W (idle ~10-20W; baseline recording captures one snapshot — wider than util drift, narrower than full idle→load range)
+      # gpu_vram_total_mb: no normalize — should be CONSTANT (catches hardware swap)

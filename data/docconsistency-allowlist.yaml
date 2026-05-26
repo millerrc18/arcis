@@ -1,0 +1,19 @@
+# DocConsistency v1 allow-list — file:line refs that are intentionally
+# historical and should NOT be flagged.
+#
+# Format: each entry is a free-form string equal to the LITERAL match
+# DocConsistency emits (e.g., `src/scheduler/vram_manager.py:266` from
+# CHANGELOG.md:1304). The DocConsistency scanner compares each found ref
+# against this list; any match is suppressed.
+#
+# The deep-report Phase 4 analysis identified that CHANGELOG.md:1234-1310
+# (v0.36.29 hotfix entry) cites multiple now-deleted files. Those refs
+# are historically accurate — the entry is documenting a fix that has
+# since been refactored away. They go HERE so DocConsistency doesn't
+# alert on them.
+#
+# Operator workflow: when DocConsistency emits a finding the operator
+# considers historical, copy the exact `file:line` token here, commit,
+# rerun. The empty seed below is intentional — let the operator triage
+# real findings rather than pre-curating.
+allowlist: []
