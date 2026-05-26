@@ -132,8 +132,12 @@ jobs:
           #         across the watchdog/training-control/startup-guard/liveness/
           #         gpu-pin/handler-registration suites. Same +88 delta applied to
           #         the CLAUDE.md SQLite-only floor (5300->5388).)
+          #   5267 (#111 arcis:periodic-discipline 2026-05-26: +28 test functions / +79
+          #         pytest-collected cases (parametrize expansion) across tests/skills/
+          #         (54 collected: 17+54 boundary) and tests/tools/test_workflow_parity_
+          #         scanner.py (5). CLAUDE.md SQLite-only floor 5388->5467.)
           # Bump when full-sweep grows past the previous floor.
-          EXPECTED=5188
+          EXPECTED=5267
           echo "Tests passed: $ACTUAL (floor: $EXPECTED)"
           if [ -z "$ACTUAL" ]; then
             echo "Could not extract test count from pytest output" >&2

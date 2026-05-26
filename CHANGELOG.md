@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+## [v0.36.68] — 2026-05-26 — `/arcis:periodic-discipline` meta-skill — plugin infrastructure drift auditing (#111)
+
+### Added
+
+- **Skill: `/arcis:periodic-discipline` ships with 4 verbs** (#111). New plugin meta-skill at
+  `.claude/plugins/arcis/skills/periodic-discipline/`. Audits the Arcis plugin ecosystem for
+  drift — stale skills, dead memory, broken tools — without adding any new Python tools, agents,
+  or schema tables (operator constraint DD11: zero `src/tools/` additions).
+  - **4 verbs**:
+    - `audit-skills` — scans all SKILL.md files for stale runbook references, broken tool citations,
+      and verb/allowlist drift. Runbook: `audits/audit-skills.md`.
+    - `curate-memory` — reviews `.claude/memory/` entries for accuracy against current code state,
+      flags stale invariants. Runbook: `audits/curate-memory.md`. Local-only verb (mutates memory
+      files; not safe to run in CI).
+    - `test-tools` — validates that every Tier 1+2+3 tool CLI is reachable, `--help` passes, and
+      smoke-test contracts are satisfied. Runbook: `audits/test-tools.md`.
+    - `full` — orchestrates all three audit verbs in sequence; produces a consolidated findings
+      report at `data/periodic-discipline/reports/`. Local-only verb. Runbook: `audits/full.md`.
+  - **Composition only** — composes existing 13 Tier 1+2+3 tools plus the
+    `research-cross-domain-analyst` agent. No new Python modules, no new schema tables.
+  - **3 reference docs**: `references/findings-schema.md` (structured finding envelope format),
+    `references/lockfile.md` (per-run lockfile preventing concurrent audit runs),
+    `references/scanners.md` (catalogue of 9 scanner functions used across verbs).
+  - **Allowlist** (`allowlist.yaml`) — 1-entry seed (advisory:placeholder); 26 lines of inline
+    namespace documentation. Edit to suppress known false positives; each entry requires a `reason`
+    field.
+
+- **CI cron workflow** (`.github/workflows/periodic-discipline.yml`):
+  - Two scheduled jobs: `audit-skills` (every Monday 07:00 UTC) and `test-tools` (every Thursday
+    07:00 UTC). `curate-memory` and `full` are local-only and not scheduled.
+  - Three-state outcome: GREEN-clean (no findings), GREEN-findings (findings present, posted to
+    job summary, exit 0), RED-crashed (scanner itself crashed, exit 1). Compliant with
+    `feedback_audit_workflow_constraints`: `permissions: contents: read` only, no blanket
+    `continue-on-error: true`.
+  - `workflow_parity` scanner — self-validating check that asserts the workflow YAML jobs match
+    the verbs listed in each runbook's bash invocation block. Prevents workflow + runbook from
+    drifting independently.
+
+### Tests
+
+- New `tests/skills/` directory (with `__init__.py`) — first tests for plugin skill runbooks.
+- `tests/skills/test_periodic_discipline.py` — 17 acceptance tests covering verb presence,
+  allowlist format, report-path invariants, findings-schema envelope shape, lockfile protocol,
+  and scanner catalogue completeness.
+- `tests/skills/test_periodic_discipline_boundary.py` — 6 test functions / 54 pytest-collected
+  cases (parametrized over tool list) covering local-only verb restriction, empty-findings exit
+  codes, and concurrent-run lockfile guard.
+- `tests/tools/test_workflow_parity_scanner.py` — 5 tests for the `workflow_parity` scanner
+  covering YAML ↔ runbook parity, job-name extraction, and drift-detection logic.
+- **Tests: 28 test functions added (79 collected when parametrized)**: `tests/skills/test_periodic_discipline.py`
+  (17 functions / 20 collected), `tests/skills/test_periodic_discipline_boundary.py` (6 functions /
+  54 collected via 13-tool parametrization), `tests/tools/test_workflow_parity_scanner.py` (5 functions /
+  5 collected). All vacuous-test-discipline verified via `TestVacuousCheckVerification` class.
+
 ## [v0.36.67] — 2026-05-26 — `/arcis:operate` skill — incident response + change orchestration (#109)
 
 ### Added

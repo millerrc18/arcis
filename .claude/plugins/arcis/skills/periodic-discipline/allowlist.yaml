@@ -1,0 +1,27 @@
+# Periodic-discipline allowlist — opt-in suppression of known findings
+#
+# Format: list under `keys:` containing exact root_cause_key strings.
+# Every entry MUST have a # rationale comment explaining WHY the finding is acceptable.
+#
+# Adding an entry: include a rationale comment + tracker reference if applicable.
+# Removing an entry: just delete the line — the finding will re-surface on next run.
+#
+# Reviewed alongside findings PRs. This file is the paper trail for conscious deviations.
+#
+# root_cause_key namespaces (from references/findings-schema.md):
+#   agent:<name>                        — subagent_unresolved (dead agent reference)
+#   docconsistency:<path>:<line>        — file_line_drift (broken file:line xref)
+#   tool:<name>                         — tool_module_missing (missing __main__.py)
+#   tool:<name>:unbootable              — cli_unbootable (tool exits non-zero on --help)
+#   tool:<name>:no_audit_event_on_help  — audit_log_silent (no log event for --help)
+#   tool:<name>:no_boundary_test        — boundary_test_missing (missing integration test)
+#   memory:duplicate:<topic>            — duplicate_topic (same topic in 2+ memory files)
+#   memory:stale:<filename>             — stale_entry (not touched in >90 days)
+#   workflow_drift:<verb>:<tool>:<dir>  — workflow_parity (CI/runbook drift)
+#   allowlist:malformed                 — allowlist_malformed (YAML parse error)
+#   advisory:placeholder                — LLM advisory placeholder (always present; expected)
+
+keys:
+  # The advisory placeholder findings are emitted every run by design — suppress them.
+  # They are not real findings; they mark the out-of-band LLM scan injection point.
+  - "advisory:placeholder"  # rationale: expected structural placeholder, not a real finding
