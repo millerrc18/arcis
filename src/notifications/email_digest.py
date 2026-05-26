@@ -217,9 +217,10 @@ def render_digest(
             included, db_path=db_path, conn=conn, now_et=now_et,
         )
     elif tier == "weekly":
-        # Weekly rendering is Task 7 territory — keep T5 stub semantics.
-        subject = "Arcis Weekly Digest [stub]"
-        html = "<p>[stub weekly digest body — Task 7 will render real content]</p>"
+        data = _collect_weekly_data(db_path, now_et, conn=conn)
+        subject, html = _render_weekly_html(
+            data, included, now_et=now_et,
+        )
     else:  # pragma: no cover — TierName Literal prevents this in practice
         raise ValueError(f"unknown tier: {tier!r}")
 
@@ -391,9 +392,132 @@ def _collect_postclose_data(db_path, now_et, *, conn=None) -> dict:
     return out
 
 
-def _collect_weekly_data(db_path, now_et) -> dict:
-    """STUB — Task 7 fills in (weekly tables: data_asset, scan_metrics, training)."""
-    return {}
+def _collect_weekly_data(db_path, now_et, *, conn=None) -> dict:
+    """Collect rolling-7-day data for the weekly digest.
+
+    Section 5.1: 5 sections — performance (shadow_trades closed past 7d),
+    training (training_examples + canary_evaluations), CTO (api_costs),
+    research (queue rows — gathered at render time), audit week-in-review
+    (notifications_sent past 7d). Tolerates missing tables (defaults to
+    zero / empty so the weekly digest never crashes on a fresh DB).
+    """
+    out: dict = {
+        "trades": [], "trades_pnl": 0.0, "wins": 0, "losses": 0,
+        "trade_count": 0, "win_rate": 0.0,
+        "training_count": 0, "training_quality_avg": 0.0, "canary_status": "N/A",
+        "api_cost_total": 0.0,
+        "audit_critical_count": 0, "audit_alert_count": 0,
+        "audit_by_category": {},
+    }
+    if conn is None:
+        return out
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    out.update(_collect_weekly_performance(conn, cutoff))
+    out.update(_collect_weekly_training(conn, cutoff))
+    out.update(_collect_weekly_cto(conn, cutoff))
+    out.update(_collect_weekly_audit(conn, cutoff))
+    return out
+
+
+def _collect_weekly_performance(conn, cutoff: str) -> dict:
+    """Section 1 data: closed shadow_trades in past 7 days."""
+    try:
+        trade_rows = conn.execute(
+            "SELECT ticker, pnl_dollars, pnl_pct, exit_reason FROM shadow_trades "
+            "WHERE status='closed' AND actual_exit_time > ? "
+            "  AND COALESCE(quarantined, 0)=0 "
+            "ORDER BY actual_exit_time DESC",
+            (cutoff,),
+        ).fetchall()
+    except Exception:
+        trade_rows = []
+    trades = [
+        {
+            "ticker": r["ticker"], "pnl_dollars": r["pnl_dollars"],
+            "pnl_pct": r["pnl_pct"], "exit_reason": r["exit_reason"],
+        }
+        for r in trade_rows
+    ]
+    pnls = [_coerce_float_local(r["pnl_dollars"], 0.0) for r in trade_rows]
+    wins = sum(1 for p in pnls if p > 0)
+    count = len(pnls)
+    return {
+        "trades": trades,
+        "trades_pnl": sum(pnls),
+        "wins": wins,
+        "losses": sum(1 for p in pnls if p <= 0),
+        "trade_count": count,
+        "win_rate": (wins / count) if count else 0.0,
+    }
+
+
+def _collect_weekly_training(conn, cutoff: str) -> dict:
+    """Section 2 data: training_examples + canary_evaluations past 7 days."""
+    out = {"training_count": 0, "training_quality_avg": 0.0, "canary_status": "N/A"}
+    try:
+        training_row = conn.execute(
+            "SELECT COUNT(*) AS c, AVG(quality_score_auto) AS q "
+            "FROM training_examples WHERE created_at > ?",
+            (cutoff,),
+        ).fetchone()
+        out["training_count"] = int(training_row["c"] or 0)
+        out["training_quality_avg"] = float(training_row["q"] or 0.0)
+    except Exception:
+        pass
+    try:
+        canary_row = conn.execute(
+            "SELECT status FROM canary_evaluations "
+            "WHERE created_at > ? ORDER BY created_at DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+        if canary_row:
+            out["canary_status"] = str(canary_row["status"] or "N/A")
+    except Exception:
+        pass
+    return out
+
+
+def _collect_weekly_cto(conn, cutoff: str) -> dict:
+    """Section 3 data: api_costs total in past 7 days."""
+    try:
+        cost_row = conn.execute(
+            "SELECT COALESCE(SUM(cost_dollars), 0) AS total FROM api_costs "
+            "WHERE created_at > ?",
+            (cutoff,),
+        ).fetchone()
+        return {"api_cost_total": float(cost_row["total"] or 0.0)}
+    except Exception:
+        return {"api_cost_total": 0.0}
+
+
+def _collect_weekly_audit(conn, cutoff: str) -> dict:
+    """Section 5 data: CRITICAL+ALERT counts by category from notifications_sent."""
+    try:
+        audit_rows = conn.execute(
+            "SELECT event_type, severity, COUNT(*) AS c FROM notifications_sent "
+            "WHERE sent_at > ? AND severity IN ('critical', 'alert') "
+            "GROUP BY event_type, severity",
+            (cutoff,),
+        ).fetchall()
+    except Exception:
+        audit_rows = []
+    by_category: dict[str, int] = {}
+    critical = 0
+    alert = 0
+    for r in audit_rows:
+        sev = str(r["severity"] or "").lower()
+        cat = str(r["event_type"] or "unknown")
+        cnt = int(r["c"] or 0)
+        by_category[cat] = by_category.get(cat, 0) + cnt
+        if sev == "critical":
+            critical += cnt
+        elif sev == "alert":
+            alert += cnt
+    return {
+        "audit_critical_count": critical,
+        "audit_alert_count": alert,
+        "audit_by_category": by_category,
+    }
 
 
 def _render_preopen_html(
@@ -617,9 +741,150 @@ def _coerce_float_local(value, default: float = 0.0) -> float:
         return default
 
 
-def _render_weekly_html(data) -> tuple[str, str]:
-    """STUB — Task 7 fills in. Returns (subject, html_body)."""
-    return ("[Stub Weekly]", "<p>[Stub Weekly]</p>")
+def _render_weekly_html(
+    data: dict,
+    included: list[dict],
+    *,
+    now_et=None,
+) -> tuple[str, str]:
+    """Render weekly subject + HTML body (Section 5.1, DD-12 subsumption).
+
+    Five sections: (1) Weekly performance, (2) Training pipeline status,
+    (3) CTO report highlights, (4) Research synthesis, (5) Audit
+    week-in-review. Subject: 'Arcis Weekly — {Mon DD-Sun DD} | {N} trades,
+    P&L: ${X} | Audit: {status}'.
+    """
+    now = now_et or datetime.now(_ET)
+    period_end = now
+    period_start = now - timedelta(days=6)
+    period_str = (
+        f"{period_start.strftime('%b %d')}-{period_end.strftime('%b %d')}"
+    )
+
+    trade_count = int(data.get("trade_count", 0) or 0)
+    trades_pnl = float(data.get("trades_pnl", 0.0) or 0.0)
+    audit_critical = int(data.get("audit_critical_count", 0) or 0)
+    audit_alert = int(data.get("audit_alert_count", 0) or 0)
+    audit_status = "clean"
+    if audit_critical > 0:
+        audit_status = f"{audit_critical} CRITICAL"
+    elif audit_alert > 0:
+        audit_status = f"{audit_alert} ALERT"
+
+    research_rows = [
+        r for r in included if r.get("event_type") == "research_synthesis_email"
+    ]
+
+    parts: list[str] = [
+        "<html><body style='font-family:Arial,sans-serif'>",
+        f"<h1>Arcis Weekly Report — {html_lib.escape(period_str)}</h1>",
+    ]
+    parts.extend(_render_weekly_performance_section(data))
+    parts.extend(_render_weekly_training_section(data))
+    parts.extend(_render_weekly_cto_section(data))
+    parts.extend(_render_weekly_research_section(research_rows))
+    parts.extend(_render_weekly_audit_section(data))
+    parts.append("</body></html>")
+
+    html = "\n".join(parts)
+    subject = (
+        f"Arcis Weekly — {period_str} | {trade_count} trades, "
+        f"P&L: ${trades_pnl:+.2f} | Audit: {audit_status}"
+    )
+    return subject, html
+
+
+def _render_weekly_performance_section(data: dict) -> list[str]:
+    """Weekly Section 1: P&L + win rate + trade count + per-ticker lines."""
+    trade_count = int(data.get("trade_count", 0) or 0)
+    trades_pnl = float(data.get("trades_pnl", 0.0) or 0.0)
+    wins = int(data.get("wins", 0) or 0)
+    losses = int(data.get("losses", 0) or 0)
+    win_rate_pct = float(data.get("win_rate", 0.0) or 0.0) * 100
+    trades = data.get("trades", []) or []
+
+    out: list[str] = [
+        "<h2>Weekly performance</h2>",
+        f"<p>Trades closed: <b>{trade_count}</b> &middot; "
+        f"Win rate: <b>{win_rate_pct:.1f}%</b> ({wins}W / {losses}L) &middot; "
+        f"P&amp;L: <b>${trades_pnl:+.2f}</b></p>",
+    ]
+    if trades:
+        out.append("<ul>")
+        for t in trades[:10]:
+            tk = html_lib.escape(str(t.get("ticker", "")))
+            pnl = _coerce_float_local(t.get("pnl_dollars"), 0.0)
+            pct = _coerce_float_local(t.get("pnl_pct"), 0.0)
+            er = html_lib.escape(str(t.get("exit_reason", "")))
+            out.append(f"<li>{tk}: ${pnl:+.2f} ({pct:+.1f}%) [{er}]</li>")
+        out.append("</ul>")
+    else:
+        out.append("<p>No trades closed this week.</p>")
+    return out
+
+
+def _render_weekly_training_section(data: dict) -> list[str]:
+    """Weekly Section 2: training pipeline status (subsumes Saturday training)."""
+    count = int(data.get("training_count", 0) or 0)
+    quality = float(data.get("training_quality_avg", 0.0) or 0.0)
+    canary = html_lib.escape(str(data.get("canary_status", "N/A") or "N/A"))
+    return [
+        "<h2>Training pipeline status</h2>",
+        f"<p>New examples this week: <b>{count}</b> &middot; "
+        f"Avg quality score: <b>{quality:.2f}</b> &middot; "
+        f"Canary: <b>{canary}</b></p>",
+    ]
+
+
+def _render_weekly_cto_section(data: dict) -> list[str]:
+    """Weekly Section 3: CTO report highlights (subsumes Saturday CTO)."""
+    cost = float(data.get("api_cost_total", 0.0) or 0.0)
+    return [
+        "<h2>CTO report highlights</h2>",
+        f"<p>API cost (rolling 7d): <b>${cost:.2f}</b></p>",
+    ]
+
+
+def _render_weekly_research_section(research_rows: list[dict]) -> list[str]:
+    """Weekly Section 4: research synthesis (graceful empty-state)."""
+    if not research_rows:
+        return [
+            "<h2>Research synthesis</h2>",
+            "<p>No research synthesis queued this week.</p>",
+        ]
+    out: list[str] = ["<h2>Research synthesis</h2>", "<ul>"]
+    for r in research_rows:
+        payload = r.get("payload", {}) or {}
+        title = html_lib.escape(str(payload.get("title", "(untitled)")))
+        summary = html_lib.escape(str(payload.get("summary", "")))
+        out.append(
+            f"<li><b>{title}</b>"
+            + (f" — {summary}" if summary else "")
+            + "</li>"
+        )
+    out.append("</ul>")
+    return out
+
+
+def _render_weekly_audit_section(data: dict) -> list[str]:
+    """Weekly Section 5: audit week-in-review — CRITICAL+ALERT counts by category."""
+    critical = int(data.get("audit_critical_count", 0) or 0)
+    alert = int(data.get("audit_alert_count", 0) or 0)
+    by_cat = data.get("audit_by_category", {}) or {}
+    out: list[str] = [
+        "<h2>Audit week-in-review</h2>",
+        f"<p>CRITICAL: <b>{critical}</b> &middot; ALERT: <b>{alert}</b></p>",
+    ]
+    if by_cat:
+        out.append("<ul>")
+        for cat, cnt in sorted(by_cat.items()):
+            out.append(
+                f"<li>{html_lib.escape(str(cat))}: {int(cnt)}</li>"
+            )
+        out.append("</ul>")
+    else:
+        out.append("<p>No CRITICAL or ALERT audit findings this week.</p>")
+    return out
 
 
 def _render_plain_from_html(html: str) -> str:
