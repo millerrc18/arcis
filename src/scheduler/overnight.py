@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import DB_PATH
+from src.config import DB_PATH, load_config
 from src.notifications import safe_send
 from src.utils.db import _scalar, connect_db
 
@@ -174,10 +174,60 @@ def run_postclose_reconciliation():
         logger.warning("[WATCH] Reconciliation Telegram alert failed: %s", e)
 
 
+def _route_email_via_digest(
+    *,
+    event_type: str,
+    severity: str,
+    payload: dict,
+    source_tag: str,
+    subject: str,
+    body: str,
+) -> None:
+    """#115 DD-20 revised + DD-30 revised: route an email-bound event through
+    the email_digest aggregator with shadow-mode dual-write + firehose fallback.
+
+    - In mode='shadow' or 'time_aligned' (DD-20 revised): ALSO call send_email
+      so the operator inbox is unchanged during the hold-over week.
+    - In mode='off': the queue is the sole consumer; no immediate send.
+    - On (ImportError, ModuleNotFoundError) ONLY (DD-30 revised + DA-MIN-19):
+      log at CRITICAL with FIREHOSE FALLBACK marker, best-effort Telegram
+      alert, fall back to immediate send_email. AssertionError MUST propagate
+      (assertion = real coverage gap, not silent firehose regression).
+    """
+    from src.email.notifier import send_email
+
+    cfg = load_config() or {}
+    mode = ((cfg.get("email", {}) or {}).get("dual_write_hold_over", {})
+            or {}).get("mode", "shadow")
+    try:
+        from src.notifications.email_digest import enqueue_for_email_digest
+        enqueue_for_email_digest(
+            event_type,
+            severity=severity,
+            payload=payload,
+            source_tag=source_tag,
+        )
+        if mode in ('shadow', 'time_aligned'):
+            send_email(subject, body)
+    except (ImportError, ModuleNotFoundError) as e:
+        logger.critical(
+            '[EMAIL] email_digest import failed — FIREHOSE FALLBACK MODE: %s', e
+        )
+        try:
+            safe_send(
+                'system_event',
+                body=f'CRITICAL: email_digest aggregator import failed; '
+                     f'firehose mode active. Error: {e}',
+                severity='alert',
+            )
+        except Exception:
+            pass
+        send_email(subject, body)
+
+
 def run_daily_audit():
     """Run the daily auditor agent."""
     from src.evaluation.auditor import run_daily_audit, check_escalation
-    from src.email.notifier import send_email
     from src.shadow_trading.exit_reconciliation import run_exit_reconciliation
 
     print("[WATCH] Running daily audit...")
@@ -193,8 +243,19 @@ def run_daily_audit():
 
     # Send alert if red or yellow
     if assessment == "red":
-        subject = "[TRADE DESK] DAILY AUDIT -- RED"
-        send_email(subject, f"Assessment: RED\n\n{audit.get('summary', '')}")
+        _route_email_via_digest(
+            event_type='audit_red_assessment',
+            severity='alert',
+            payload={
+                'assessment': 'red',
+                'summary': audit.get('summary', ''),
+                'audit_date': audit.get('audit_date'),
+                'audit_id': audit.get('audit_id'),
+            },
+            source_tag='email:postclose',
+            subject="[TRADE DESK] DAILY AUDIT -- RED",
+            body=f"Assessment: RED\n\n{audit.get('summary', '')}",
+        )
     elif assessment == "yellow":
         logger.info("[AUDIT] Yellow assessment -- included in EOD recap")
 
@@ -270,14 +331,26 @@ def run_training_check():
 def run_saturday_reports(db_path: str = DB_PATH):
     """Generate and send Saturday training and CTO reports."""
     from src.training.report import generate_training_report
-    from src.email.notifier import send_email
 
     # Training report
     print("[WATCH] Generating Saturday training report...")
     report = generate_training_report()
     print(report)
-    subject = "[TRADE DESK] Weekly Training Report"
-    send_email(subject, report)
+    training_subject = "[TRADE DESK] Weekly Training Report"
+    training_body = report
+    now_iso = datetime.now(ET).isoformat()
+    _route_email_via_digest(
+        event_type='saturday_training_report',
+        severity='normal',
+        payload={
+            'subject': training_subject,
+            'body': training_body,
+            'report_date': now_iso,
+        },
+        source_tag='email:weekly',
+        subject=training_subject,
+        body=training_body,
+    )
     print("[WATCH] Training report email sent.")
 
     # ── Telegram: notify_retrain_report ──
@@ -336,7 +409,19 @@ def run_saturday_reports(db_path: str = DB_PATH):
         cto_text = format_cto_report(cto_data)
         print(cto_text)
         cto_subject = f"[TRADE DESK] CTO Performance Report ({cto_data['report_period']['start']} to {cto_data['report_period']['end']})"
-        send_email(cto_subject, cto_text)
+        cto_body = cto_text
+        _route_email_via_digest(
+            event_type='saturday_cto_report',
+            severity='normal',
+            payload={
+                'subject': cto_subject,
+                'body': cto_body,
+                'report_date': now_iso,
+            },
+            source_tag='email:weekly',
+            subject=cto_subject,
+            body=cto_body,
+        )
         print("[WATCH] CTO report email sent.")
     except Exception as e:
         logger.error("[WATCH] CTO report failed: %s", e)
