@@ -46,19 +46,20 @@ This skill is **markdown-only**. All scanner logic is implemented as fenced bash
 
 | Tool module | Used by |
 |------------|---------|
-| `src.tools.docconsistency` | `audit-skills` → `file_line_drift` scanner |
-| `src.tools._execution_log` | `test-tools` → `cli_decorator_chain` scanner (log reader) |
+| `src.tools.docconsistency` | `audit-skills` → `file_line_drift` scanner (composed in v1) |
+| `src.tools._execution_log` | `test-tools` → `cli_decorator_chain` scanner (log reader; composed in v1) |
+| `src.tools.capabilityregistry` | available; not used in v1 scanners |
+| `src.tools.ciinvestigate` | available; not used in v1 scanners |
+| `src.tools.contractcheck` | available; not used in v1 scanners |
+| `src.tools.dbquery` | available; not used in v1 scanners |
+| `src.tools.gitarchaeology` | available; not used in v1 scanners |
 | `src.tools.healthprobe` | available; not used in v1 scanners |
-| `src.tools.nssm_restart` | available; not used in v1 scanners |
-| `src.tools.nssm_status` | available; not used in v1 scanners |
-| `src.tools.pg_query` | available; not used in v1 scanners |
-| `src.tools.git_archaeology` | available; not used in v1 scanners |
-| `src.tools.contract_check` | available; not used in v1 scanners |
-| `src.tools.pr_comments` | available; not used in v1 scanners |
-| `src.tools.log_tail` | available; not used in v1 scanners |
-| `src.tools.shadow_reconciler` | available; not used in v1 scanners |
-| `src.tools.training_launch` | available; not used in v1 scanners |
-| `src.tools.db_migrate` | available; not used in v1 scanners |
+| `src.tools.logtail` | available; not used in v1 scanners |
+| `src.tools.prcomments` | available; not used in v1 scanners |
+| `src.tools.processmanager` | available; not used in v1 scanners |
+| `src.tools.symbolfind` | available; not used in v1 scanners |
+| `src.tools.testpatternscan` | available; not used in v1 scanners |
+| `src.tools.tradingstate` | available; not used in v1 scanners |
 
 ### Agents (4 existing — dispatched for LLM-derived findings)
 
