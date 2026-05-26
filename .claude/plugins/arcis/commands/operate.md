@@ -284,7 +284,7 @@ Agent(
 **MANDATE:** Classify pytest failure(s) related to symptom: "{SYMPTOM}".
 **RUN_ID:** {extracted from symptom if "PR 1234" or run-id mentioned; else "latest"}
 **RUN_IDS:** {N/A unless symptom names ≥2 runs}
-**TARGET_PR:** null (triage does NOT post; that is `/arcis:operate act post-pr-summary`)
+**TARGET_PR:** null (triage does NOT post; if posting needed, invoke `python -m src.tools.prcomments post <pr> --body <text> --confirm --json` directly after triage)
 **POST_SUMMARY:** false
 **WORKTREE_PATH:** {pwd from Step 0.2}
 ```
@@ -739,10 +739,9 @@ The full reference is at `.claude/plugins/arcis/skills/operate/references/action
 | `restart-watchloop` | confirm + safety_window | `healthprobe --service ArcisWatchLoop` |
 | `restart-ollama-watchdog` | confirm + safety_window | `healthprobe --service ArcisOllamaWatchdog` |
 | `restart-dashboard` | confirm + safety_window | `healthprobe --service ArcisDashboard` |
-| `post-pr-summary <pr>` | confirm | `prcomments --pr <pr> --tail 1` (verify post landed) |
 | `verify-nvidia-smi` | confirm | (re-run nvidia-smi after; verify [N/A] absence) |
-| `force-broker-poll` | confirm + safety_window | `tradingstate --json` (verify positions refreshed) |
-| `regenerate-stale-audit` | confirm | `dbquery --select "SELECT max(generated_at) FROM audit_reports"` |
+
+> **Impl-time removals (2026-05-26):** `post-pr-summary`, `force-broker-poll`, `regenerate-stale-audit` were specced but their CLIs do not exist in `src/tools/`. Removed from this inline summary AND from `references/action-authorization-matrix.md` (which has the verbatim --help probe evidence in its "Removed actions" section). If you need to post a PR forensic summary, invoke `python -m src.tools.prcomments post <pr> --body <text> --confirm --json` directly (operator-confirm required).
 
 `emergency-only-in-window` is a marker applied to `confirm + safety_window` actions when the operator passes `--emergency`. See Safety Window Gate above.
 

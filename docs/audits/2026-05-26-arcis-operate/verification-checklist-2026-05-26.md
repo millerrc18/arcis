@@ -421,7 +421,7 @@ required-tools: [processmanager, healthprobe, logtail]  # PRESENT
 required-agents: [live-monitor]  # PRESENT (optional, present)
 expected-duration: 5-10 min    # PRESENT
 mutations: true                # PRESENT (boolean)
-risk: medium                   # PRESENT (key is "risk", not "risk-level" — both spellings accepted per spec §4 note)
+risk-level: medium             # PRESENT (canonical key per spec §4 validator check (a))
 ```
 
 All required keys present. `mutations` is boolean `true`. No YAML syntax errors.
@@ -472,11 +472,10 @@ required-tools: [processmanager, healthprobe, logtail]  # PRESENT
 required-agents: [live-monitor]  # PRESENT
 expected-duration: 10-20 min   # PRESENT
 mutations: true                # PRESENT (boolean)
-risk: medium                   # PRESENT
-risk-level: medium             # ALSO PRESENT (duplicate risk key — both spellings — see concern note below)
+risk-level: medium             # PRESENT (canonical key per spec §4)
 ```
 
-All required keys present. `mutations` is boolean `true`. Note: `gpu-degraded.md` has BOTH `risk: medium` (line 19) AND `risk-level: medium` (line 20). This is a minor spec concern (the validator checks for `risk-level OR risk` — having both is redundant but not breaking). No YAML syntax errors.
+All required keys present. `mutations` is boolean `true`. Followup commit `e21b9d14` dropped the redundant `risk:` key in favor of canonical `risk-level:` per spec §4 validator check (a). No YAML syntax errors.
 
 ### data-anomaly.md
 

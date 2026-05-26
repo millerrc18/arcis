@@ -15,7 +15,7 @@ required-agents:
   - live-monitor
 expected-duration: 5-10 min
 mutations: true
-risk: medium
+risk-level: medium
 references:
   - feedback_no_restart_during_overnight_window
   - reference_watch_loop_management
