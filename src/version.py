@@ -18,10 +18,8 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.61 (#92
-# follow-up via feedback_complete_efforts_no_deferral memory -- fixes the
-# two deferred test failures from the v0.36.60 PR's "Out of scope" section:
-# test_version.py hardcoded v0.36.50 asserts + test_schema.py mock-target
-# drift on _fetch_closed_trades_*).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.65 (#107
+# Tier 3 meta-quality tools: ContractCheck v1, GitArchaeology v1,
+# DocConsistency v1).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.64"
+VERSION = "v0.36.65"

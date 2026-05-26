@@ -85,6 +85,117 @@ reference files + agent-conventions.md addenda. All capabilities land via auto-d
 | JSONB/TEXT truncation | DA5 | `*_jsonb`/`*_detail`/`*_payload`/`*_body` ≤200 chars + `[truncated]` marker |
 | Turn-50 budget-stop | DA6 | Stop new tool calls at turn ≥50; mandatory `coverage_assessment` field on all 4 OUTPUT FORMATs |
 
+## [v0.36.65] — 2026-05-25 — Tier 3 meta-quality tools (#107): ContractCheck v1, GitArchaeology v1, DocConsistency v1
+
+Three new subpackages under `src/tools/`, all read-only (every public op decorated
+`@safe_op(name="X", mutates=False)`). Builds on the Tier 1+2 foundation; shares
+`_config.py` (ContractsConfig extension), `_subprocess.py` (2 new error classes,
+lru_cache maxsize 4→6), `_safety.py`, `_cli_envelope.py`, and `_execution_log.py`
+unchanged.
+
+### Added
+
+- **ContractCheck v1** (`src/tools/contractcheck/`) — forensic drift detector for
+  pinned external-CLI invocations. v1 instruments the watchloop's `nvidia-smi` call
+  (`config/arcis_config.yaml:175-201`). Three public ops: `record(name)` captures a
+  live baseline (written atomically to `data/contracts/<name>/<timestamp>.json` +
+  `latest_ref.txt`); `verify(name)` compares a fresh live invocation against the
+  committed baseline per per-field `NormalizeRule` (tolerance / mask_regex / ignore);
+  `diff(name, baseline_a, baseline_b)` compares two stored baselines. Verdicts:
+  `PASS` / `DRIFT` / `INVOCATION_FAILED`. All ops decorated
+  `@safe_op(name="contractcheck", mutates=False)`.
+
+  DA-enforced behaviors:
+  - **DA1** recalibrated tolerances in `config/arcis_config.yaml:175-201`:
+    `gpu_util_pct:5.0`, `gpu_vram_used_mb:2048.0`, `gpu_temp_c:10.0`,
+    `gpu_power_w:50.0` (wider than R1 draft; narrower than full idle→load range).
+  - **DA2** `at_capture_redact` PII sanitization applied at `record()` time AND
+    re-applied at `verify()` time to live stdout before comparison (baseline-redacted
+    vs live-redacted always comparable).
+
+- **GitArchaeology v1** (`src/tools/gitarchaeology/`) — read-only wrapper over the
+  7 most common git CLI ops. 7 public ops: `log`, `blame`, `show`, `diff`,
+  `rev_list`, `merge_base`, `tag_l`. All decorated
+  `@safe_op(name="gitarchaeology", mutates=False)`. Mutating ops (`commit`, `push`,
+  `rebase`, etc.) are rejected at argparse level (exit 2 / `invalid choice`). Primary
+  client: `git-historian` agent (#108). Helper split:
+  `src/tools/gitarchaeology/_helpers.py` (internal `_git()` dispatcher) +
+  `src/tools/gitarchaeology/_errors.py` (typed error hierarchy).
+
+  DA-enforced behaviors:
+  - **DA3** explicit `maxsplit` in `log()` tab-splitter (subject field preserves
+    embedded tabs); paired `format=` / `format_columns=` kwargs (missing `format_columns`
+    when `format=` is set raises `GitArgError` before any subprocess); `GitParseError`
+    raised on malformed output with `offending_line` / `expected_columns` / `op` fields.
+  - **DA4** per-op `MAX_OUTPUT_BYTES` post-invocation check in `_git()` raises
+    `GitOutputTruncatedError` with `partial_output` (codepoint-boundary-safe) +
+    `original_size_bytes`; `blame()` pre-invocation 5000-line gate raises `GitArgError`
+    for files exceeding the limit without `start_line`/`end_line`; CLI accepts
+    `--max-output-bytes N`.
+
+- **DocConsistency v1** (`src/tools/docconsistency/`) — scans `docs/`, `CHANGELOG.md`,
+  `README.md` for inline `file.py:line` refs and verifies each refers to a file that
+  exists with at least that many lines. v1: **class (a) file:line existence only**.
+  Classes (b) API signature drift, (c) docstring-vs-code drift, (d) symbol-existence
+  drift are explicitly deferred to v2 (see Open follow-up below). One public op:
+  `scan(targets=None)` returns `refs_found`, `refs_verified_ok`, `refs_allowlisted`,
+  `findings` list. Per-finding fields: `file`, `line`, `ref_path`, `ref_line`,
+  `severity`. Age filter: `docs/audits/**` files older than 30 days excluded from
+  default scan (override with `--target`). Allowlist at
+  `data/docconsistency-allowlist.yaml`. Op decorated
+  `@safe_op(name="docconsistency", mutates=False)`.
+
+### References
+
+- `src/tools/contractcheck/core.py` — ContractCheck record/verify/diff + error classes
+- `src/tools/gitarchaeology/core.py` — GitArchaeology 7 ops + MAX_OUTPUT_BYTES constants
+- `src/tools/gitarchaeology/_helpers.py` — internal `_git()` dispatcher + size governance
+- `src/tools/gitarchaeology/_errors.py` — typed error hierarchy (GitMissingError,
+  GitInvocationError, GitArgError, GitParseError, GitOutputTruncatedError)
+- `src/tools/docconsistency/core.py` — DocConsistency scan + pattern matchers + allowlist
+- `config/arcis_config.yaml:175-201` — nvidia-smi-watchloop contract definition (DA1
+  recalibrated tolerances; DA2 at_capture_redact annotation guide)
+- `data/contracts/nvidia-smi-watchloop/2026-05-26T02-23-36Z.json` — committed baseline
+  (recorded T5); `parse_ok: false` because dual-GPU stdout produces two rows that the
+  single-value CSV parser merges awkwardly (see Open follow-up #117)
+
+### Tests
+
+- **25 ContractCheck tests** in `tests/tools/test_contractcheck_integration.py`;
+  line coverage ≥95% on `src/tools/contractcheck/core.py`.
+- **40 GitArchaeology tests** in `tests/tools/test_gitarchaeology_integration.py`;
+  line coverage ≥96% on `src/tools/gitarchaeology/` subpackage.
+- **27 DocConsistency tests** in `tests/tools/test_docconsistency_integration.py`;
+  line coverage ≥97% on `src/tools/docconsistency/core.py`.
+- **92 new tests total**. Full tools suite: 276 passed, 0 failed (11 deselected:
+  tradingstate tests requiring live DB).
+
+### Open follow-up
+
+- **#117** `Restore [N/A]/multi-GPU defense in system_metrics.py:36-56 nvidia-smi
+  parser` — **latent bug surfaced by ContractCheck's first baseline**.
+  `data/contracts/nvidia-smi-watchloop/2026-05-26T02-23-36Z.json` shows
+  `"parse_ok": false` because the operator's dual-GPU rig produces TWO rows of
+  nvidia-smi CSV output (`stdout: "1, 2817, 24576, 67, 91.65\n0, 93, 12288, 57,
+  8.31\n"`). The single-row CSV parser merges them awkwardly into a single
+  `gpu_power_w` value of `"91.65\n0"`. The v0.36.29 `[N/A]` defense that originally
+  lived in `src/scheduler/vram_manager.py` was deleted by the overnight-handoff-removal
+  refactor (witnessed by `tests/test_overnight_handoff_removed.py:25-32`). Fixing the
+  multi-GPU parser is **out of scope for #107** — it is filed as **#117** and
+  ContractCheck shipping with this drift signal on is the correct outcome (the tool's
+  job is to make the gap visible; closing the gap is #117's job).
+
+- **§11.3 deferrals** — DocConsistency v2: class (b) API signature drift, class (c)
+  docstring-vs-code drift, class (d) symbol-existence drift (3 separate follow-up
+  efforts per spec §11.3).
+
+- **§11.4 deferrals** — GitArchaeology displacement of 4 direct-`git` sites in
+  `src/` and 4 in `scripts/` left in place; broader displacement is a separate effort
+  per spec §11.4.
+
+- **§11.5 deferrals** — ContractCheck periodic wiring (#111 will add scheduled
+  invocation of verify); currently opt-in CLI only per spec §11.5.
+
 ## [v0.36.64] — 2026-05-25 — Sim conn-lifecycle leak fix + PROD audit (#100)
 
 ### Fixed
