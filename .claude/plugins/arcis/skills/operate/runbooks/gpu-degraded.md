@@ -16,7 +16,6 @@ required-agents:
   - live-monitor
 expected-duration: 10-20 min
 mutations: true  # may restart ArcisOllamaWatchdog
-risk: medium
 risk-level: medium
 references:
   - reference_gpu_upgrade
