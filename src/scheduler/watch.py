@@ -220,6 +220,57 @@ def sweep_stale_diagnostic_runs(db_path: str, stale_after_hours: int = 24) -> in
         return cursor.rowcount
 
 
+def _route_email_via_digest(
+    *,
+    event_type: str,
+    severity: str,
+    payload: dict,
+    source_tag: str,
+    subject: str,
+    body: str,
+) -> None:
+    """#115 DD-20 revised + DD-30 revised: route an email-bound event through
+    the email_digest aggregator with shadow-mode dual-write + firehose fallback.
+
+    - In mode='shadow' or 'time_aligned' (DD-20 revised): ALSO call send_email
+      so the operator inbox is unchanged during the hold-over week.
+    - In mode='off': the queue is the sole consumer; no immediate send.
+    - On (ImportError, ModuleNotFoundError) ONLY (DD-30 revised + DA-MIN-19):
+      log at CRITICAL with FIREHOSE FALLBACK marker, best-effort Telegram
+      alert, fall back to immediate send_email. AssertionError MUST propagate
+      (assertion = real coverage gap, not silent firehose regression).
+    """
+    from src.email.notifier import send_email
+
+    cfg = load_config() or {}
+    mode = ((cfg.get("email", {}) or {}).get("dual_write_hold_over", {})
+            or {}).get("mode", "shadow")
+    try:
+        from src.notifications.email_digest import enqueue_for_email_digest
+        enqueue_for_email_digest(
+            event_type,
+            severity=severity,
+            payload=payload,
+            source_tag=source_tag,
+        )
+        if mode in ('shadow', 'time_aligned'):
+            send_email(subject, body)
+    except (ImportError, ModuleNotFoundError) as e:
+        logger.critical(
+            '[EMAIL] email_digest import failed — FIREHOSE FALLBACK MODE: %s', e
+        )
+        try:
+            safe_send(
+                'system_event',
+                body=f'CRITICAL: email_digest aggregator import failed; '
+                     f'firehose mode active. Error: {e}',
+                severity='alert',
+            )
+        except Exception:
+            pass
+        send_email(subject, body)
+
+
 class WatchLoop(HandlerRegistryMixin):
     """Automated daily cadence loop for the AI Research Desk."""
 
@@ -919,7 +970,18 @@ class WatchLoop(HandlerRegistryMixin):
         for pkt in result.packets_rendered:
             if self.email_mode == "full_stream":
                 subject = f"[TRADE DESK] Action Packet - {pkt['ticker']}"
-                send_email(subject, pkt["rendered"])
+                _route_email_via_digest(
+                    event_type='action_packet',
+                    severity='normal',
+                    payload={
+                        'ticker': pkt.get('ticker'),
+                        'rendered': pkt['rendered'],
+                        'subject': subject,
+                    },
+                    source_tag='email:postclose',
+                    subject=subject,
+                    body=pkt["rendered"],
+                )
                 print(f"  -> Email sent for {pkt['ticker']}")
             elif self.email_mode == "daily_summary":
                 self._daily_packets.append(pkt["rendered"])
@@ -1478,7 +1540,14 @@ class WatchLoop(HandlerRegistryMixin):
 
         if self.email_mode != "digest":
             subject = f"[TRADE DESK] EOD Recap - {date_str}"
-            send_email(subject, body)
+            _route_email_via_digest(
+                event_type='eod_recap_email',
+                severity='normal',
+                payload={'subject': subject, 'body': body, 'date_str': date_str},
+                source_tag='email:postclose',
+                subject=subject,
+                body=body,
+            )
             print("[WATCH] EOD recap email sent.")
         else:
             print("[WATCH] EOD recap computed (digest mode — email sent via scheduled digest).")
