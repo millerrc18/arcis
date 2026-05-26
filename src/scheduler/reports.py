@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from src.config import DB_PATH
+from src.config import DB_PATH, load_config
 from src.notifications import safe_send
 from src.utils.db import _scalar, connect_db
 from src.shadow_trading._status_sql import (
@@ -116,8 +116,50 @@ def _collect_schedule_health(db_path: str = DB_PATH) -> dict[str, float | int | 
 
 # ── 0. Morning Watchlist ───────────────────────────────────────────
 
-def run_morning_watchlist(config: dict, email_mode: str = "digest"):
-    """Execute the morning watchlist pipeline."""
+def _route_morning_watchlist_email(subject: str, body: str, date_str: str) -> None:
+    """#115 DD-20 revised + DD-30 revised: route morning watchlist via email_digest.
+
+    Mirror of overnight._route_email_via_digest / watch._route_email_via_digest.
+    Kept local to reports.py so the heavyweight pipeline imports inside
+    run_morning_watchlist stay scoped to that function.
+    """
+    from src.email.notifier import send_email
+
+    cfg = load_config() or {}
+    mode = ((cfg.get("email", {}) or {}).get("dual_write_hold_over", {})
+            or {}).get("mode", "shadow")
+    try:
+        from src.notifications.email_digest import enqueue_for_email_digest
+        enqueue_for_email_digest(
+            'morning_watchlist',
+            severity='normal',
+            payload={'subject': subject, 'body': body, 'date_str': date_str},
+            source_tag='email:preopen',
+        )
+        if mode in ('shadow', 'time_aligned'):
+            send_email(subject, body)
+    except (ImportError, ModuleNotFoundError) as e:
+        logger.critical(
+            '[EMAIL] email_digest import failed — FIREHOSE FALLBACK MODE: %s', e
+        )
+        try:
+            safe_send(
+                'system_event',
+                body=f'CRITICAL: email_digest aggregator import failed; '
+                     f'firehose mode active. Error: {e}',
+                severity='alert',
+            )
+        except Exception:
+            pass
+        send_email(subject, body)
+
+
+def run_morning_watchlist(config: dict, email_mode: str = "digest", via_cli: bool = False):
+    """Execute the morning watchlist pipeline.
+
+    via_cli: when True, bypass the email_digest aggregator and call send_email
+    directly. Used by operator-invoked CLI flows that want an immediate send.
+    """
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
     from src.features.engine import compute_all_features
     from src.llm.packet_writer import enhance_packet_with_llm
@@ -159,12 +201,12 @@ def run_morning_watchlist(config: dict, email_mode: str = "digest"):
                                    narrative=narrative)
     print(body)
 
-    if email_mode in ("full_stream", "daily_summary"):
-        subject = f"[TRADE DESK] Morning Watchlist - {date_str}"
+    subject = f"[TRADE DESK] Morning Watchlist - {date_str}"
+    if via_cli or email_mode in ("full_stream", "daily_summary"):
         send_email(subject, body)
         print("[WATCH] Morning watchlist email sent.")
     elif email_mode == "digest":
-        pass  # Handled by scheduled pre-market digest
+        _route_morning_watchlist_email(subject, body, date_str)
 
     # Telegram watchlist notification — send packet-worthy (high-conviction) names
     pw_tickers = [c["ticker"] for c in candidates.get("packet_worthy", [])]
@@ -172,85 +214,7 @@ def run_morning_watchlist(config: dict, email_mode: str = "digest"):
     safe_send("watchlist", tickers=pw_tickers[:5], count=len(pw_tickers), watchlist_count=wl_count)
 
 
-# ── 1. Saturday Reports ─────────────────────────────────────────────
-
-def run_saturday_reports():
-    """Generate and send Saturday training and CTO reports."""
-    from src.training.report import generate_training_report
-    from src.email.notifier import send_email
-
-    # Training report
-    print("[WATCH] Generating Saturday training report...")
-    report = generate_training_report()
-    print(report)
-    subject = "[TRADE DESK] Weekly Training Report"
-    send_email(subject, report)
-    print("[WATCH] Training report email sent.")
-
-    # ── Telegram: notify_retrain_report ──
-    from src.training.versioning import get_active_model_name, get_training_example_counts
-    model_name = get_active_model_name()
-    counts = get_training_example_counts()
-    _retrain_total = counts.get("total", 0)
-    try:
-        from datetime import timedelta as _td
-        with connect_db(DB_PATH) as _rc:
-            _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
-            _row = _rc.execute(
-                "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
-                (_week_ago,)
-            ).fetchone()
-            _new_wk = _scalar(_row)
-            _row = _rc.execute(
-                "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
-                (_week_ago,)
-            ).fetchone()
-            _new_paper = _scalar(_row)
-    except Exception:
-        _new_wk = 0
-        _new_paper = 0
-    safe_send(
-        "retrain_report",
-        model_name=model_name,
-        training_examples=_retrain_total,
-        prev_examples=_retrain_total - _new_wk,
-        new_this_week=_new_wk,
-        new_paper=_new_paper,
-        new_live=0,
-        canary_status="STABLE",
-        perplexity=0.0,
-        prev_perplexity=0.0,
-        distinct2=0.0,
-        prev_distinct2=0.0,
-        champion_challenger="N/A",
-    )
-
-    # Weekly deep audit
-    try:
-        from src.evaluation.auditor import run_weekly_audit
-        print("[WATCH] Running weekly deep audit...")
-        weekly = run_weekly_audit(days=7)
-        print(f"[WATCH] Weekly audit: {weekly.get('overall_assessment', 'n/a')}")
-    except Exception as e:
-        logger.error("[WATCH] Weekly audit failed: %s", e)
-        print(f"[WATCH] Weekly audit failed: {e}")
-
-    # CTO performance report
-    try:
-        from src.evaluation.cto_report import generate_cto_report, format_cto_report
-        print("[WATCH] Generating CTO performance report...")
-        cto_data = generate_cto_report(days=7)
-        cto_text = format_cto_report(cto_data)
-        print(cto_text)
-        cto_subject = f"[TRADE DESK] CTO Performance Report ({cto_data['report_period']['start']} to {cto_data['report_period']['end']})"
-        send_email(cto_subject, cto_text)
-        print("[WATCH] CTO report email sent.")
-    except Exception as e:
-        logger.error("[WATCH] CTO report failed: %s", e)
-        print(f"[WATCH] CTO report failed: {e}")
-
-
-# ── 2. Pre-Market Brief ─────────────────────────────────────────────
+# ── 1. Pre-Market Brief ─────────────────────────────────────────────
 
 def send_premarket_brief():
     """6:00 AM ET — Send pre-market brief with overnight context."""
