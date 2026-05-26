@@ -113,6 +113,69 @@ class PgConfig(BaseModel):
     test_dsn: str
 
 
+class NormalizeRule(BaseModel):
+    """How to normalize a single parsed field before comparison.
+
+    Four independent knobs (any combination, all optional):
+      - tolerance: absolute numeric tolerance (e.g., 0.5 for gpu_temp_c drift
+        within half a degree). Applies to fields that successfully parse as float.
+      - mask_regex: regex pattern that, if it matches the *string form* of a
+        value, replaces the value with the literal '<MASKED>' before comparison.
+        Used for timestamp / hostname / instance-id fields that are expected to
+        drift on every run.
+      - ignore: bool — when True, the field is dropped entirely from the
+        normalized snapshot. Use sparingly; an ignored field can never alert.
+      - at_capture_redact (DA2 — RECORDING-TIME sanitization): list[str] of regex
+        patterns. When recording (NOT verifying), each matched span in the raw
+        stdout is replaced with '<REDACTED>' BEFORE the baseline JSON is
+        committed. Use for absolute file paths, usernames, hostnames, MAC
+        addresses, or any operator-PII that would otherwise be persisted to the
+        repo via the baseline commit. This is the inverse of mask_regex: mask
+        normalizes at compare-time; at_capture_redact prevents the secret from
+        ever being written. Defaults to empty list (no redaction). Applies to
+        the WHOLE raw stdout (pre-parse), so callers must compose regexes
+        carefully — anything covered by the regex is gone from the baseline
+        forever.
+    """
+
+    tolerance: float | None = None
+    mask_regex: str | None = None
+    ignore: bool = False
+    at_capture_redact: list[str] = Field(default_factory=list)
+
+
+class ContractDef(BaseModel):
+    """A single named contract — what to invoke, how to parse, how to normalize.
+
+    The `cmd` field is the LITERAL argv passed to nvidia-smi (or another CLI).
+    Drift in `cmd` IS itself a contract change — ContractCheck does not
+    auto-update cmd; the operator must explicitly re-record.
+
+    `parse_fields` names the positional CSV columns (in the same order as
+    --query-gpu emits them) so that ContractCheck can map columns to names.
+    For non-CSV contracts (e.g., a 'git --version' string), parse_fields=[]
+    signals 'whole-stdout string compare'.
+    """
+
+    cmd: list[str]
+    description: str
+    timeout_s: int = 10
+    parse_fields: list[str] = Field(default_factory=list)
+    normalize: dict[str, NormalizeRule] = Field(default_factory=dict)
+
+
+class ContractsConfig(BaseModel):
+    """`contracts:` section — keyed by contract name.
+
+    Empty by default. Tier 3's #107 effort seeds it with one entry:
+    `nvidia-smi-watchloop` pinning the watchloop's nvidia-smi invocation.
+    """
+
+    # The model is just a dict[str, ContractDef] but wrapping in BaseModel
+    # gives us validation + a clear named type for the rest of the codebase.
+    entries: dict[str, ContractDef] = Field(default_factory=dict)
+
+
 class ArcisConfig(BaseModel):
     """Top-level tooling config — the object returned by `load_arcis_config()`."""
 
@@ -121,6 +184,7 @@ class ArcisConfig(BaseModel):
     services: ServicesConfig
     safety_windows: dict[str, SafetyWindow]
     pg: PgConfig
+    contracts: dict[str, ContractDef] = Field(default_factory=dict)
 
 
 # ── Loader ─────────────────────────────────────────────────────────
