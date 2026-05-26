@@ -1,0 +1,478 @@
+name: periodic-discipline
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Mon 07:00 UTC — audit-skills
+    - cron: '0 7 * * 4'  # Thu 07:00 UTC — test-tools
+  workflow_dispatch:
+    inputs:
+      verb:
+        type: choice
+        description: Which verb to run
+        options: [audit-skills, test-tools]
+        required: true
+        default: audit-skills
+
+permissions:
+  contents: read
+
+jobs:
+  audit-skills:
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.verb == 'audit-skills') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq uuid-runtime
+
+      - name: Run audit-skills runbook
+        # FAITHFUL COPY of audits/audit-skills.md fenced bash blocks.
+        # workflow_parity scanner enforces this matches the runbook.
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          set -euo pipefail
+
+          VERB="audit-skills"
+          INVOCATION_ID="PD-${VERB}-$(uuidgen | cut -c1-8)"
+          LOCKFILE="data/periodic-discipline/.lock"
+          START_EPOCH=$(date +%s)
+          PD_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export ARCIS_SESSION_ID="$INVOCATION_ID"
+          export INVOCATION_ID
+          export PD_TS
+
+          mkdir -p data/periodic-discipline/reports
+
+          if [ -f "$LOCKFILE" ] && kill -0 "$(head -1 "$LOCKFILE")" 2>/dev/null; then
+            echo "periodic-discipline already running (pid=$(head -1 "$LOCKFILE"), started=$(tail -1 "$LOCKFILE"))" >&2
+            exit 1
+          fi
+
+          printf '%s\n%s\n' "$$" "$PD_TS" > "$LOCKFILE"
+          trap "rm -f '$LOCKFILE'" EXIT
+
+          REPORT="data/periodic-discipline/reports/${INVOCATION_ID}.json"
+          RAW="${REPORT}.raw"
+          : > "$RAW"
+
+          # Audit-log bracket-start
+          printf '{}' | python -m src.tools._execution_log \
+            --tool-name "arcis_periodic_discipline.audit-skills.start" \
+            --result success --duration-ms 0 --session-id "$INVOCATION_ID" \
+            || { echo "WARNING — audit-log start failed" >&2; }
+
+          # Scanner 1: file_line_drift
+          python -m src.tools.docconsistency scan --json \
+            --target '.claude/plugins/arcis/skills' \
+            --target '.claude/plugins/arcis/commands' \
+            | jq -c --arg ts "$PD_TS" '
+                .findings[]?
+                | select(.doc_path | test("periodic-discipline") | not)
+                | {
+                    invocation_id: env.INVOCATION_ID,
+                    verb: "audit-skills",
+                    scanner: "file_line_drift",
+                    root_cause_key: ("docconsistency:" + .doc_path + ":" + (.doc_line | tostring)),
+                    severity: (.severity // "major"),
+                    first_seen_utc: $ts,
+                    advisory: false,
+                    payload: .
+                  }' \
+            >> "$RAW"
+
+          # Scanner 2: subagent_unresolved
+          VALID_AGENTS=$(python -c "
+          import yaml, glob
+          names = []
+          for p in glob.glob('.claude/plugins/arcis/agents/*.md'):
+              try:
+                  parts = open(p, encoding='utf-8').read().split('---', 2)
+                  if len(parts) >= 3:
+                      fm = yaml.safe_load(parts[1]) or {}
+                      if 'name' in fm:
+                          names.append(fm['name'])
+              except Exception:
+                  pass
+          print(' '.join(sorted(set(names))))
+          ")
+
+          grep -rhE 'subagent_type[: =]"[a-z][a-z0-9_-]*"' \
+            .claude/plugins/arcis/skills/ \
+            .claude/plugins/arcis/commands/ 2>/dev/null \
+            | grep -v 'periodic-discipline/' \
+            | sed -E 's/.*"([a-z][a-z0-9_-]*)".*/\1/' \
+            | sort -u \
+            | while read -r agent; do
+                if [ -n "$agent" ] && ! echo " $VALID_AGENTS " | grep -q " $agent "; then
+                  jq -nc --arg agent "$agent" --arg ts "$PD_TS" \
+                    '{invocation_id: env.INVOCATION_ID, verb: "audit-skills", scanner: "subagent_unresolved", root_cause_key: ("agent:" + $agent), severity: "major", first_seen_utc: $ts, advisory: false, payload: {agent: $agent}}' \
+                    >> "$RAW"
+                fi
+              done
+
+          # Scanner 3: tool_module_missing
+          grep -rhEo 'python -m src\.tools\.[a-z_][a-z0-9_]*' \
+            .claude/plugins/arcis/skills/ \
+            .claude/plugins/arcis/commands/ 2>/dev/null \
+            | grep -v 'periodic-discipline/' \
+            | sed -E 's/.*src\.tools\.([a-z_][a-z0-9_]*)$/\1/' \
+            | sort -u \
+            | while read -r tool; do
+                if [ -n "$tool" ] && [ ! -f "src/tools/$tool/__main__.py" ]; then
+                  if [ "${tool:0:1}" != "_" ]; then
+                    jq -nc --arg tool "$tool" --arg ts "$PD_TS" \
+                      '{invocation_id: env.INVOCATION_ID, verb: "audit-skills", scanner: "tool_module_missing", root_cause_key: ("tool:" + $tool), severity: "major", first_seen_utc: $ts, advisory: false, payload: {tool: $tool}}' \
+                      >> "$RAW"
+                  fi
+                fi
+              done
+
+          # Scanner 4: workflow_parity
+          python -c "
+          import re, json, os, sys
+          from pathlib import Path
+
+          ts = os.environ.get('PD_TS', '')
+          invocation_id = os.environ.get('INVOCATION_ID', '')
+
+          def extract_tool_invocations(text):
+              return sorted(set(re.findall(r'python -m src\.tools\.([a-z_][a-z0-9_]*)', text)))
+
+          wf_path = Path('.github/workflows/periodic-discipline.yml')
+          if not wf_path.exists():
+              # Workflow not yet created (e.g., before T3) — no finding, exit cleanly
+              sys.exit(0)
+
+          wf_tools = extract_tool_invocations(wf_path.read_text(encoding='utf-8'))
+
+          for verb in ['audit-skills', 'curate-memory', 'test-tools']:
+              rb_path = Path(f'.claude/plugins/arcis/skills/periodic-discipline/audits/{verb}.md')
+              if not rb_path.exists():
+                  continue
+              rb_tools = extract_tool_invocations(rb_path.read_text(encoding='utf-8'))
+              missing_in_wf = set(rb_tools) - set(wf_tools)
+              missing_in_rb = set(wf_tools) - set(rb_tools)
+              for tool in sorted(missing_in_wf):
+                  print(json.dumps({'invocation_id': invocation_id, 'verb': 'audit-skills', 'scanner': 'workflow_parity', 'root_cause_key': f'workflow_drift:{verb}:{tool}:missing_in_workflow', 'severity': 'critical', 'first_seen_utc': ts, 'advisory': False, 'payload': {'verb': verb, 'tool': tool, 'direction': 'missing_in_workflow'}}))
+              for tool in sorted(missing_in_rb):
+                  print(json.dumps({'invocation_id': invocation_id, 'verb': 'audit-skills', 'scanner': 'workflow_parity', 'root_cause_key': f'workflow_drift:{verb}:{tool}:missing_in_runbook', 'severity': 'critical', 'first_seen_utc': ts, 'advisory': False, 'payload': {'verb': verb, 'tool': tool, 'direction': 'missing_in_runbook'}}))
+          " >> "$RAW"
+
+          # Scanner 5: llm_contradiction (Advisory placeholder)
+          jq -nc --arg ts "$PD_TS" \
+            '{invocation_id: env.INVOCATION_ID, verb: "audit-skills", scanner: "llm_contradiction", root_cause_key: "advisory:placeholder", severity: "minor", first_seen_utc: $ts, advisory: true, payload: {note: "LLM contradiction scan dispatched separately at skill invocation layer"}}' \
+            >> "$RAW"
+
+          # Postamble
+          RAW_COUNT=$(jq 'length' "$RAW")
+
+          jq -s 'group_by(.root_cause_key) | map(.[0])' "$RAW" > "$REPORT"
+          rm -f "$RAW"
+
+          DEDUPED_COUNT=$(jq 'length' "$REPORT")
+
+          SUPPRESSED_COUNT=0
+          python -c "
+          import yaml, json, sys, os
+          ALLOWLIST_PATH = '.claude/plugins/arcis/skills/periodic-discipline/allowlist.yaml'
+          report_path = os.environ['REPORT']
+          ts = os.environ.get('PD_TS', '')
+          invocation_id = os.environ.get('INVOCATION_ID', '')
+          try:
+              raw_yaml = open(ALLOWLIST_PATH, encoding='utf-8').read()
+              allow = set((yaml.safe_load(raw_yaml) or {}).get('keys', []))
+              findings = json.load(open(report_path, encoding='utf-8'))
+              filtered = [f for f in findings if f.get('root_cause_key') not in allow]
+              suppressed = len(findings) - len(filtered)
+              json.dump(filtered, open(report_path, 'w', encoding='utf-8'), indent=2)
+              print(suppressed)
+          except yaml.YAMLError as e:
+              findings = json.load(open(report_path, encoding='utf-8'))
+              findings.append({'invocation_id': invocation_id, 'verb': 'audit-skills', 'scanner': 'allowlist_malformed', 'root_cause_key': 'allowlist:malformed', 'severity': 'critical', 'first_seen_utc': ts, 'advisory': False, 'payload': {'error': str(e)}})
+              json.dump(findings, open(report_path, 'w', encoding='utf-8'), indent=2)
+              print(0)
+          except FileNotFoundError:
+              print(0)  # No allowlist file = empty allowlist, 0 suppressed
+          " > /tmp/pd_suppressed.txt
+          SUPPRESSED_COUNT=$(cat /tmp/pd_suppressed.txt)
+          rm -f /tmp/pd_suppressed.txt
+
+          FINAL_COUNT=$(jq 'length' "$REPORT")
+
+          find data/periodic-discipline/reports -type f -mtime +30 -name '*.json' -delete 2>/dev/null || true
+
+          printf '{"raw_finding_count": %s, "root_cause_count": %s, "suppressed_count": %s}' \
+            "$RAW_COUNT" "$DEDUPED_COUNT" "$SUPPRESSED_COUNT" \
+            | python -m src.tools._execution_log \
+              --tool-name "arcis_periodic_discipline.audit-skills.end" \
+              --result success \
+              --duration-ms "$(($(date +%s) - START_EPOCH))" \
+              --session-id "$INVOCATION_ID" \
+            || { echo "WARNING — audit-log end failed" >&2; }
+
+          if [ "$FINAL_COUNT" -eq 0 ]; then
+            echo ""
+            echo "periodic-discipline [audit-skills] — $INVOCATION_ID"
+            echo "  All clear."
+            echo ""
+            echo "  Report: $REPORT"
+          else
+            CRITICAL=$(jq '[.[] | select(.severity=="critical" and .advisory==false)] | length' "$REPORT")
+            MAJOR=$(jq '[.[] | select(.severity=="major" and .advisory==false)] | length' "$REPORT")
+            MINOR=$(jq '[.[] | select(.severity=="minor" and .advisory==false)] | length' "$REPORT")
+            ADVISORY=$(jq '[.[] | select(.advisory==true)] | length' "$REPORT")
+            echo ""
+            echo "periodic-discipline [audit-skills] — $INVOCATION_ID"
+            echo "  Raw findings:    $RAW_COUNT"
+            echo "  After dedup:     $DEDUPED_COUNT"
+            echo "  Suppressed:      $SUPPRESSED_COUNT"
+            echo "  Final findings:  $FINAL_COUNT"
+            echo ""
+            echo "  critical:  $CRITICAL"
+            echo "  major:     $MAJOR"
+            echo "  minor:     $MINOR"
+            echo ""
+            echo "  Advisory findings (LLM-derived): $ADVISORY"
+            echo ""
+            echo "  Report: $REPORT"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: periodic-discipline-audit-skills-${{ github.run_id }}
+          path: data/periodic-discipline/reports/*.json
+
+      - name: Job summary
+        if: always()
+        run: |
+          REPORT=$(ls -t data/periodic-discipline/reports/*.json 2>/dev/null | head -1)
+          if [ -n "$REPORT" ]; then
+            FINDINGS=$(jq 'length' "$REPORT")
+            CRITICAL=$(jq '[.[] | select(.severity == "critical")] | length' "$REPORT")
+            MAJOR=$(jq '[.[] | select(.severity == "major")] | length' "$REPORT")
+            MINOR=$(jq '[.[] | select(.severity == "minor")] | length' "$REPORT")
+            INFO=$(jq '[.[] | select(.severity == "info")] | length' "$REPORT")
+            cat >> $GITHUB_STEP_SUMMARY <<SUMMARY
+          ## audit-skills findings
+          | Severity | Count |
+          |----------|-------|
+          | critical | $CRITICAL |
+          | major | $MAJOR |
+          | minor | $MINOR |
+          | info | $INFO |
+          | **total** | **$FINDINGS** |
+          SUMMARY
+          fi
+
+  test-tools:
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.verb == 'test-tools') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 7 * * 4')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq uuid-runtime
+
+      - name: Run test-tools runbook
+        # FAITHFUL COPY of audits/test-tools.md fenced bash blocks.
+        # workflow_parity scanner enforces this matches the runbook.
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          set -euo pipefail
+
+          VERB="test-tools"
+          INVOCATION_ID="PD-${VERB}-$(uuidgen | cut -c1-8)"
+          LOCKFILE="data/periodic-discipline/.lock"
+          START_EPOCH=$(date +%s)
+          PD_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export ARCIS_SESSION_ID="$INVOCATION_ID"
+          export INVOCATION_ID
+          export PD_TS
+
+          mkdir -p data/periodic-discipline/reports
+
+          if [ -f "$LOCKFILE" ] && kill -0 "$(head -1 "$LOCKFILE")" 2>/dev/null; then
+            echo "periodic-discipline already running (pid=$(head -1 "$LOCKFILE"), started=$(tail -1 "$LOCKFILE"))" >&2
+            exit 1
+          fi
+
+          printf '%s\n%s\n' "$$" "$PD_TS" > "$LOCKFILE"
+          trap "rm -f '$LOCKFILE'" EXIT
+
+          REPORT="data/periodic-discipline/reports/${INVOCATION_ID}.json"
+          RAW="${REPORT}.raw"
+          : > "$RAW"
+
+          # The 13 audited tool CLIs (locked per SKILL.md composition table)
+          TOOLS="capabilityregistry ciinvestigate contractcheck dbquery docconsistency gitarchaeology healthprobe logtail prcomments processmanager symbolfind testpatternscan tradingstate"
+
+          # Audit-log bracket-start
+          printf '{}' | python -m src.tools._execution_log \
+            --tool-name "arcis_periodic_discipline.test-tools.start" \
+            --result success --duration-ms 0 --session-id "$INVOCATION_ID" \
+            || { echo "WARNING — audit-log start failed" >&2; }
+
+          # Scanner 1: cli_decorator_chain
+          for tool in $TOOLS; do
+            PER_TOOL_ID="${INVOCATION_ID}-${tool}"
+
+            LINES_BEFORE=$(wc -l < data/logs/tool-execution.log 2>/dev/null || echo 0)
+
+            if ! ARCIS_SESSION_ID="$PER_TOOL_ID" python -m "src.tools.$tool" --help >/dev/null 2>&1; then
+              jq -nc --arg tool "$tool" --arg ts "$PD_TS" \
+                '{invocation_id: env.INVOCATION_ID, verb: "test-tools", scanner: "cli_unbootable", root_cause_key: ("tool:" + $tool + ":unbootable"), severity: "critical", first_seen_utc: $ts, advisory: false, payload: {tool: $tool}}' \
+                >> "$RAW"
+              continue
+            fi
+
+            if [ -f data/logs/tool-execution.log ]; then
+              EMITTED=$(tail -n "+$((LINES_BEFORE + 1))" data/logs/tool-execution.log 2>/dev/null \
+                | jq -c "select(.session_id == \"$PER_TOOL_ID\")" \
+                | head -1)
+
+              if [ -z "$EMITTED" ]; then
+                jq -nc --arg tool "$tool" --arg ts "$PD_TS" \
+                  '{invocation_id: env.INVOCATION_ID, verb: "test-tools", scanner: "audit_log_silent", root_cause_key: ("tool:" + $tool + ":no_audit_event_on_help"), severity: "info", first_seen_utc: $ts, advisory: false, payload: {tool: $tool, note: "--help exits before decorated function runs; no audit event is expected for read-only help invocations"}}' \
+                  >> "$RAW"
+              fi
+            fi
+          done
+
+          # Scanner 2: boundary_test_missing
+          for tool in $TOOLS; do
+            if [ ! -f "tests/tools/test_${tool}_integration.py" ]; then
+              jq -nc --arg tool "$tool" --arg ts "$PD_TS" \
+                '{invocation_id: env.INVOCATION_ID, verb: "test-tools", scanner: "boundary_test_missing", root_cause_key: ("tool:" + $tool + ":no_boundary_test"), severity: "major", first_seen_utc: $ts, advisory: false, payload: {tool: $tool, expected_path: ("tests/tools/test_" + $tool + "_integration.py")}}' \
+                >> "$RAW"
+            fi
+          done
+
+          # Postamble
+          RAW_COUNT=$(jq 'length' "$RAW")
+
+          jq -s 'group_by(.root_cause_key) | map(.[0])' "$RAW" > "$REPORT"
+          rm -f "$RAW"
+
+          DEDUPED_COUNT=$(jq 'length' "$REPORT")
+
+          SUPPRESSED_COUNT=0
+          python -c "
+          import yaml, json, sys, os
+          ALLOWLIST_PATH = '.claude/plugins/arcis/skills/periodic-discipline/allowlist.yaml'
+          report_path = os.environ['REPORT']
+          ts = os.environ.get('PD_TS', '')
+          invocation_id = os.environ.get('INVOCATION_ID', '')
+          try:
+              raw_yaml = open(ALLOWLIST_PATH, encoding='utf-8').read()
+              allow = set((yaml.safe_load(raw_yaml) or {}).get('keys', []))
+              findings = json.load(open(report_path, encoding='utf-8'))
+              filtered = [f for f in findings if f.get('root_cause_key') not in allow]
+              suppressed = len(findings) - len(filtered)
+              json.dump(filtered, open(report_path, 'w', encoding='utf-8'), indent=2)
+              print(suppressed)
+          except yaml.YAMLError as e:
+              findings = json.load(open(report_path, encoding='utf-8'))
+              findings.append({'invocation_id': invocation_id, 'verb': 'test-tools', 'scanner': 'allowlist_malformed', 'root_cause_key': 'allowlist:malformed', 'severity': 'critical', 'first_seen_utc': ts, 'advisory': False, 'payload': {'error': str(e)}})
+              json.dump(findings, open(report_path, 'w', encoding='utf-8'), indent=2)
+              print(0)
+          except FileNotFoundError:
+              print(0)
+          " > /tmp/pd_suppressed.txt
+          SUPPRESSED_COUNT=$(cat /tmp/pd_suppressed.txt)
+          rm -f /tmp/pd_suppressed.txt
+
+          FINAL_COUNT=$(jq 'length' "$REPORT")
+
+          find data/periodic-discipline/reports -type f -mtime +30 -name '*.json' -delete 2>/dev/null || true
+
+          printf '{"raw_finding_count": %s, "root_cause_count": %s, "suppressed_count": %s}' \
+            "$RAW_COUNT" "$DEDUPED_COUNT" "$SUPPRESSED_COUNT" \
+            | python -m src.tools._execution_log \
+              --tool-name "arcis_periodic_discipline.test-tools.end" \
+              --result success \
+              --duration-ms "$(($(date +%s) - START_EPOCH))" \
+              --session-id "$INVOCATION_ID" \
+            || { echo "WARNING — audit-log end failed" >&2; }
+
+          if [ "$FINAL_COUNT" -eq 0 ]; then
+            echo ""
+            echo "periodic-discipline [test-tools] — $INVOCATION_ID"
+            echo "  All clear."
+            echo ""
+            echo "  Report: $REPORT"
+          else
+            CRITICAL=$(jq '[.[] | select(.severity=="critical" and .advisory==false)] | length' "$REPORT")
+            MAJOR=$(jq '[.[] | select(.severity=="major" and .advisory==false)] | length' "$REPORT")
+            MINOR=$(jq '[.[] | select(.severity=="minor" and .advisory==false)] | length' "$REPORT")
+            ADVISORY=$(jq '[.[] | select(.advisory==true)] | length' "$REPORT")
+            echo ""
+            echo "periodic-discipline [test-tools] — $INVOCATION_ID"
+            echo "  Raw findings:    $RAW_COUNT"
+            echo "  After dedup:     $DEDUPED_COUNT"
+            echo "  Suppressed:      $SUPPRESSED_COUNT"
+            echo "  Final findings:  $FINAL_COUNT"
+            echo ""
+            echo "  critical:  $CRITICAL"
+            echo "  major:     $MAJOR"
+            echo "  minor:     $MINOR"
+            echo ""
+            echo "  Advisory findings (LLM-derived): $ADVISORY"
+            echo ""
+            echo "  Report: $REPORT"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: periodic-discipline-test-tools-${{ github.run_id }}
+          path: data/periodic-discipline/reports/*.json
+
+      - name: Job summary
+        if: always()
+        run: |
+          REPORT=$(ls -t data/periodic-discipline/reports/*.json 2>/dev/null | head -1)
+          if [ -n "$REPORT" ]; then
+            FINDINGS=$(jq 'length' "$REPORT")
+            CRITICAL=$(jq '[.[] | select(.severity == "critical")] | length' "$REPORT")
+            MAJOR=$(jq '[.[] | select(.severity == "major")] | length' "$REPORT")
+            MINOR=$(jq '[.[] | select(.severity == "minor")] | length' "$REPORT")
+            INFO=$(jq '[.[] | select(.severity == "info")] | length' "$REPORT")
+            cat >> $GITHUB_STEP_SUMMARY <<SUMMARY
+          ## test-tools findings
+          | Severity | Count |
+          |----------|-------|
+          | critical | $CRITICAL |
+          | major | $MAJOR |
+          | minor | $MINOR |
+          | info | $INFO |
+          | **total** | **$FINDINGS** |
+          SUMMARY
+          fi
