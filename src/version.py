@@ -18,7 +18,7 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.66 (#117
-# hotfix: _collect_gpu_metrics multi-GPU parser fix).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.67 (#109
+# /arcis:operate skill ships).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.66"
+VERSION = "v0.36.67"
