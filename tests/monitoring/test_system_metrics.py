@@ -1,4 +1,5 @@
-"""Parametrized dual-engine tests for `_store_snapshot` UPSERT path.
+"""Parametrized dual-engine tests for `_store_snapshot` UPSERT path and
+_collect_gpu_metrics() multi-GPU parser (#117 hotfix).
 
 Sprint 5 §J5/§J6 Phase 1 T1.12 — migration of `system_metrics`
 `INSERT OR REPLACE` (dynamic-placeholder build) to the central
@@ -19,8 +20,11 @@ PG variant skips cleanly when `TEST_DATABASE_URL` is not set (CI laptops).
 See test_db_engine_aware_upsert.py for fixture pattern.
 """
 
+import json
 import os
 import sqlite3
+import subprocess
+import unittest.mock as mock
 
 import pytest
 
@@ -269,6 +273,87 @@ def test_store_snapshot_dispatches_through_engine_aware_upsert(monkeypatch):
     assert captured["row_dict"]["gpu_util_pct"] == 50.0
     assert captured["row_dict"]["ollama_status"] == "running"
     assert captured["row_dict"]["timestamp"] == "2026-05-11T00:00:00"
+
+
+# ---------------------------------------------------------------------------
+# #117 hotfix: _collect_gpu_metrics() multi-GPU parser tests
+# ---------------------------------------------------------------------------
+
+_BASELINE_JSON_PATH = (
+    "data/contracts/nvidia-smi-watchloop/2026-05-26T02-23-36Z.json"
+)
+
+
+def _make_completed_process(stdout, returncode=0):
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+
+
+def test_collect_gpu_metrics_multi_gpu_uses_first_row():
+    """#117: dual-GPU stdout must parse first row only; gpu_power_w must not crash."""
+    from src.monitoring.system_metrics import _collect_gpu_metrics
+
+    dual_gpu_stdout = "1, 2817, 24576, 67, 91.65\n0, 93, 12288, 57, 8.31\n"
+    with mock.patch("subprocess.run", return_value=_make_completed_process(dual_gpu_stdout)):
+        result = _collect_gpu_metrics()
+
+    assert result["gpu_util_pct"] == 1.0
+    assert result["gpu_vram_used_mb"] == 2817.0
+    assert result["gpu_vram_total_mb"] == 24576.0
+    assert result["gpu_temp_c"] == 67.0
+    assert result["gpu_power_w"] == 91.65
+
+
+def test_collect_gpu_metrics_single_gpu_unchanged():
+    """#117: single-GPU stdout must still parse correctly (regression guard)."""
+    from src.monitoring.system_metrics import _collect_gpu_metrics
+
+    single_gpu_stdout = "42, 4096, 24576, 58, 175.30\n"
+    with mock.patch("subprocess.run", return_value=_make_completed_process(single_gpu_stdout)):
+        result = _collect_gpu_metrics()
+
+    assert result["gpu_util_pct"] == 42.0
+    assert result["gpu_vram_used_mb"] == 4096.0
+    assert result["gpu_vram_total_mb"] == 24576.0
+    assert result["gpu_temp_c"] == 58.0
+    assert result["gpu_power_w"] == 175.30
+
+
+def test_collect_gpu_metrics_value_error_returns_none_with_warning():
+    """#117: malformed stdout must return _gpu_none() AND log a warning (visible parse drift)."""
+    from src.monitoring.system_metrics import _collect_gpu_metrics
+
+    malformed_stdout = "not_a_number, 4096, 24576, 58, 175.30\n"
+    with mock.patch("subprocess.run", return_value=_make_completed_process(malformed_stdout)):
+        with mock.patch("src.monitoring.system_metrics.logger") as mock_logger:
+            result = _collect_gpu_metrics()
+
+    assert result == {
+        "gpu_util_pct": None,
+        "gpu_vram_used_mb": None,
+        "gpu_vram_total_mb": None,
+        "gpu_temp_c": None,
+        "gpu_power_w": None,
+    }
+    mock_logger.warning.assert_called_once()
+
+
+def test_collect_gpu_metrics_committed_baseline_matches():
+    """#117 regression-lock: verbatim stdout from the committed ContractCheck baseline
+    must parse to non-None values for all 5 keys after the hotfix."""
+    from src.monitoring.system_metrics import _collect_gpu_metrics
+
+    with open(_BASELINE_JSON_PATH, encoding="utf-8") as fh:
+        baseline = json.load(fh)
+
+    baseline_stdout = baseline["stdout"]
+    with mock.patch("subprocess.run", return_value=_make_completed_process(baseline_stdout)):
+        result = _collect_gpu_metrics()
+
+    assert result["gpu_util_pct"] is not None
+    assert result["gpu_vram_used_mb"] is not None
+    assert result["gpu_vram_total_mb"] is not None
+    assert result["gpu_temp_c"] is not None
+    assert result["gpu_power_w"] is not None
 
 
 # ---------------------------------------------------------------------------
