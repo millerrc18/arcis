@@ -238,3 +238,180 @@ class TestDigestBuilderReexport:
         import src.email as email_pkg
         assert hasattr(email_pkg, "digest_builder"), \
             "src.email must re-export 'digest_builder' module attribute"
+
+
+# ---------------------------------------------------------------------------
+# Spec #115 Section 4.1 (DD-03 revised + DA-CRIT-2 fix):
+#   send_email html_body + attachments support
+# ---------------------------------------------------------------------------
+
+class TestSendEmailHtmlAndAttachments:
+    """Tests for new keyword-only params html_body + attachments on send_email."""
+
+    def _capture_msg(self):
+        """Build an SMTP mock that captures the (from_addr, to_addrs, msg_str)."""
+        captured = {}
+
+        def capture_sendmail(from_addr, to_addrs, msg_str):
+            captured["from_addr"] = from_addr
+            captured["to_addrs"] = to_addrs
+            captured["msg_str"] = msg_str
+            return {}
+
+        mock_smtp_instance = MagicMock()
+        mock_smtp_instance.sendmail.side_effect = capture_sendmail
+        return mock_smtp_instance, captured
+
+    def test_send_email_with_html_body_builds_multipart_alternative(self):
+        """html_body provided + no attachments → MIMEMultipart('alternative') with plain + html parts."""
+        config = _make_config()
+        mock_smtp_instance, captured = self._capture_msg()
+
+        with patch("src.email.notifier.load_config", return_value=config), \
+             patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=False), \
+             patch("smtplib.SMTP", return_value=mock_smtp_instance):
+            from src.email.notifier import send_email
+            result = send_email("Subject", "plain text body", html_body="<p>HI</p>")
+
+        assert result is True
+        msg_str = captured["msg_str"]
+        # Outer envelope is multipart/alternative
+        assert "multipart/alternative" in msg_str.lower()
+        # Both content types appear in the parts
+        assert "text/plain" in msg_str.lower()
+        assert "text/html" in msg_str.lower()
+        # Round-trip via email.parser to verify structure
+        import email.parser
+        parsed = email.parser.Parser().parsestr(msg_str)
+        assert parsed.is_multipart()
+        assert parsed.get_content_subtype() == "alternative"
+        parts = parsed.get_payload()
+        subtypes = sorted(p.get_content_subtype() for p in parts)
+        assert subtypes == ["html", "plain"]
+
+    def test_send_email_html_param_default_none_uses_mimetext(self):
+        """Backward-compat: when html_body=None and attachments=None, MIMEText behavior is preserved."""
+        config = _make_config()
+        mock_smtp_instance, captured = self._capture_msg()
+
+        with patch("src.email.notifier.load_config", return_value=config), \
+             patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=False), \
+             patch("smtplib.SMTP", return_value=mock_smtp_instance):
+            from src.email.notifier import send_email
+            result = send_email("Subject", "plain body only")
+
+        assert result is True
+        msg_str = captured["msg_str"]
+        # Should NOT be multipart — plain MIMEText
+        assert "multipart" not in msg_str.lower()
+        import email.parser
+        parsed = email.parser.Parser().parsestr(msg_str)
+        assert not parsed.is_multipart()
+        assert parsed.get_content_type() == "text/plain"
+
+    def test_send_email_with_attachment_builds_mixed_multipart(self):
+        """attachments provided → MIMEMultipart('mixed') with attachment having Content-Disposition."""
+        config = _make_config()
+        mock_smtp_instance, captured = self._capture_msg()
+
+        with patch("src.email.notifier.load_config", return_value=config), \
+             patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=False), \
+             patch("smtplib.SMTP", return_value=mock_smtp_instance):
+            from src.email.notifier import send_email
+            result = send_email(
+                "Subject",
+                "plain body",
+                attachments=[("overflow.txt", b"row1\nrow2")],
+            )
+
+        assert result is True
+        msg_str = captured["msg_str"]
+        assert "multipart/mixed" in msg_str.lower()
+        import email.parser
+        parsed = email.parser.Parser().parsestr(msg_str)
+        assert parsed.is_multipart()
+        assert parsed.get_content_subtype() == "mixed"
+
+        # Find attachment part
+        parts = parsed.get_payload()
+        attachment_parts = [p for p in parts if p.get("Content-Disposition", "").startswith("attachment")]
+        assert len(attachment_parts) == 1
+        att = attachment_parts[0]
+        disposition = att.get("Content-Disposition", "")
+        assert "attachment" in disposition
+        assert "overflow.txt" in disposition
+
+    def test_send_email_html_plus_attachment_nests_alternative_inside_mixed(self):
+        """When BOTH html_body and attachments provided → 'mixed' outer wrapping 'alternative' inner."""
+        config = _make_config()
+        mock_smtp_instance, captured = self._capture_msg()
+
+        with patch("src.email.notifier.load_config", return_value=config), \
+             patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=False), \
+             patch("smtplib.SMTP", return_value=mock_smtp_instance):
+            from src.email.notifier import send_email
+            result = send_email(
+                "Subject",
+                "plain body",
+                html_body="<p>HTML body</p>",
+                attachments=[("data.csv", b"a,b,c\n1,2,3")],
+            )
+
+        assert result is True
+        msg_str = captured["msg_str"]
+        import email.parser
+        parsed = email.parser.Parser().parsestr(msg_str)
+        assert parsed.is_multipart()
+        assert parsed.get_content_subtype() == "mixed"
+
+        parts = parsed.get_payload()
+        # One alternative subpart + one attachment subpart
+        alt_parts = [p for p in parts if p.is_multipart() and p.get_content_subtype() == "alternative"]
+        att_parts = [p for p in parts if p.get("Content-Disposition", "").startswith("attachment")]
+        assert len(alt_parts) == 1, f"Expected 1 alternative subpart, got: {[p.get_content_type() for p in parts]}"
+        assert len(att_parts) == 1
+
+        # The alternative inside should have both plain + html
+        inner = alt_parts[0]
+        inner_subtypes = sorted(p.get_content_subtype() for p in inner.get_payload())
+        assert inner_subtypes == ["html", "plain"]
+
+        # Attachment filename preserved
+        assert "data.csv" in att_parts[0].get("Content-Disposition", "")
+
+    def test_build_message_helper_exposes_multipart(self):
+        """build_message helper must build MIME structures without sending."""
+        from src.email.notifier import build_message
+
+        # Case 1: plain only → MIMEText
+        msg = build_message("Sub", "plain")
+        assert not msg.is_multipart()
+        assert msg.get_content_type() == "text/plain"
+        assert msg["Subject"] == "Sub"
+
+        # Case 2: plain + html → alternative
+        msg = build_message("Sub", "plain", html_body="<p>html</p>")
+        assert msg.is_multipart()
+        assert msg.get_content_subtype() == "alternative"
+        subtypes = sorted(p.get_content_subtype() for p in msg.get_payload())
+        assert subtypes == ["html", "plain"]
+
+        # Case 3: plain + attachment → mixed
+        msg = build_message("Sub", "plain", attachments=[("x.txt", b"data")])
+        assert msg.is_multipart()
+        assert msg.get_content_subtype() == "mixed"
+
+        # Case 4: plain + html + attachment → mixed wrapping alternative
+        msg = build_message(
+            "Sub",
+            "plain",
+            html_body="<p>html</p>",
+            attachments=[("x.txt", b"data")],
+        )
+        assert msg.is_multipart()
+        assert msg.get_content_subtype() == "mixed"
+        parts = msg.get_payload()
+        alt_parts = [p for p in parts if p.is_multipart() and p.get_content_subtype() == "alternative"]
+        att_parts = [p for p in parts if p.get("Content-Disposition", "").startswith("attachment")]
+        assert len(alt_parts) == 1
+        assert len(att_parts) == 1
