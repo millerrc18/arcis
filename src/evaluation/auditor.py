@@ -14,7 +14,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
@@ -758,54 +758,173 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
                     "flag": flag,
                 })
 
-                # Send alert email — operator decides whether to halt.
-                # v0.36.47: throttle per category (24h) so the daily auditor +
-                # restart re-runs don't re-spam a persistent flag.
+                # Hybrid CRITICAL flow (#115 — DD-01 + DD-30 revised + DD-34):
+                # STEP 1 — Enqueue queue row (canonical for digest replay).
+                # STEP 2 — Immediate send_email (24h-throttled per category).
+                # ImportError fallback per DD-30 revised: catch
+                # (ImportError, ModuleNotFoundError) ONLY (NOT AssertionError —
+                # DA-MIN-19) — log CRITICAL with FIREHOSE FALLBACK MODE marker,
+                # best-effort `safe_send('system_event', ...)` Telegram alert,
+                # then fall back to immediate send_email.
+                critical_subject = "[TRADE DESK] CRITICAL AUDIT FLAG — Operator Action Required"
+                critical_body = (
+                    f"CRITICAL AUDIT FLAG\n\n"
+                    f"Category: {flag.get('category')}\n"
+                    f"Description: {flag.get('description')}\n"
+                    f"Recommendation: {flag.get('recommendation')}\n\n"
+                    f"Trading was NOT auto-halted (operator-only kill-switch policy 2026-05-08). "
+                    f"Review and halt manually if appropriate via:\n"
+                    f"  - CLI: python -m src.main halt-trading\n"
+                    f"  - Dashboard halt button\n"
+                    f"  - API: POST /api/system/halt-trading"
+                )
+
+                # STEP 1: enqueue first (canonical record — DD-34). DigestQueue
+                # requires an explicit conn; use the auditor's db_path so the
+                # queue row lands in the same database the next pre-open digest
+                # flush reads from.
+                #
+                # Two exception layers per DD-30 revised:
+                #   - (ImportError, ModuleNotFoundError) → firehose fallback per
+                #     spec: logger.critical FIREHOSE FALLBACK MODE + best-effort
+                #     Telegram + bypass throttle on step 2 so the operator gets
+                #     the email even though the aggregator is broken.
+                #   - sqlite3.OperationalError / DB-class errors → log at error
+                #     and continue to step 2 (do NOT bypass throttle gate; this
+                #     is a transient DB issue, not aggregator drift; step 2's
+                #     normal 24h throttle protects against spam). NEVER catches
+                #     AssertionError (DA-MIN-19 — module-load drift propagates).
+                _firehose_fallback = False
                 try:
-                    if _audit_email_throttled(flag, db_path):
+                    from src.notifications.email_digest import enqueue_for_email_digest
+                    with connect_db(db_path) as enqueue_conn:
+                        enqueue_for_email_digest(
+                            "audit_critical",
+                            severity="critical",
+                            payload={
+                                "category": flag["category"],
+                                "description": flag.get("description", ""),
+                                "recommendation": flag.get("recommendation", ""),
+                                "fired_immediately_at": datetime.now(timezone.utc).isoformat(),
+                                "subject": critical_subject,
+                                "body": critical_body,
+                            },
+                            source_tag="email:preopen:critical-overflow",
+                            conn=enqueue_conn,
+                        )
+                except (ImportError, ModuleNotFoundError) as e:
+                    # DD-30 revised: ImportError/ModuleNotFoundError ONLY.
+                    # AssertionError propagates (DA-MIN-19).
+                    _firehose_fallback = True
+                    logger.critical(
+                        "[EMAIL] email_digest import failed — FIREHOSE FALLBACK MODE: %s", e,
+                    )
+                    try:
+                        from src.notifications.telegram import safe_send
+                        safe_send(
+                            "system_event",
+                            body=(
+                                f"CRITICAL: email_digest aggregator import failed; "
+                                f"firehose mode active. Error: {e}"
+                            ),
+                            severity="alert",
+                        )
+                    except Exception:
+                        pass  # best-effort; do not propagate
+                except sqlite3.Error as db_err:
+                    # DB-class failure (e.g., missing queue table on a partial
+                    # schema, transient lock). NOT firehose fallback — the
+                    # aggregator is intact; this is a local DB issue. Step 2
+                    # still fires via normal throttle gate so the operator gets
+                    # the CRITICAL email.
+                    logger.error(
+                        "[AUDIT] enqueue_for_email_digest DB error (queue row "
+                        "not persisted; immediate send still fires): %s", db_err,
+                    )
+
+                # STEP 2: immediate send (24h-throttled). On firehose fallback,
+                # bypass throttle gate so the operator still gets the email.
+                try:
+                    if not _firehose_fallback and _audit_email_throttled(flag, db_path):
                         logger.info(
                             "[AUDIT] CRITICAL email throttled (already alerted on category '%s' within 24h): %s",
                             flag.get("category"), flag.get("description"),
                         )
+                        # Audit trail: queue row exists for digest replay but
+                        # immediate side was throttle-suppressed (DD-34). Use
+                        # the auditor's db_path explicitly (not the default
+                        # DB_PATH) so test fixtures and non-default deployments
+                        # write to the same database the auditor reads.
+                        try:
+                            from src.email.notifier import _write_notification_sent
+                            with connect_db(db_path) as audit_conn:
+                                _write_notification_sent(
+                                    event_type="audit_critical",
+                                    channel="email",
+                                    status="throttled_suppressed",
+                                    conn=audit_conn,
+                                )
+                        except Exception:
+                            logger.debug(
+                                "[AUDIT] notifications_sent write for throttled_suppressed failed",
+                                exc_info=True,
+                            )
                     else:
                         from src.email.notifier import send_email
-                        subject = "[TRADE DESK] CRITICAL AUDIT FLAG — Operator Action Required"
-                        body = (
-                            f"CRITICAL AUDIT FLAG\n\n"
-                            f"Category: {flag.get('category')}\n"
-                            f"Description: {flag.get('description')}\n"
-                            f"Recommendation: {flag.get('recommendation')}\n\n"
-                            f"Trading was NOT auto-halted (operator-only kill-switch policy 2026-05-08). "
-                            f"Review and halt manually if appropriate via:\n"
-                            f"  - CLI: python -m src.main halt-trading\n"
-                            f"  - Dashboard halt button\n"
-                            f"  - API: POST /api/system/halt-trading"
-                        )
-                        send_email(subject, body)
+                        send_email(critical_subject, critical_body)
                 except Exception as e:
                     logger.error("[AUDIT] Failed to send critical alert email: %s", e)
 
                 actions.append({"action": "email_alert", "severity": "critical", "flag": flag})
 
         elif severity == "alert":
+            # #115 (DD-34): ALERT severity is queue-canonical to postclose
+            # digest. The 24h throttle gate is REMOVED — postclose digest
+            # aggregates within the day-window naturally. ImportError fallback
+            # per DD-30 revised: catch (ImportError, ModuleNotFoundError) ONLY
+            # (NOT AssertionError — DA-MIN-19).
             try:
-                if _audit_email_throttled(flag, db_path):
-                    logger.info(
-                        "[AUDIT] ALERT email throttled (already alerted on category '%s' within 24h): %s",
-                        flag.get("category"), flag.get("description"),
+                from src.notifications.email_digest import enqueue_for_email_digest
+                with connect_db(db_path) as enqueue_conn:
+                    enqueue_for_email_digest(
+                        "audit_alert",
+                        severity="alert",
+                        payload={
+                            "category": flag["category"],
+                            "description": flag.get("description", ""),
+                            "recommendation": flag.get("recommendation", ""),
+                        },
+                        source_tag="email:postclose",
+                        conn=enqueue_conn,
                     )
-                else:
+            except (ImportError, ModuleNotFoundError) as e:
+                logger.critical(
+                    "[EMAIL] email_digest import failed — FIREHOSE FALLBACK MODE: %s", e,
+                )
+                try:
+                    from src.notifications.telegram import safe_send
+                    safe_send(
+                        "system_event",
+                        body=(
+                            f"CRITICAL: email_digest aggregator import failed; "
+                            f"firehose mode active. Error: {e}"
+                        ),
+                        severity="alert",
+                    )
+                except Exception:
+                    pass  # best-effort; do not propagate
+                try:
                     from src.email.notifier import send_email
-                    subject = "[TRADE DESK] AUDIT ALERT"
-                    body = (
+                    alert_subject = "[TRADE DESK] AUDIT ALERT"
+                    alert_body = (
                         f"AUDIT ALERT\n\n"
                         f"Category: {flag.get('category')}\n"
                         f"Description: {flag.get('description')}\n"
                         f"Recommendation: {flag.get('recommendation')}"
                     )
-                    send_email(subject, body)
-            except Exception as e:
-                logger.error("[AUDIT] Failed to send alert email: %s", e)
+                    send_email(alert_subject, alert_body)
+                except Exception as e2:
+                    logger.error("[AUDIT] Failed firehose-fallback alert email: %s", e2)
 
             actions.append({"action": "email_alert", "severity": "alert", "flag": flag})
 
