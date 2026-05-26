@@ -77,6 +77,10 @@ class DigestQueue:
                 f"DigestQueue.enqueue: payload must be dataclass or dict, got {type(payload).__name__}"
             )
         payload_json = json.dumps(payload, cls=_DataclassJSONEncoder)
+        assert len(source_tag) <= 64, (
+            f"source_tag length {len(source_tag)} exceeds 64-char limit (DA-MIN-16); "
+            f"got {source_tag!r}"
+        )
         cur = self._conn.execute(
             "INSERT INTO notifications_digest_queue"
             " (event_type, severity, payload_json, source_tag, flush_status, flush_attempts)"
@@ -130,20 +134,34 @@ class DigestQueue:
         *,
         max_rows: int = 100,
         dispatcher: Callable[[dict], None],
+        source_tag_match: str | None = None,
     ) -> FlushResult:
         successes = 0
         failures = 0
         abandoned = 0
 
-        self._recover_orphaned_in_progress()
+        self._recover_orphaned_in_progress(source_tag_match=source_tag_match)
 
-        rows = self._conn.execute(
-            "SELECT id, event_type, severity, payload_json, flush_attempts FROM notifications_digest_queue"
-            " WHERE flush_status='pending'"
-            " ORDER BY created_at ASC"
-            " LIMIT ?",
-            (max_rows,),
-        ).fetchall()
+        if source_tag_match is None:
+            rows = self._conn.execute(
+                "SELECT id, event_type, severity, payload_json, flush_attempts FROM notifications_digest_queue"
+                " WHERE flush_status='pending'"
+                " ORDER BY created_at ASC"
+                " LIMIT ?",
+                (max_rows,),
+            ).fetchall()
+        else:
+            # DD-35 (DA-MAJ-9 fix): colon-delimited exact-or-prefix match.
+            # source_tag = 'email:preopen' matches itself AND 'email:preopen:critical-overflow',
+            # but NOT 'email:preopened' or 'email:preopen2'.
+            rows = self._conn.execute(
+                "SELECT id, event_type, severity, payload_json, flush_attempts FROM notifications_digest_queue"
+                " WHERE flush_status='pending'"
+                " AND (source_tag = ? OR source_tag LIKE ? || ':%')"
+                " ORDER BY created_at ASC"
+                " LIMIT ?",
+                (source_tag_match, source_tag_match, max_rows),
+            ).fetchall()
 
         for row in rows:
             claimed = self._conn.execute(
@@ -191,11 +209,21 @@ class DigestQueue:
         ).fetchone()
         return _scalar(row)
 
-    def _recover_orphaned_in_progress(self) -> None:
-        rows = self._conn.execute(
-            "SELECT id, flush_attempts FROM notifications_digest_queue"
-            " WHERE flush_status='in_progress'"
-        ).fetchall()
+    def _recover_orphaned_in_progress(self, *, source_tag_match: str | None = None) -> None:
+        if source_tag_match is None:
+            rows = self._conn.execute(
+                "SELECT id, flush_attempts FROM notifications_digest_queue"
+                " WHERE flush_status='in_progress'"
+            ).fetchall()
+        else:
+            # DD-35 (DA-MAJ-9 fix): colon-delimited exact-or-prefix match
+            # mirrors the flush() SELECT filter for tier-scoped callers.
+            rows = self._conn.execute(
+                "SELECT id, flush_attempts FROM notifications_digest_queue"
+                " WHERE flush_status='in_progress'"
+                " AND (source_tag = ? OR source_tag LIKE ? || ':%')",
+                (source_tag_match, source_tag_match),
+            ).fetchall()
         for row in rows:
             row_id = row["id"]
             attempts = row["flush_attempts"] + 1
