@@ -1,6 +1,11 @@
 {
   "oversized_files": [
     {
+      "file": "src/tools/gitarchaeology/core.py",
+      "lines": 510,
+      "rationale": "T3 (#107 Tier 3): GitArchaeology core.py is 510 lines (110 over 400). The 7 read-only ops (log, blame, show, diff, rev_list, merge_base, tag_l) + DA3/DA4 error classes + shared helpers (_safe_truncate_utf8, _git, _DEFAULT_LOG_FORMAT) are tightly coupled around the DA3/DA4 contracts. Splitting into sub-modules would require a shared error/constant module + 7 op-specific modules with no cohesion benefit. T3 implementation commit 813b9c38; out of T7 test scope. Real refactor deferred."
+    },
+    {
       "file": "src/evaluation/auditor.py",
       "lines": 597,
       "rationale": "Pre-existing violation surfaced by test_repo_structure.py audit on worktree-agent-a2ac97bf9aaba9653. auditor.py grew past 400 lines before v0.36.13. Three grandfathered functions already in known_violations (check_escalation=92, run_daily_audit=73, run_weekly_audit=72). Real split into auditor_daily.py + auditor_weekly.py + auditor_escalation.py deferred to post-Sprint-6 cleanup."
@@ -1418,6 +1423,36 @@
       "rationale": "#97 T9 KEYSTONE — applies 4 sim bridges (versioning.init_training_tables + versioning.get_active_model_name + journal.store.initialize_database + FakeTradingClient._build_legs) that compensate for prod helpers which crash when ARCIS_DB_PATH is None in the sim worktree, plus the pydantic-aware _build_legs replacement that handles take_profit/stop_loss objects from alpaca-py SDK MarketOrderRequest. The 74 lines (14 over the 60-line limit) are dominated by: 4 lines of import, ~6 lines of capture closure, ~30 lines of the _pydantic_aware_build_legs function-as-replacement (which must construct FakeOrder objects with the exact attribute set the executor expects), and ~30 lines of setattr/undo wiring with try/except rollback. Splitting would require either passing the originals dict across helpers (decoupling capture from undo) or extracting _pydantic_aware_build_legs to a sibling module (decoupling from the FakeTradingClient surface it patches). The pydantic-aware shim is tightly bound to alpaca-py SDK shape and FakeOrder construction details; extracting it loses the locality of the patch contract. Real split deferred until the bridge set stabilizes (currently 4 shims; T11/T12 follow-ups will add more)."
     },
     {
+      "file": "src/tools/gitarchaeology/core.py",
+      "function": "log",
+      "lines": 66,
+      "rationale": "T3 (#107 Tier 3): GitArchaeology log() function is 66 lines (6 over the 60-line limit). The function implements DA3 parsing-contract enforcement (custom format= / format_columns= pairing, maxsplit, GitParseError) and DA4 size-governance (max_output_bytes default computation). Splitting at 66 lines would scatter the DA3/DA4 contract enforcement across helpers that are only used once. Out of T7 test scope — T3 owns the implementation. Refactor deferred to a follow-up cleanup task."
+    },
+    {
+      "file": "src/tools/gitarchaeology/__main__.py",
+      "function": "main",
+      "lines": 74,
+      "rationale": "T3 (#107 Tier 3): GitArchaeology __main__.main() is 74 lines (14 over the 60-line limit). The function registers 7 subparsers (log, blame, show, diff, rev-list, merge-base, tag-l) each with their own argument sets. argparse registration for 7 subcommands is inherently verbose; splitting into sub-registrars would add indirection with no behavioral benefit. Out of T7 test scope — T3 owns the implementation. Refactor deferred."
+    },
+    {
+      "file": "src/tools/gitarchaeology/__main__.py",
+      "function": "_run",
+      "lines": 97,
+      "rationale": "T3 (#107 Tier 3): GitArchaeology __main__._run() is 97 lines (37 over the 60-line limit). The function is a 7-branch dispatch table (one per op: log, blame, show, diff, rev-list, merge-base, tag-l) — one branch per CLI subcommand. Each branch validates required args and calls the core function. A real refactor would require a dict-of-handlers pattern but each branch has unique argument validation logic. Out of T7 test scope — T3 owns the implementation. Refactor deferred."
+    },
+    {
+      "file": "src/tools/gitarchaeology/core.py",
+      "function": "show",
+      "lines": 66,
+      "rationale": "T3 (#107 Tier 3): GitArchaeology show() function is 66 lines (6 over the 60-line limit). The function implements DA4 max_output_bytes default (10MB), git show invocation, and the header parser (commit/Author/Date/subject/body/diff sections). Parser handles multi-line body and diff split. Splitting would separate tightly-coupled header-parse logic. Out of T7 test scope — T3 owns the implementation. Refactor deferred."
+    },
+    {
+      "file": "src/tools/gitarchaeology/core.py",
+      "function": "blame",
+      "lines": 99,
+      "rationale": "T3 (#107 Tier 3): GitArchaeology blame() function is 99 lines (39 over the 60-line limit). The function implements DA4 pre-invocation gate (5000-line check), the -L range argument assembly, and the standard non-porcelain blame output parser (paren-extraction, author/date splitting, line-no inference). The parser handles multiple edge cases (no-paren fallback, trailing-token inference). Splitting would distribute tightly-coupled output-parsing logic. Out of T7 test scope — T3 owns the implementation. Refactor deferred."
+    },
+    {
       "file": "src/simulation/lifecycle/wiring.py",
       "function": "install_organic_patches",
       "lines": 94,
@@ -1425,6 +1460,7 @@
     }
   ],
   "missing_docstring_headers": [
+    "src/tools/gitarchaeology/__main__.py",
     "src/shadow_trading/bracket_attach.py",
     "src/utils/codemod.py",
     "src/notifications/telegram_commands.py",
