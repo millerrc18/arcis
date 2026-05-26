@@ -196,3 +196,25 @@ def write_event(
     # types in params (e.g., Path objects); they serialize as their repr.
     with target.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, default=str) + "\n")
+
+
+# ── stdin-driven CLI (#109 DA3 — operate orchestrator audit writer) ──
+if __name__ == "__main__":  # pragma: no cover - exercised via subprocess
+    import argparse
+    import sys
+
+    _ap = argparse.ArgumentParser(description="Write a single audit event from stdin JSON.")
+    _ap.add_argument("--tool-name", required=True)
+    _ap.add_argument("--result", required=True, choices=sorted(_VALID_RESULTS))
+    _ap.add_argument("--duration-ms", type=int, default=0)
+    _ap.add_argument("--session-id", default=None)
+    _args = _ap.parse_args()
+    _raw = sys.stdin.read()
+    _params = json.loads(_raw) if _raw.strip() else {}
+    write_event(
+        tool_name=_args.tool_name,
+        params=_params,
+        result=_args.result,
+        duration_ms=_args.duration_ms,
+        session_id=_args.session_id,
+    )
