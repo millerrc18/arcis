@@ -152,7 +152,7 @@ Agent(
 > Post the summary now?
 
 Options:
-- "Yes — post summary" — invoke `/arcis:operate act post-pr-summary $TARGET_PR` (this is a mutation; goes through act's confirm gate, but the runbook's already-confirmed nature can pass through with single-confirm)
+- "Yes — post summary" — invoke `python -m src.tools.prcomments post $TARGET_PR --body "$FORENSIC_SUMMARY" --confirm --json` (operator must confirm; `prcomments` is the actual CLI — `post-pr-summary` act was removed at impl time, no `src.tools.ci_summary_post` module exists)
 - "No — diagnostic only, don't post" — STOP
 
 ## Success criteria
