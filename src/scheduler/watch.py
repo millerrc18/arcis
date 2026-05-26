@@ -336,6 +336,12 @@ class WatchLoop(HandlerRegistryMixin):
         self._digest_midday_done = False
         self._digest_eod_done = False
         self._digest_evening_done = False
+        # #115 T8: new tier-based digest flags (preopen / postclose / weekly).
+        # Coexist with the 4 deprecated done-flags above during the DD-20
+        # dual-write hold-over.
+        self._digest_preopen_done = False
+        self._digest_postclose_done = False
+        self._digest_weekly_done = False
         self._action_reminders_done = False
         self._daily_validation_done = False
         self._daily_build_score_done = False
@@ -467,6 +473,12 @@ class WatchLoop(HandlerRegistryMixin):
         self._digest_midday_done = False
         self._digest_eod_done = False
         self._digest_evening_done = False
+        # #115 T8: new tier-based digest flags (preopen / postclose / weekly).
+        # Coexist with the 4 deprecated done-flags above during the DD-20
+        # dual-write hold-over.
+        self._digest_preopen_done = False
+        self._digest_postclose_done = False
+        self._digest_weekly_done = False
         self._action_reminders_done = False
         self._daily_validation_done = False
         self._daily_build_score_done = False
@@ -501,70 +513,142 @@ class WatchLoop(HandlerRegistryMixin):
         return _is_open(now)
 
     def _check_digest_schedule(self):
-        """Send scheduled email digests at configured times (digest mode only)."""
+        """Send scheduled email digests at configured times (digest mode only).
+
+        #115 T8 — Section 9.1: drives the new tier-based aggregator
+        (`email_digest.flush_tier`) and the deprecated digest_builder branches
+        under the DD-20-revised dual-write hold-over.
+
+        Hold-over modes:
+          shadow        → new flush_tier writes shadow files; OLD branches
+                          fire send_email (operator inbox UNCHANGED).
+          time_aligned  → new flush_tier sends real email; OLD midday +
+                          evening SUPPRESSED; OLD premarket + EOD continue
+                          to fire (time-aligned with new preopen/postclose).
+          off           → new flush_tier sends real email; OLD branches
+                          FULLY suppressed.
+        """
         if self.email_mode != "digest":
             return
-
-        now = datetime.now(ET)
-        # Only send digests on weekdays
+        now = self._clock()
         if now.weekday() >= 5:
             return
+        email_cfg = self.config.get("email", {}) or {}
+        self._check_email_tier_schedule(now, email_cfg)
+        self._check_legacy_digest_schedule(now, email_cfg)
 
+    def _check_email_tier_schedule(self, now, email_cfg):
+        """#115 T8 — Fire flush_tier('preopen'|'postclose') in their 5-min windows.
+
+        DD-07: per-tier `enabled` honored. DD-21: holiday-skip applies to
+        daily tiers (preopen / postclose), NOT weekly.
+        """
         h, m = now.hour, now.minute
+        tier_times = email_cfg.get("tier_times", {}) or {}
+        tiers_cfg = email_cfg.get("tiers", {}) or {}
+        holidays_cfg = email_cfg.get("holidays", {}) or {}
+        from src.notifications import email_digest as _email_digest
+        from src.scheduler import holidays as _holidays_mod
 
-        digest_cfg = self.config.get("email", {}).get("digest_times", {})
-        premarket = digest_cfg.get("premarket", "07:30")
-        midday = digest_cfg.get("midday", "12:00")
-        eod = digest_cfg.get("eod", "16:15")
-        evening = digest_cfg.get("evening", "20:00")
-
-        from src.email.digest_builder import (
-            build_premarket_digest,
-            build_midday_digest,
-            build_eod_digest,
-            build_evening_digest,
-        )
-        from src.email.notifier import send_email
-
-        def _should_send(target_time: str, flag_name: str) -> bool:
+        def _in_window(target_time: str) -> bool:
             th, tm = map(int, target_time.split(":"))
-            if h == th and tm <= m < tm + 5:
-                if not getattr(self, flag_name, False):
-                    setattr(self, flag_name, True)
-                    return True
+            return h == th and tm <= m < tm + 5
+
+        for tier in ("preopen", "postclose"):
+            done_attr = f"_digest_{tier}_done"
+            if getattr(self, done_attr, False):
+                continue
+            enabled = (tiers_cfg.get(tier, {}) or {}).get("enabled", True)
+            if not enabled:
+                continue
+            target = tier_times.get(tier, "07:30" if tier == "preopen" else "17:00")
+            if not _in_window(target):
+                continue
+            skip_on_holiday = holidays_cfg.get(
+                f"skip_{tier}_on_market_holidays", True,
+            )
+            if skip_on_holiday and _holidays_mod.is_market_holiday(
+                check_date=now.date(),
+            ):
+                continue
+            try:
+                _email_digest.flush_tier(tier=tier)
+                logger.info("[DIGEST] flush_tier(%s) dispatched", tier)
+            except Exception as e:
+                logger.error("[DIGEST] flush_tier(%s) failed: %s", tier, e)
+            setattr(self, done_attr, True)
+
+    def _check_legacy_digest_schedule(self, now, email_cfg):
+        """#115 T8 — Deprecated digest_builder branches (DD-20 hold-over).
+
+        Fires the legacy 4-slot digest_builder send_email paths, suppressed
+        according to the hold-over mode (off / time_aligned / shadow).
+        """
+        h, m = now.hour, now.minute
+        holdover_cfg = email_cfg.get("dual_write_hold_over", {}) or {}
+        hold_over_mode = holdover_cfg.get("mode", "shadow")
+
+        def _suppress_old(slot: str) -> bool:
+            if hold_over_mode == "off":
+                return True
+            if hold_over_mode == "time_aligned" and slot in ("midday", "evening"):
+                return True
             return False
 
-        if _should_send(premarket, "_digest_premarket_done"):
-            try:
-                subject, body = build_premarket_digest()
-                send_email(subject, body)
-                logger.info("[DIGEST] Sent pre-market digest")
-            except Exception as e:
-                logger.error("[DIGEST] Pre-market digest failed: %s", e)
+        digest_cfg = email_cfg.get("digest_times", {}) or {}
+        slots = {
+            "premarket": (digest_cfg.get("premarket", "07:30"),
+                          "_digest_premarket_done", "build_premarket_digest"),
+            "midday":    (digest_cfg.get("midday", "12:00"),
+                          "_digest_midday_done", "build_midday_digest"),
+            "eod":       (digest_cfg.get("eod", "16:15"),
+                          "_digest_eod_done", "build_eod_digest"),
+            "evening":   (digest_cfg.get("evening", "20:00"),
+                          "_digest_evening_done", "build_evening_digest"),
+        }
+        from src.email import digest_builder as _db
+        from src.email.notifier import send_email
 
-        if _should_send(midday, "_digest_midday_done"):
+        for slot, (target, flag_name, builder_name) in slots.items():
+            th, tm = map(int, target.split(":"))
+            if not (h == th and tm <= m < tm + 5):
+                continue
+            if getattr(self, flag_name, False):
+                continue
+            setattr(self, flag_name, True)
+            if _suppress_old(slot):
+                continue
             try:
-                subject, body = build_midday_digest()
+                subject, body = getattr(_db, builder_name)()
                 send_email(subject, body)
-                logger.info("[DIGEST] Sent midday digest")
+                logger.info("[DIGEST] Sent %s digest", slot)
             except Exception as e:
-                logger.error("[DIGEST] Midday digest failed: %s", e)
+                logger.error("[DIGEST] %s digest failed: %s", slot, e)
 
-        if _should_send(eod, "_digest_eod_done"):
-            try:
-                subject, body = build_eod_digest()
-                send_email(subject, body)
-                logger.info("[DIGEST] Sent EOD digest")
-            except Exception as e:
-                logger.error("[DIGEST] EOD digest failed: %s", e)
+    def _maybe_flush_email_weekly_tier(self, now):
+        """Fire flush_tier('weekly') at Sun 18:00 ET (5-min window).
 
-        if _should_send(evening, "_digest_evening_done"):
-            try:
-                subject, body = build_evening_digest()
-                send_email(subject, body)
-                logger.info("[DIGEST] Sent evening digest")
-            except Exception as e:
-                logger.error("[DIGEST] Evening digest failed: %s", e)
+        #115 T8 — Section 9.1: weekly tier. DD-21: holiday-skip does NOT
+        apply to weekly (Sundays are non-trading anyway).
+        """
+        if self.email_mode != "digest":
+            return
+        email_cfg = self.config.get("email", {}) or {}
+        tiers_cfg = email_cfg.get("tiers", {}) or {}
+        weekly_enabled = (tiers_cfg.get("weekly", {}) or {}).get("enabled", True)
+        if not weekly_enabled:
+            return
+        if self._digest_weekly_done:
+            return
+        if now.weekday() != 6 or now.hour != 18 or now.minute >= 5:
+            return
+        from src.notifications import email_digest as _email_digest
+        try:
+            _email_digest.flush_tier(tier="weekly")
+            logger.info("[DIGEST] flush_tier(weekly) dispatched")
+        except Exception as e:
+            logger.error("[DIGEST] flush_tier(weekly) failed: %s", e)
+        self._digest_weekly_done = True
 
     def _should_scan(self, now: datetime) -> bool:
         """Check if enough time has passed since last scan.
@@ -2056,6 +2140,13 @@ class WatchLoop(HandlerRegistryMixin):
                       and not self._simulation_done):
                     if self._safe_run("weekly simulation", self._run_simulation_engine):
                         self._simulation_done = True
+
+                # #115 T8 — Email weekly tier (Sunday 18:00 ET, 5-min window).
+                # Independent `if` (not elif) so it fires alongside research
+                # synthesis at the same Sun 18:00 slot. Holiday-skip does NOT
+                # apply to weekly (DD-21). The Telegram-style Sunday 8 PM
+                # weekly_digest above is left untouched (scope-fence T8).
+                self._maybe_flush_email_weekly_tier(now)
 
                 # Action reminders (8 PM daily via Telegram)
                 # Sprint 0 Wave 2a (DONE-FLAG-C, T9): the done-flag was set
