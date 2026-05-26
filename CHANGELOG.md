@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+## [v0.36.67] — 2026-05-26 — `/arcis:operate` skill — incident response + change orchestration (#109)
+
+### Added
+
+- **Skill: `/arcis:operate` ships with 4 verbs + 5 runbooks** (#109). New plugin skill at
+  `.claude/plugins/arcis/skills/operate/` and orchestrator command at
+  `.claude/plugins/arcis/commands/operate.md`. Operator-facing surface:
+  - **4 verbs**: `triage <symptom>` (diagnostic agent dispatch + cross-agent finding
+    composition), `act <action>` (operator-confirmed mutation via Action Authorization
+    Matrix with Safety Window Gate at 21:30-22:30 ET), `status` (fast snapshot,
+    target <30s), `runbook <name> [--dry-run]` (named procedures with frontmatter
+    validator + abandonment recovery).
+  - **5 v1 runbooks**: `watchloop-wedged` (mutating, NSSM restart), `pg-tests-red`
+    (diagnostic, ci+db cross-agent), `training-failed` (diagnostic, branch on
+    crash/corpus/not-started/stale), `gpu-degraded` (mutating, VRAM recovery via
+    Ollama-watchdog restart), `data-anomaly` (diagnostic, A/B/C/D categorization).
+  - **2 reference docs**: `references/action-authorization-matrix.md` (5 verified
+    actions; 3 presumed CLIs `force-broker-poll`/`post-pr-summary`/`regenerate-stale-audit`
+    REMOVED at impl-time after `--help` probe failed); `references/error-envelopes.md`
+    (9 error classes including §10.9 audit-write-failure).
+  - **Composes** the 13 Tier 1+2+3 tools (#105/#106/#107) and 4 investigator agents
+    (#108: db/ci/git/live) into one workflow.
+
+### Changed
+
+- **`src/tools/_execution_log.py`** — added stdin-driven `if __name__ == "__main__"` CLI
+  block (~22 LOC) so the orchestrator can write audit events via subprocess with
+  injection-safe JSON-on-stdin (DA3 mitigation per spec §14 OQ#7).
+
+### Tests
+
+- `tests/test_operate_runbook_data_anomaly.py` — 12 acceptance tests (frontmatter,
+  ABCD categorization, no-deferral language, rollback diagnostic-only, abandonment).
+- `tests/test_operate_error_envelopes_ref.py` — 5 acceptance tests (9 sections,
+  audit-write-failure §10.9 present, trigger/output/audit/exit pattern, UTF-8).
+- `tests/test_operate_action_authorization_matrix.py` — 6 acceptance tests
+  (7-column header, cell count, verification enum, auth_class enum, UTF-8,
+  no leftover unverified-presumed rows).
+
 ## [v0.36.66] — 2026-05-25 — Multi-GPU parser fix in _collect_gpu_metrics (#117 hotfix)
 
 ### Fixed
