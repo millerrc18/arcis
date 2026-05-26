@@ -1,0 +1,29 @@
+{
+  "cmd": [
+    "nvidia-smi",
+    "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+    "--format=csv,noheader,nounits"
+  ],
+  "contract": "nvidia-smi-watchloop",
+  "description": "Watchloop GPU metrics invocation — pinned to\nsrc/monitoring/system_metrics.py:36-45 verbatim. Five queried fields\nin CSV, no header, no units. 5-second timeout.\n",
+  "normalization_applied": {
+    "gpu_power_w": "tolerance=50.0",
+    "gpu_temp_c": "tolerance=10.0",
+    "gpu_util_pct": "tolerance=5.0",
+    "gpu_vram_used_mb": "tolerance=2048.0"
+  },
+  "parse_ok": false,
+  "parsed_fields": {
+    "gpu_power_w": "91.65\n0",
+    "gpu_temp_c": "67",
+    "gpu_util_pct": "1",
+    "gpu_vram_total_mb": "24576",
+    "gpu_vram_used_mb": "2817"
+  },
+  "recorded_at": "2026-05-26T02:23:36.017484Z",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "1, 2817, 24576, 67, 91.65\n0, 93, 12288, 57, 8.31\n",
+  "timeout_s": 5,
+  "tool_version": "v1"
+}
