@@ -46,7 +46,8 @@ def _collect_gpu_metrics() -> dict:
         if result.returncode != 0:
             return _gpu_none()
 
-        parts = [p.strip() for p in result.stdout.strip().split(",")]
+        rows = result.stdout.strip().splitlines()
+        parts = [p.strip() for p in rows[0].split(",")]
         return {
             "gpu_util_pct": float(parts[0]),
             "gpu_vram_used_mb": float(parts[1]),
@@ -54,8 +55,11 @@ def _collect_gpu_metrics() -> dict:
             "gpu_temp_c": float(parts[3]),
             "gpu_power_w": float(parts[4]),
         }
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as exc:
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         logger.debug("GPU metrics unavailable: %s", exc)
+        return _gpu_none()
+    except (ValueError, IndexError) as exc:
+        logger.warning("nvidia-smi parse error: %s", exc)
         return _gpu_none()
 
 
