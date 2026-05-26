@@ -107,3 +107,7 @@ scripts/test_merged_hf.py
 
 # Coding-team plugin dashboard + PR-body artifacts
 .arcis/
+
+# Sprint #111 — periodic-discipline runtime state (.gitkeep preserved)
+data/periodic-discipline/.lock
+data/periodic-discipline/reports/*.json
