@@ -167,16 +167,7 @@ jobs:
         # service block, but the tests are designed for the heavyweight
         # nightly schedule, not the per-PR fast tier. Filter them out so
         # per-PR runs stay fast.
-        #
-        # --ignore=test_trainer_stub.py: known pre-existing env-drift issue
-        # in #94's dual-GPU trainer stub. test_trainer_stub.py imports
-        # src.training.training_stop which reads src.config.DB_PATH at module
-        # level — but src.simulation.lifecycle.bootstrap's _scrub_environment
-        # pops ARCIS_DB_PATH BEFORE the import completes, so DB_PATH is None
-        # and posixpath.join raises TypeError. These tests are about the
-        # fake trainer subprocess, NOT the lifecycle gate; #94 owner can
-        # restructure the module-level read in a follow-up.
-        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=600 -k "not full_gate" --ignore=tests/simulation/lifecycle/test_trainer_stub.py
+        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=600 -k "not full_gate"
 
       - name: Smoke verdict (run_smoke direct invocation)
         # Direct call so the rendered, non-authoritative verdict is visible in
