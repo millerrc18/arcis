@@ -28,16 +28,14 @@ def spec_hash(raw: dict) -> str:
 
 
 def persist_backtest_result(
-    result, *, db_path: str, git_sha: str = "unknown",
+    result, *, db_path: str, provenance_kind: str, git_sha: str = "unknown",
 ) -> str:
     """Write backtest result + trades to SQLite. Returns result_id (UUID).
 
-    Parameters
-    ----------
-    result : BacktestResult from backtest_engine
-    db_path : explicit path to SQLite database
-    git_sha : code version tag — CLI passes git rev-parse output,
-              cloud passes RENDER_GIT_COMMIT env var
+    provenance_kind (#110) is REQUIRED — one of 'quick_in_sample' |
+    'wf_is_window' | 'wf_is_window_orphan_partial_run'. The CHECK
+    constraint on backtest_results refuses NULL; the caller always knows.
+    git_sha is CLI's git rev-parse output or RENDER_GIT_COMMIT env var.
     """
     result_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
@@ -50,8 +48,8 @@ def persist_backtest_result(
                 end_date, initial_capital, total_trades, total_return_pct,
                 sharpe, excess_sharpe, deflated_sharpe, pbo, oos_efficiency,
                 sortino, calmar, max_drawdown_pct, win_rate, profit_factor,
-                code_git_sha, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                code_git_sha, created_at, provenance_kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 result_id, result.strategy_id,
                 result.config.strategy.raw.get("spec_version", 1),
@@ -65,7 +63,7 @@ def persist_backtest_result(
                 m.get("sortino"), m.get("calmar"),
                 m.get("max_drawdown_pct"),
                 m.get("win_rate"), m.get("profit_factor"),
-                git_sha, created_at,
+                git_sha, created_at, provenance_kind,
             ),
         )
         for t in result.trades:

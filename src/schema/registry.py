@@ -47,6 +47,12 @@ class ColumnDef:
     # never reuses rowids. Audit-trail tables (activity_log, etc.) need this
     # to keep the dashboard feed dedup logic correct after row deletions.
     autoincrement: bool = False
+    # #110 (T0) — Inline CHECK constraint expression appended to the column
+    # DDL fragment (e.g. "col_name IN ('a', 'b', 'c')"). The DDL generator
+    # wraps this in `CHECK (...)` and appends after NOT NULL/DEFAULT. Used by
+    # `backtest_results.provenance_kind` to enforce the three-state enum at
+    # the data layer.
+    check: str | None = None
 
 
 @dataclass
@@ -2072,6 +2078,19 @@ _register(TableDef(
         ColumnDef("profit_factor", "REAL"),
         ColumnDef("code_git_sha", "TEXT"),
         ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef(
+            "provenance_kind", "TEXT", nullable=False,
+            check=(
+                "provenance_kind IN ('quick_in_sample', 'wf_is_window', "
+                "'wf_is_window_orphan_partial_run')"
+            ),
+            description="#110 — three-state outcome provenance: "
+                        "'quick_in_sample' (single-shot in-sample run), "
+                        "'wf_is_window' (per-window IS slice from a walk-forward run), "
+                        "'wf_is_window_orphan_partial_run' (IS slice from a wf run "
+                        "that crashed mid-loop; refused by analyze for forensic "
+                        "inspection only). NOT NULL + CHECK enforced at data layer.",
+        ),
     ],
     primary_key="result_id",
     indexes=[

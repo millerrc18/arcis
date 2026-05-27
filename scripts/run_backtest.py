@@ -90,7 +90,9 @@ def main() -> int:
 
     if args.persist:
         result_id = persist_backtest_result(
-            result, db_path=args.db_path, git_sha=_git_sha(),
+            result, db_path=args.db_path,
+            provenance_kind="quick_in_sample",  # #110 T0: scripts/run_backtest.py is IS-only
+            git_sha=_git_sha(),
         )
         print(f"persisted as result_id={result_id}")
         try:

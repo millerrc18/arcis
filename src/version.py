@@ -18,8 +18,7 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.69 (#115
-# email consolidation PR-1 ships — dual-write hold-over mode='shadow').
-# (v0.36.68 reserved for #111 arcis:periodic-discipline on origin/main.)
+# Update when cutting a release. Latest CHANGELOG header: v0.36.70 (#110
+# arcis:strategy skill ships — research-desk capstone with 4 verbs).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.69"
+VERSION = "v0.36.70"
