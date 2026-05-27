@@ -29,7 +29,7 @@ _ET = ZoneInfo("America/New_York")
 _DEFAULT_SERVICES = ["ArcisWatchLoop", "ArcisOllamaWatchdog", "ArcisDashboard"]
 
 _DEFAULT_STALENESS: dict[str, int] = {
-    "ArcisWatchLoop": 60,
+    "ArcisWatchLoop": 900,
     "ArcisOllamaWatchdog": 30,
     "ArcisDashboard": 300,
 }

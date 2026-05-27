@@ -2,7 +2,7 @@
 
 Covers:
   (a) ALL HEALTHY: RUNNING + fresh ISO heartbeat + connect_ex=0 + 0 errors -> overall='OK'
-  (b) WATCH_LOOP STALE: ISO heartbeat 120s old (>60s threshold) + RUNNING -> 'DEGRADED'
+  (b) WATCH_LOOP STALE: ISO heartbeat 1500s old (>900s threshold) + RUNNING -> 'DEGRADED'
   (c) OLLAMA PORT NOT LISTENING: connect_ex non-zero for 11434 + RUNNING -> 'DEGRADED'
   (d) DASHBOARD STOPPED: nssm_status returns STOPPED -> verdict='DOWN' + overall='DOWN'
   (e) HEARTBEAT FILE MISSING: path doesn't exist -> heartbeat_fresh=False, reason='file_missing'
@@ -141,19 +141,22 @@ def test_all_healthy_returns_ok(tmp_path):
 
 
 def test_watchloop_stale_heartbeat_returns_degraded(tmp_path):
-    """(b) WATCH_LOOP STALE: ISO heartbeat 120s old (>60s threshold) + RUNNING -> 'DEGRADED'.
+    """(b) WATCH_LOOP STALE: ISO heartbeat 1500s old (>900s threshold) + RUNNING -> 'DEGRADED'.
+
+    Updated from 120s (old 60s threshold) to 1500s (new 900s threshold) per #122.
+    The WatchLoop threshold was bumped 60->900s to avoid false-positive wedge
+    diagnoses during normal 14-min LLM scan cycles (feedback_wedge_vs_long_iteration).
 
     Verify-by-mutation: Remove worst-of overall aggregation (return 'OK' always)
     -> test (b) overall check fails.
     """
     from src.tools.processmanager.nssm import ServiceState
-    import src.tools.healthprobe.checks as checks_mod
 
     log = tmp_path / "exec.log"
 
-    # Write stale ISO heartbeat (120s old, threshold is 60s)
+    # Write stale ISO heartbeat (1500s old, threshold is 900s)
     hb = tmp_path / "watchdog.txt"
-    stale_time = _now_utc() - timedelta(seconds=120)
+    stale_time = _now_utc() - timedelta(seconds=1500)
     hb.write_text(_iso_ts(stale_time), encoding="utf-8")
 
     logs_dir = tmp_path / "logs"
@@ -173,7 +176,7 @@ def test_watchloop_stale_heartbeat_returns_degraded(tmp_path):
     assert wl["verdict"] == "DEGRADED", f"Expected DEGRADED, got {wl['verdict']!r}"
     assert wl["heartbeat_fresh"] is False
     assert wl["heartbeat_reason"] is not None
-    assert "age=120s>threshold=60s" in wl["heartbeat_reason"] or "120" in wl["heartbeat_reason"]
+    assert "1500" in wl["heartbeat_reason"]
     assert result["overall"] == "DEGRADED"
 
 
@@ -623,3 +626,118 @@ class TestHeartbeatFilenameMapping:
             f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
         )
         assert ollama["verdict"] == "DEGRADED", f"ArcisOllamaWatchdog should be DEGRADED: {ollama['verdict']!r}"
+
+
+# ── (l) TestStaleThresholdNoiseFloor ─────────────────────────────────────────
+
+
+class TestStaleThresholdNoiseFloor:
+    """(l) Verify ArcisWatchLoop staleness threshold is 900s (not 60s).
+
+    Rationale: during normal 14-minute LLM scan cycles, the old 60s threshold
+    caused 2 false-positive wedge diagnoses (feedback_wedge_vs_long_iteration,
+    2026-05-26). 900s gives operator and live-monitor agent room to distinguish
+    "normal long iteration" from "actually wedged."
+
+    Verify-by-mutation: temporarily revert ArcisWatchLoop: 60 in _DEFAULT_STALENESS
+    -> test_840s_old_watchloop_is_ok MUST fail (840 > 60 -> DEGRADED).
+    This proves the test is not vacuous (feedback_vacuous_test_pattern).
+    """
+
+    def _setup(self, tmp_path: Path, *, age_seconds: int):
+        """Write a heartbeat file age_seconds old plus supporting log files."""
+        hb = tmp_path / "watchdog.txt"
+        stale_time = _now_utc() - timedelta(seconds=age_seconds)
+        hb.write_text(_iso_ts(stale_time), encoding="utf-8")
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+        (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+        (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
+
+        return hb, logs_dir
+
+    def test_840s_old_watchloop_is_ok(self, tmp_path):
+        """(l-a) 840s-old heartbeat (14 min) is OK under the new 900s threshold.
+
+        A normal LLM scan cycle can last ~14 minutes. With 900s threshold, a
+        heartbeat that is 840s (14 min) old must be treated as fresh (RUNNING -> OK).
+
+        Verify-by-mutation: revert ArcisWatchLoop to 60 in _DEFAULT_STALENESS
+        -> 840 > 60 -> DEGRADED -> this assertion fails.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb, logs_dir = self._setup(tmp_path, age_seconds=840)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn(services=["ArcisWatchLoop"])
+
+        wl = result["services"]["ArcisWatchLoop"]
+        assert wl["verdict"] == "OK", (
+            f"ArcisWatchLoop with 840s-old heartbeat should be OK under 900s threshold, "
+            f"got {wl['verdict']!r}. heartbeat_reason={wl['heartbeat_reason']!r}. "
+            "Verify ArcisWatchLoop: 900 in _DEFAULT_STALENESS."
+        )
+        assert wl["heartbeat_fresh"] is True, (
+            f"heartbeat_fresh must be True for 840s-old file with 900s threshold."
+        )
+
+    def test_1500s_old_watchloop_is_degraded(self, tmp_path):
+        """(l-b) 1500s-old heartbeat (25 min) is DEGRADED (1500 > 900 threshold).
+
+        A heartbeat that is 25 minutes old is genuinely stale — the loop is wedged.
+        Must yield DEGRADED regardless of threshold bump.
+
+        Verify-by-mutation: bump threshold to 9999 in _DEFAULT_STALENESS
+        -> 1500 < 9999 -> OK -> this assertion fails.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb, logs_dir = self._setup(tmp_path, age_seconds=1500)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn(services=["ArcisWatchLoop"])
+
+        wl = result["services"]["ArcisWatchLoop"]
+        assert wl["verdict"] == "DEGRADED", (
+            f"ArcisWatchLoop with 1500s-old heartbeat should be DEGRADED, "
+            f"got {wl['verdict']!r}."
+        )
+        assert wl["heartbeat_fresh"] is False
+        assert "1500" in (wl["heartbeat_reason"] or ""), (
+            f"Reason should mention age 1500s, got: {wl['heartbeat_reason']!r}"
+        )
+
+    def test_900s_boundary_is_ok(self, tmp_path):
+        """(l-c) Exactly 900s old is at-threshold — boundary is inclusive-OK (age == threshold passes).
+
+        _check_heartbeat uses `age_s > max_age_s` (strict greater-than),
+        so age == 900 is NOT stale.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb, logs_dir = self._setup(tmp_path, age_seconds=900)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn(services=["ArcisWatchLoop"])
+
+        wl = result["services"]["ArcisWatchLoop"]
+        # age_s > max_age_s -> 900 > 900 is False -> fresh=True
+        assert wl["heartbeat_fresh"] is True, (
+            f"Exactly 900s old should be fresh (strict >), got fresh={wl['heartbeat_fresh']!r}, "
+            f"reason={wl['heartbeat_reason']!r}"
+        )
