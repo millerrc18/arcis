@@ -122,6 +122,9 @@ def generate_create_table_sql(table: TableDef) -> str:
             parts.append("NOT NULL")
         if c.default is not None:
             parts.append(f"DEFAULT {_format_default(c.default)}")
+        # #110 (T0) — inline CHECK constraint (enum enforcement).
+        if getattr(c, "check", None):
+            parts.append(f"CHECK ({c.check})")
         cols.append(" ".join(parts))
 
     pk_names = (
@@ -162,10 +165,13 @@ def generate_ensure_column_sql(table_name: str, col: ColumnDef) -> str:
     """Generate idempotent ALTER TABLE ADD COLUMN for Postgres (PL/pgSQL)."""
     pg_type = _TYPE_MAP.get(col.type, col.type)
     default_clause = f" DEFAULT {_format_default(col.default)}" if col.default else ""
+    notnull_clause = " NOT NULL" if not col.nullable else ""
+    # #110 (T0) — inline CHECK constraint on the new column.
+    check_clause = f" CHECK ({col.check})" if getattr(col, "check", None) else ""
     return (
         f"DO $$ BEGIN\n"
         f"    ALTER TABLE {table_name} ADD COLUMN "
-        f"{col.name} {pg_type}{default_clause};\n"
+        f"{col.name} {pg_type}{notnull_clause}{default_clause}{check_clause};\n"
         f"EXCEPTION WHEN duplicate_column THEN NULL;\n"
         f"END $$;\n"
     )

@@ -1,4 +1,7 @@
 """Tests for /api/platform/* endpoints (Sprint 4 cont. Task 12b)."""
+import sqlite3
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -208,3 +211,161 @@ def test_production_promotion_requires_24h_delay(client, tmp_path):
         },
     )
     assert r2.status_code in (202, 425)
+
+
+# ---------------------------------------------------------------------------
+# #110 (T0) — provenance_kind column + persist signature tests
+# ---------------------------------------------------------------------------
+
+
+def _make_result_fixture(strategy_id: str = "test_strat"):
+    """Minimal BacktestResult-shaped object for persist_backtest_result."""
+    spec_raw = {"spec_version": 1, "name": strategy_id}
+    strategy = SimpleNamespace(raw=spec_raw)
+    config = SimpleNamespace(
+        strategy=strategy,
+        start_date="2023-01-01",
+        end_date="2023-12-31",
+        initial_capital=100000.0,
+    )
+    metrics = {
+        "n_trades": 10,
+        "total_return_pct": 5.0,
+        "sharpe": 1.2,
+        "excess_sharpe": 0.5,
+        "pbo": None,
+        "oos_efficiency": None,
+        "sortino": 1.5,
+        "calmar": 0.8,
+        "max_drawdown_pct": -3.0,
+        "win_rate": 0.6,
+        "profit_factor": 1.5,
+    }
+    return SimpleNamespace(
+        strategy_id=strategy_id, config=config, metrics=metrics, trades=[],
+    )
+
+
+def test_persist_backtest_result_writes_provenance_kind(tmp_path, monkeypatch):
+    """Positive — persist with provenance_kind='quick_in_sample' writes row."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(db)
+
+    from src.platform.backtest_persist import persist_backtest_result
+    result = _make_result_fixture()
+    result_id = persist_backtest_result(
+        result, db_path=db, provenance_kind="quick_in_sample",
+    )
+
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT provenance_kind FROM backtest_results WHERE result_id = ?",
+        (result_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "quick_in_sample"
+
+
+def test_persist_backtest_result_requires_provenance_kind_kwarg(tmp_path, monkeypatch):
+    """The kwarg is required — no default. Calling without it is a TypeError."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(db)
+
+    from src.platform.backtest_persist import persist_backtest_result
+    result = _make_result_fixture()
+    with pytest.raises(TypeError):
+        persist_backtest_result(result, db_path=db)  # type: ignore[call-arg]
+
+
+def test_backtest_results_rejects_null_provenance_kind(tmp_path, monkeypatch):
+    """Negative — raw INSERT with provenance_kind=NULL must fail (NOT NULL)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(db)
+
+    conn = sqlite3.connect(db)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO backtest_results "
+            "(result_id, strategy_id, spec_version, spec_hash, "
+            " start_date, end_date, created_at, provenance_kind) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("rid_null", "s", 1, "h", "2023-01-01", "2023-12-31",
+             "2023-12-31T00:00:00", None),
+        )
+    conn.close()
+
+
+def test_backtest_results_rejects_invalid_provenance_kind(tmp_path, monkeypatch):
+    """Negative — raw INSERT with invalid enum value must fail (CHECK)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(db)
+
+    conn = sqlite3.connect(db)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO backtest_results "
+            "(result_id, strategy_id, spec_version, spec_hash, "
+            " start_date, end_date, created_at, provenance_kind) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("rid_bad", "s", 1, "h", "2023-01-01", "2023-12-31",
+             "2023-12-31T00:00:00", "garbage_value"),
+        )
+    conn.close()
+
+
+def test_backtest_results_accepts_three_enum_values(tmp_path, monkeypatch):
+    """Positive — all three valid enum values write successfully."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(db)
+
+    conn = sqlite3.connect(db)
+    for i, kind in enumerate(
+        ["quick_in_sample", "wf_is_window", "wf_is_window_orphan_partial_run"]
+    ):
+        conn.execute(
+            "INSERT INTO backtest_results "
+            "(result_id, strategy_id, spec_version, spec_hash, "
+            " start_date, end_date, created_at, provenance_kind) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (f"rid_{i}", "s", 1, "h", "2023-01-01", "2023-12-31",
+             "2023-12-31T00:00:00", kind),
+        )
+    conn.commit()
+    rows = conn.execute(
+        "SELECT provenance_kind FROM backtest_results ORDER BY result_id"
+    ).fetchall()
+    conn.close()
+    assert sorted([r[0] for r in rows]) == sorted([
+        "quick_in_sample", "wf_is_window", "wf_is_window_orphan_partial_run",
+    ])
+
+
+def test_bootstrap_idempotent_on_provenance_kind(tmp_path, monkeypatch):
+    """Re-running create_all_tables on an existing DB must not crash."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables, ensure_columns
+    create_all_tables(db)
+    # Second call must be a no-op (no duplicate-column / no-op ALTER errors).
+    create_all_tables(db)
+    ensure_columns(db)
+    ensure_columns(db)
+    # Column still present + still NOT NULL.
+    conn = sqlite3.connect(db)
+    rows = conn.execute("PRAGMA table_info(backtest_results)").fetchall()
+    conn.close()
+    by_name = {r[1]: r for r in rows}
+    assert "provenance_kind" in by_name
+    # PRAGMA columns: (cid, name, type, notnull, dflt_value, pk)
+    assert by_name["provenance_kind"][3] == 1  # notnull flag
