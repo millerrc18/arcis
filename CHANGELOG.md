@@ -2,6 +2,82 @@
 
 ## [Unreleased]
 
+### Arcis Strategy Skill (#110) — research-desk capstone
+
+Spec/plan: `docs/audits/2026-05-26-arcis-strategy/`. New `/arcis:strategy` skill
+with 4 verbs (ideate / backtest / analyze / status). Composes db-investigator +
+git-historian + research-team (domain-lead + specialist + cross-domain-analyst)
+into a single research workflow. Adds `provenance_kind` column on
+`backtest_results` for three-state outcome preservation at the data layer (DA1).
+
+#### Added
+
+- **Skill: `/arcis:strategy` ships with 4 verbs.** New plugin skill at
+  `.claude/plugins/arcis/skills/strategy/` with companion orchestrator at
+  `.claude/plugins/arcis/commands/strategy.md`. Verbs:
+  - `ideate <theme>` — dispatches db-investigator + git-historian +
+    research-domain-lead (Wave A) then research-cross-domain-analyst
+    (Wave B, suppressible via `--no-cross-domain`); writes a structured
+    ideation report to `docs/strategy-ideation/<date>-<slug>.md`.
+  - `backtest <strategy_id> [--quick]` — default invokes the full
+    walkforward stack (`backtest_engine.run_backtest()` per IS+OOS window
+    → `walkforward_runner.run_walkforward()` → `persist_run_result()`)
+    with R2 purging + R8 firewall + spec-snapshot binding (DA2) + Phase
+    B5.5 file-lock (DA5). `--quick` runs a single in-sample slice with a
+    ⚠ banner and writes a `quick_in_sample` `backtest_results` row.
+  - `analyze <run_id|result_id>` — resolves to either `walkforward_results`
+    or `backtest_results`; computes DSR + PSR (López de Prado 2018) and
+    CSCV PBO when ≥2 prior backtest rows for the strategy exist;
+    preserves `outcome_state` verbatim (no boolean collapse — DA1).
+  - `status [strategy_id]` — read-only snapshot of FS specs, registry
+    rows, recent backtest + walkforward runs, trials_registry N_eff,
+    FS ↔ DB drift, active runs (DA12), and orphans (DA1/DA4).
+- **Schema migration** — adds non-null `provenance_kind` column on
+  `backtest_results` with CHECK constraint over
+  `{quick_in_sample, wf_is_window, wf_is_window_orphan_partial_run}`
+  (DA1 three-state outcome preservation at the data layer).
+- **Skill references** under `.claude/plugins/arcis/skills/strategy/references/`:
+  - `verb-conventions.md` — argument parsing, tool envelope contract,
+    operator-facing error envelopes.
+  - `rigor-stack-integration.md` — how `backtest` + `analyze` compose
+    with `src/platform/rigor/` (R2 + R8 + DSR + PSR + CSCV).
+  - `statistical-rigor.md` — DSR/PSR/PBO mechanics, T<30 guard,
+    N_eff family-variance fallback.
+  - `error-envelopes.md` — verbatim §10.x operator-facing prose for the
+    18 refuse/incomplete paths.
+  - `golden-transcripts.md` — 5 happy-path transcripts cited from §11
+    of the design spec (T7).
+- **Audit-event coverage** — every verb emits bracket events
+  (`arcis_strategy.<verb>.started` and `.completed`) into
+  `data/logs/tool-execution.log` keyed by `session_id`. `backtest`
+  additionally emits `.confirmed` (with `prompt_hash` + `option_text`),
+  `.wf_partial` (on mid-run failure), `.wf_complete` (post-runner),
+  `.prod_pg_refused`, `.db_path_blocked`, `.concurrent_refused`,
+  `.r8_violation`, and `.spec_snapshot_path`. `status` is read-only —
+  emits NO audit event.
+
+#### Changed
+
+- **`backtest_results` insert contract** — `persist_backtest_result()`
+  now requires `provenance_kind=` as a kwarg; schema CHECK refuses NULL.
+  All historical callers — `scripts/run_backtest.py`, the engine entry
+  point, the per-window IS slice in `walkforward_runner.py` — pass the
+  correct literal (`quick_in_sample`, `wf_is_window`, or
+  `wf_is_window_orphan_partial_run`). See DA1 in the design spec.
+
+#### Documentation
+
+- New spec/plan/decision artifacts under
+  `docs/audits/2026-05-26-arcis-strategy/`:
+  - `specs/2026-05-26-arcis-strategy-design.md` (~2970 lines) — full
+    design including §11 golden transcripts, §12 manual-verification
+    checklist (29 items), §13 implementation discipline, and §14 open
+    questions.
+  - `plans/2026-05-26-arcis-strategy-plan.json` — task graph used by the
+    PM-orchestrated implementation pass.
+  - `decisions/design_decisions.json` — DD1-DD22 operator-confirmed
+    decisions locked at design time.
+
 ## [v0.36.69] — 2026-05-26 — Email Consolidation PR 1 (#115)
 
 Spec/plan: `docs/audits/2026-05-26-email-consolidation/`. Three-tier email
