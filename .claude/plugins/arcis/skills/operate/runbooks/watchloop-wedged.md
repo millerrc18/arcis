@@ -66,8 +66,17 @@ Agent(
 
 > **Schema discipline (FB2):** the registered live-monitor schema (see `.claude/plugins/arcis/agents/live-monitor.md:106-113`) does NOT include a `wedged` enum value. The "wedged" decision is derived: `wedged ≡ composite_verdict = "unhealthy" AND any(c.type == "heartbeat_stale" for c in correlations)`.
 
+**4-point wedge-diagnostic protocol (ALL FOUR must hold before declaring wedge and proceeding to Step 2):**
+
+1. Heartbeat staleness > 20 min (NOT just > 60s or > 15 min; agent applies stricter operator-judgment than the HealthProbe 900s binary threshold)
+2. arcis.log silence > 20 min (corroborated silence — no new log lines in 20 min, verified via `logtail --lines 20` timestamp comparison against ET wall-clock)
+3. No in-progress task markers in last 20 log lines (scan for patterns: `RUNNING`, `in progress`, `polling`, `scanning`, `executing`, `[CYCLE`, `[RUN`, or any active-work indicator)
+4. Current staleness exceeds `baseline_p99` for the current hour-of-day (compare against live-monitor's `historical_baseline_min` field for the service)
+
+If ANY of the four conditions is NOT met, the system is NOT wedged — surface the failing condition(s) as an `informational` finding and STOP. Do NOT proceed to Step 2. Regression case: 2026-05-26 11:14 ET — 14-minute-stale heartbeat WITH active in-progress task markers was a false positive; condition 3 was not met.
+
 **Decision point:**
-- `composite_verdict = "unhealthy" AND any(c.type == "heartbeat_stale" for c in correlations)` (**wedged-equivalent**) → continue to Step 2
+- `composite_verdict = "unhealthy" AND any(c.type == "heartbeat_stale" for c in correlations)` AND all four wedge-diagnostic conditions are met (**wedged-confirmed**) → continue to Step 2
 - `composite_verdict = "healthy"` → STOP. Runbook does not apply. Print: "ArcisWatchLoop is healthy — no restart needed. Investigate why the operator thought it was wedged (stale dashboard? clock drift?)."
 - `composite_verdict = "degraded"` (no `heartbeat_stale` correlation) OR `composite_verdict = "unhealthy"` without `heartbeat_stale` → `ask continue-degraded`:
   > live-monitor reports composite_verdict={VAL} without a heartbeat_stale correlation. Proceed with restart anyway (treat as wedged)?

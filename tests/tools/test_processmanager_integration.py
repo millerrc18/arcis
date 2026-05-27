@@ -730,6 +730,56 @@ def test_cli_restart_inside_overnight_window_blocks_via_subprocess():
     )
 
 
+# ── (p) _resolve_log_evidence_path uses NSSM-actual filenames ────────────────
+
+
+def test_resolve_log_evidence_path_uses_nssm_actual_filenames(tmp_path):
+    """(p) _resolve_log_evidence_path returns NSSM-actual log filenames for Dashboard + OllamaWatchdog.
+
+    Related to #120: healthprobe/core.py _HEARTBEAT_SOURCES was fixed to use
+    'dashboard-stdout.log' and 'ollama_watchdog.out.log'. This test locks the
+    same filenames into nssm._resolve_log_evidence_path so both use the canonical
+    NSSM-actual names (not the stale 'arcis-dashboard.log' / 'arcis-ollama-watchdog.log').
+
+    Verify-by-mutation: revert nssm.py line 121 to 'arcis-dashboard.log'
+    -> this test fails ('arcis-dashboard.log' != 'dashboard-stdout.log').
+    """
+    from src.tools._config import load_arcis_config
+    from src.tools.processmanager.nssm import _resolve_log_evidence_path
+
+    real_cfg = load_arcis_config()
+
+    class FakePaths:
+        db_canonical = real_cfg.paths.db_canonical
+        logs_runtime = tmp_path / "logs"
+        logs_service = real_cfg.paths.logs_service
+        ollama_models = real_cfg.paths.ollama_models
+        watchdog_heartbeat = real_cfg.paths.watchdog_heartbeat
+        worktrees = real_cfg.paths.worktrees
+
+    class FakeCfg:
+        paths = FakePaths()
+        services = real_cfg.services
+        safety_windows = real_cfg.safety_windows
+        ports = real_cfg.ports
+        pg = real_cfg.pg
+
+    with patch("src.tools.processmanager.nssm.load_arcis_config", return_value=FakeCfg()):
+        dashboard_path = _resolve_log_evidence_path(real_cfg.services.dashboard)
+        ollama_path = _resolve_log_evidence_path(real_cfg.services.ollama_watchdog)
+
+    assert dashboard_path.name == "dashboard-stdout.log", (
+        f"Expected 'dashboard-stdout.log', got '{dashboard_path.name}'. "
+        "nssm.py _resolve_log_evidence_path uses stale 'arcis-dashboard.log' — "
+        "update to match _HEARTBEAT_SOURCES in healthprobe/core.py (#120)."
+    )
+    assert ollama_path.name == "ollama_watchdog.out.log", (
+        f"Expected 'ollama_watchdog.out.log', got '{ollama_path.name}'. "
+        "nssm.py _resolve_log_evidence_path uses stale 'arcis-ollama-watchdog.log' — "
+        "update to match _HEARTBEAT_SOURCES in healthprobe/core.py (#120)."
+    )
+
+
 # ── (m) FB5 real-seam smoke ───────────────────────────────────────────────────
 
 

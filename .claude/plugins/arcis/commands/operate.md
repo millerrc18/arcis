@@ -213,6 +213,15 @@ Classify the symptom using keyword heuristics:
 
 **Default (DD13):** always dispatch `live-monitor` unless the symptom is unambiguously pure-CI (e.g., "PR 1234 tests are flaky" with no live-system context).
 
+**Watchloop-wedged diagnosis protocol (memory: `feedback_wedge_vs_long_iteration`):** When the classified domain is `live` and the symptom includes `wedged` or `unresponsive`, the operator and any runbook that proceeds to `runbook watchloop-wedged` MUST apply the **4-point wedge-diagnostic protocol** before concluding the watchloop is wedged. ALL FOUR conditions must hold:
+
+1. Heartbeat staleness > 20 min (NOT just > 60s or > 15 min; agent applies stricter operator-judgment than the HealthProbe 900s binary threshold)
+2. arcis.log silence > 20 min (corroborated silence — no new log lines in 20 min, verified via `logtail --lines 20` timestamp comparison against ET wall-clock)
+3. No in-progress task markers in last 20 log lines (scan for patterns: `RUNNING`, `in progress`, `polling`, `scanning`, `executing`, `[CYCLE`, `[RUN`, or any active-work indicator)
+4. Current staleness exceeds `baseline_p99` for the current hour-of-day (compare against live-monitor's `historical_baseline_min` field for the service)
+
+If ANY of the four conditions is NOT met, the system is NOT wedged — surface the failing condition(s) as `informational` finding and do NOT proceed to the `watchloop-wedged` runbook. Regression case: 2026-05-26 11:14 ET — 14-minute-stale heartbeat WITH active in-progress task markers was a false positive; condition 3 was not met.
+
 ### Phase T2 — Operator confirmation of agent slate (AskUserQuestion #1 of 3 — MANDATORY)
 
 Show the operator the dispatch plan:

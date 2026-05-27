@@ -28,7 +28,7 @@ from src.training.training_stop import set_stop, clear_stop
 
 logger = logging.getLogger(__name__)
 
-# logs/training.pid lives in the runtime logs dir (C:\arcis\logs), a sibling of
+# logs/training.pid lives in the runtime logs dir (C:\arcis\halcyon-lab\logs), a sibling of
 # the data dir that holds DB_PATH (C:\arcis\data). T9 writes this file after it
 # spawns the training subprocess; this constant is the single source of truth
 # for both the writer (T9) and this reader so the path can never drift.

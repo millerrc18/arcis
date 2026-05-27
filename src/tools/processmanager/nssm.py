@@ -118,9 +118,9 @@ def _resolve_log_evidence_path(full_name: str, *, config_path: Path | None = Non
     if full_name == cfg.services.watch_loop:
         return cfg.paths.watchdog_heartbeat
     if full_name == cfg.services.dashboard:
-        return cfg.paths.logs_runtime / "arcis-dashboard.log"
+        return cfg.paths.logs_runtime / "dashboard-stdout.log"
     if full_name == cfg.services.ollama_watchdog:
-        return cfg.paths.logs_runtime / "arcis-ollama-watchdog.log"
+        return cfg.paths.logs_runtime / "ollama_watchdog.out.log"
     from src.tools.processmanager.core import UnknownServiceError
     raise UnknownServiceError(f"No log evidence path configured for {full_name!r}")
 

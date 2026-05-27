@@ -59,7 +59,7 @@ def persist_backtest_result(
                 m.get("total_return_pct"), m.get("sharpe"),
                 m.get("excess_sharpe"), None,  # deflated_sharpe — Sprint 2 wires this
                 m.get("pbo"),               # NULL until param-sweep campaign (Sprint 4)
-                m.get("oos_efficiency"),    # NULL unless --with-walkforward passed
+                m.get("oos_efficiency"),    # NULL unless populated via /arcis:strategy backtest
                 m.get("sortino"), m.get("calmar"),
                 m.get("max_drawdown_pct"),
                 m.get("win_rate"), m.get("profit_factor"),

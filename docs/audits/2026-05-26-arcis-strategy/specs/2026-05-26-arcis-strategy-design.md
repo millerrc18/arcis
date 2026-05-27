@@ -193,8 +193,8 @@ The orchestrator does NOT have its own subagent file — it lives in `commands/s
 - Auto-execution of backtest without operator confirmation.
 - Promotion of a strategy to `shadow_trading` or `production` — see #119 (future).
 - Invoking `src/evaluation/` modules (canonical backtester is `src/platform/`).
-- Invoking `scripts/run_backtest.py` directly (broken `--with-walkforward` import per FA5 / tracked as #118; the skill invokes `run_backtest()` + `run_walkforward()` via Python directly).
-- Invoking `src/platform/rigor/walkforward.py:run_walkforward` (non-rigor path; #118 cleanup will reconcile namespace).
+- Invoking `scripts/run_backtest.py` directly (`--with-walkforward` deprecated as of #118; the skill invokes `run_backtest()` + `run_walkforward()` via Python directly).
+- Invoking `src/platform/rigor/walkforward.py:run_walkforward` (non-rigor path; reconciled by #118).
 - Real-money trading.
 - Writing to prod PG.
 - Collapsing the three-state outcome to a boolean.

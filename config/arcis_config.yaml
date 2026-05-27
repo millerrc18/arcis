@@ -45,7 +45,7 @@ paths:
 
   # Runtime logs — `arcis.log` + `arcis_err.log` from the watch loop. Per
   # CLAUDE.md these are auto-rotated 10MB × 7 files.
-  logs_runtime: C:/arcis/logs
+  logs_runtime: C:/arcis/halcyon-lab/logs
 
   # NSSM service stdout/stderr — service-level capture, separate from
   # runtime logs above. Tools that want "what NSSM observed" read here.

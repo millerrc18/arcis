@@ -18,6 +18,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 import psycopg2
+import psycopg2.errors
 
 logger = logging.getLogger(__name__)
 
@@ -108,40 +109,114 @@ def _build_gpu_health(metrics_rows: list) -> dict:
 
 
 def _pg_snapshot(dsn: str) -> tuple:
-    """Execute all 3 queries inside a single REPEATABLE READ connection (DA2 snapshot consistency)."""
+    """Execute all 3 queries inside a single REPEATABLE READ connection (DA2 snapshot consistency).
+
+    Returns (positions, audit_row, metrics_rows, errors) where errors is a dict of
+    structured error envelopes for any field whose table was missing (UndefinedTable).
+    Any other psycopg2 error is re-raised unchanged.
+    """
     from src.tools._db import pg_connect
 
+    errors: dict = {}
+    positions = None
+    audit_row = None
+    metrics_rows = []
+
     with pg_connect(dsn, read_only=True, isolation_level="REPEATABLE READ") as (conn, cur):
-        cur.execute(OPEN_POSITIONS_PG)
-        positions = [dict(row) for row in cur.fetchall()]
+        try:
+            cur.execute(OPEN_POSITIONS_PG)
+            positions = [dict(row) for row in cur.fetchall()]
+        except psycopg2.errors.UndefinedTable as exc:
+            errors["open_positions"] = {
+                "error_type": type(exc).__name__,
+                "error_message": str(exc).strip(),
+                "table_name": "shadow_trades",
+            }
+            conn.rollback()
 
-        cur.execute(RECENT_AUDIT_PG)
-        audit_row_raw = cur.fetchone()
-        audit_row = dict(audit_row_raw) if audit_row_raw is not None else None
+        try:
+            cur.execute(RECENT_AUDIT_PG)
+            audit_row_raw = cur.fetchone()
+            audit_row = dict(audit_row_raw) if audit_row_raw is not None else None
+        except psycopg2.errors.UndefinedTable as exc:
+            errors["most_recent_audit"] = {
+                "error_type": type(exc).__name__,
+                "error_message": str(exc).strip(),
+                "table_name": "audit_reports",
+            }
+            conn.rollback()
 
-        cur.execute(GPU_METRICS_PG)
-        metrics_rows = [dict(row) for row in cur.fetchall()]
+        try:
+            cur.execute(GPU_METRICS_PG)
+            metrics_rows = [dict(row) for row in cur.fetchall()]
+        except psycopg2.errors.UndefinedTable as exc:
+            errors["gpu_health"] = {
+                "error_type": type(exc).__name__,
+                "error_message": str(exc).strip(),
+                "table_name": "schedule_metrics",
+            }
+            conn.rollback()
 
-    return positions, audit_row, metrics_rows
+    return positions, audit_row, metrics_rows, errors
 
 
 def _sqlite_snapshot(sqlite_path: Path) -> tuple:
-    """Execute all 3 queries against SQLite (snapshot-isolation via SQLite MVCC)."""
+    """Execute all 3 queries against SQLite (snapshot-isolation via SQLite MVCC).
+
+    Returns (positions, audit_row, metrics_rows, errors) where errors is a dict of
+    structured error envelopes for any field whose table was missing (no such table).
+    Other OperationalError types are re-raised unchanged.
+    """
+    errors: dict = {}
+    positions = None
+    audit_row = None
+    metrics_rows = []
+
     with sqlite3.connect(str(sqlite_path), timeout=5) as sconn:
         sconn.row_factory = sqlite3.Row
         cur = sconn.cursor()
 
-        cur.execute(OPEN_POSITIONS_SQLITE)
-        positions = [dict(r) for r in cur.fetchall()]
+        try:
+            cur.execute(OPEN_POSITIONS_SQLITE)
+            positions = [dict(r) for r in cur.fetchall()]
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                errors["open_positions"] = {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "table_name": "shadow_trades",
+                }
+            else:
+                raise
 
-        cur.execute(RECENT_AUDIT_SQLITE)
-        audit_raw = cur.fetchone()
-        audit_row = dict(audit_raw) if audit_raw is not None else None
+        try:
+            cur.execute(RECENT_AUDIT_SQLITE)
+            audit_raw = cur.fetchone()
+            audit_row = dict(audit_raw) if audit_raw is not None else None
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                errors["most_recent_audit"] = {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "table_name": "audit_reports",
+                }
+            else:
+                raise
 
-        cur.execute(GPU_METRICS_SQLITE)
-        metrics_rows = [dict(r) for r in cur.fetchall()]
+        try:
+            cur.execute(GPU_METRICS_SQLITE)
+            metrics_rows = [dict(r) for r in cur.fetchall()]
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                errors["gpu_health"] = {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "table_name": "schedule_metrics",
+                }
+            else:
+                raise
 
-    return positions, audit_row, metrics_rows
+    return positions, audit_row, metrics_rows, errors
 
 
 @safe_op(name="tradingstate", mutates=False)
@@ -172,14 +247,18 @@ def state(
         cfg = load_arcis_config()
         resolved_dsn = cfg.pg.test_dsn
 
+    snapshot_errors: dict = {}
+
     try:
-        positions, audit_row, metrics_rows = _pg_snapshot(resolved_dsn)
+        positions, audit_row, metrics_rows, snapshot_errors = _pg_snapshot(resolved_dsn)
         data_source = "pg"
     except _PG_CONNECT_ERRORS:
         try:
             cfg = load_arcis_config()
             sqlite_path_resolved = sqlite_path if sqlite_path is not None else cfg.paths.db_canonical
-            positions, audit_row, metrics_rows = _sqlite_snapshot(sqlite_path_resolved)
+            positions, audit_row, metrics_rows, snapshot_errors = _sqlite_snapshot(
+                sqlite_path_resolved
+            )
             data_source = "sqlite_fallback"
         except (sqlite3.Error, FileNotFoundError, OSError) as sqlite_exc:
             raise TradingStateError(
@@ -188,10 +267,13 @@ def state(
 
     as_of_et = datetime.now(ZoneInfo("US/Eastern")).isoformat()
 
-    return {
+    result = {
         "as_of_et": as_of_et,
         "open_positions": positions,
         "most_recent_audit": _build_audit_dict(audit_row),
         "gpu_health": _build_gpu_health(metrics_rows),
         "data_source": data_source,
     }
+    if snapshot_errors:
+        result["errors"] = snapshot_errors
+    return result

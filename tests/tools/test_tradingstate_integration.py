@@ -65,8 +65,10 @@ def _build_state(log_path: Path):
             cfg = load_arcis_config()
             resolved_dsn = cfg.pg.test_dsn
 
+        snapshot_errors: dict = {}
+
         try:
-            positions, audit_row, metrics_rows = _pg_snapshot(resolved_dsn)
+            positions, audit_row, metrics_rows, snapshot_errors = _pg_snapshot(resolved_dsn)
             data_source = "pg"
         except _PG_CONNECT_ERRORS:
             try:
@@ -74,7 +76,9 @@ def _build_state(log_path: Path):
                 sqlite_path_resolved = (
                     sqlite_path if sqlite_path is not None else cfg.paths.db_canonical
                 )
-                positions, audit_row, metrics_rows = _sqlite_snapshot(sqlite_path_resolved)
+                positions, audit_row, metrics_rows, snapshot_errors = _sqlite_snapshot(
+                    sqlite_path_resolved
+                )
                 data_source = "sqlite_fallback"
             except (sqlite3.Error, FileNotFoundError, OSError) as sqlite_exc:
                 raise TradingStateError(
@@ -82,13 +86,16 @@ def _build_state(log_path: Path):
                 ) from sqlite_exc
 
         as_of_et = datetime.now(ZoneInfo("US/Eastern")).isoformat()
-        return {
+        result = {
             "as_of_et": as_of_et,
             "open_positions": positions,
             "most_recent_audit": _build_audit_dict(audit_row),
             "gpu_health": _build_gpu_health(metrics_rows),
             "data_source": data_source,
         }
+        if snapshot_errors:
+            result["errors"] = snapshot_errors
+        return result
 
     return _state
 
@@ -731,24 +738,28 @@ def test_state_repeatable_read_snapshot_consistency(tmp_path):
             resolved_dsn = dsn or _load_cfg().pg.test_dsn
             # Call _pg_snapshot which uses _db_module.pg_connect (now patched)
             from src.tools.tradingstate.core import _pg_snapshot as _pgs, _sqlite_snapshot as _sqls
+            snap_errors: dict = {}
             try:
-                positions, audit_row, metrics_rows = _pgs(resolved_dsn)
+                positions, audit_row, metrics_rows, snap_errors = _pgs(resolved_dsn)
                 ds = "pg"
             except _PG_CONNECT_ERRORS:
                 try:
                     cfg = _load_cfg()
                     sp = sqlite_path if sqlite_path is not None else cfg.paths.db_canonical
-                    positions, audit_row, metrics_rows = _sqls(sp)
+                    positions, audit_row, metrics_rows, snap_errors = _sqls(sp)
                     ds = "sqlite_fallback"
                 except (_sqlite3.Error, FileNotFoundError, OSError) as e:
                     raise TradingStateError(f"both unavailable: {e}") from e
-            return {
+            _result = {
                 "as_of_et": _dt.now(_ZI("US/Eastern")).isoformat(),
                 "open_positions": positions,
                 "most_recent_audit": _build_audit_dict(audit_row),
                 "gpu_health": _build_gpu_health(metrics_rows),
                 "data_source": ds,
             }
+            if snap_errors:
+                _result["errors"] = snap_errors
+            return _result
 
         result = _state_patched(dsn=_TEST_DSN)
 
@@ -788,3 +799,125 @@ def test_state_repeatable_read_snapshot_consistency(tmp_path):
             rec_ids=[],
         )
         setup_conn.close()
+
+
+# ── Test class: UndefinedTable structured error envelope ─────────────────────
+
+class TestUndefinedTableStructuredError:
+    """#124: Missing table after DB-wipe must return structured error envelope.
+
+    All cases force PG fallback via bad port, then hit SQLite directly.
+    Verify-by-mutation: comment out the try/except wrapping in
+    _sqlite_snapshot → Case A/B fail with uncaught sqlite3.OperationalError.
+    """
+
+    def _make_sqlite_db(self, tmp_path, tables: list[str]) -> Path:
+        """Create a SQLite DB with only the specified tables (minimal schema)."""
+        db = tmp_path / "partial.sqlite"
+        conn = sqlite3.connect(str(db))
+        schema = {
+            "recommendations": (
+                "CREATE TABLE recommendations "
+                "(recommendation_id TEXT, thesis_text TEXT)"
+            ),
+            "audit_reports": (
+                "CREATE TABLE audit_reports "
+                "(audit_id TEXT, created_at TEXT, overall_assessment TEXT)"
+            ),
+            "shadow_trades": (
+                "CREATE TABLE shadow_trades "
+                "(trade_id TEXT, ticker TEXT, source TEXT, status TEXT, "
+                " entry_price REAL, actual_entry_time TEXT, "
+                " quarantined INTEGER, recommendation_id TEXT)"
+            ),
+            "schedule_metrics": (
+                "CREATE TABLE schedule_metrics "
+                "(metric_date TEXT, metric_name TEXT, metric_value REAL)"
+            ),
+        }
+        for t in tables:
+            conn.execute(schema[t])
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_case_a_missing_shadow_trades(self, tmp_path):
+        """SQLite DB without shadow_trades: open_positions=None, errors envelope set."""
+        from src.tools.tradingstate.core import state
+
+        db = self._make_sqlite_db(
+            tmp_path, ["recommendations", "audit_reports", "schedule_metrics"]
+        )
+
+        result = state(dsn=_BAD_PORT_DSN, sqlite_path=db)
+
+        assert result["open_positions"] is None, (
+            f"expected open_positions=None when shadow_trades table missing, "
+            f"got {result['open_positions']!r}"
+        )
+        assert "errors" in result, "expected top-level 'errors' key in result"
+        assert "open_positions" in result["errors"], (
+            f"expected errors.open_positions, got keys: {list(result['errors'].keys())}"
+        )
+        err = result["errors"]["open_positions"]
+        assert "error_type" in err, f"errors.open_positions missing 'error_type': {err}"
+        assert "error_message" in err, f"errors.open_positions missing 'error_message': {err}"
+        assert "table_name" in err, f"errors.open_positions missing 'table_name': {err}"
+        # Function MUST NOT raise — we reached this point, so it didn't
+        # most_recent_audit must still resolve correctly (table IS present)
+        assert result.get("most_recent_audit") is None or isinstance(
+            result["most_recent_audit"], dict
+        )
+
+    def test_case_b_missing_audit_reports(self, tmp_path):
+        """SQLite DB without audit_reports: most_recent_audit=None, open_positions works."""
+        from src.tools.tradingstate.core import state
+        import uuid
+
+        db = self._make_sqlite_db(
+            tmp_path, ["recommendations", "shadow_trades", "schedule_metrics"]
+        )
+        # Seed a shadow_trade so open_positions can return data
+        conn = sqlite3.connect(str(db))
+        conn.execute(
+            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()), "AAPL", "live", "open", 150.0, "2026-05-27T10:00:00", 0, None),
+        )
+        conn.commit()
+        conn.close()
+
+        result = state(dsn=_BAD_PORT_DSN, sqlite_path=db)
+
+        assert result["most_recent_audit"] is None, (
+            f"expected most_recent_audit=None when audit_reports missing, "
+            f"got {result['most_recent_audit']!r}"
+        )
+        assert "errors" in result, "expected top-level 'errors' key in result"
+        assert "most_recent_audit" in result["errors"], (
+            f"expected errors.most_recent_audit, got keys: {list(result['errors'].keys())}"
+        )
+        err = result["errors"]["most_recent_audit"]
+        assert "error_type" in err
+        assert "error_message" in err
+        assert "table_name" in err
+        # open_positions MUST still return correctly (shadow_trades IS present)
+        assert isinstance(result["open_positions"], list), (
+            f"expected open_positions to be a list (shadow_trades present), "
+            f"got {result['open_positions']!r}"
+        )
+
+    def test_case_c_no_tables_all_fields_none(self, tmp_path):
+        """SQLite DB with NO tables: all data fields None, errors envelope complete."""
+        from src.tools.tradingstate.core import state
+
+        db = tmp_path / "empty.sqlite"
+        db.touch()  # empty file — no tables
+
+        result = state(dsn=_BAD_PORT_DSN, sqlite_path=db)
+
+        assert result["open_positions"] is None
+        assert result["most_recent_audit"] is None
+        assert "errors" in result
+        # At minimum open_positions and most_recent_audit errors must appear
+        assert "open_positions" in result["errors"]
+        assert "most_recent_audit" in result["errors"]

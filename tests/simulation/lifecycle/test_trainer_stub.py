@@ -21,8 +21,10 @@ with a recent-only corpus (train>0, holdout==0) and asserts run_fine_tune
 returns None and never reaches the (stubbed) subprocess.
 """
 
+import importlib
 import os
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,8 +35,6 @@ from src.simulation.lifecycle.fakes.trainer import (
     FakeTrainerPidfile,
     fake_trainer_subprocess,
 )
-
-DB_PATH = os.environ.get("ARCIS_DB_PATH", "C:/arcis/hl-sim/.simtest-trainer.sqlite3")
 
 
 def _seed_recent_only_corpus(db_path: str, n: int = 20) -> None:
@@ -70,13 +70,40 @@ def _seed_recent_only_corpus(db_path: str, n: int = 20) -> None:
         conn.commit()
 
 
+@pytest.fixture
+def trainer_mod(tmp_path, monkeypatch):
+    """Import src.training.trainer after injecting ARCIS_DB_PATH via monkeypatch.
+
+    The lifecycle bootstrap's _scrub_environment() removes ARCIS_DB_PATH before
+    this module is collected, leaving src.config.DB_PATH as None. This fixture
+    restores a valid path before importing the trainer module so that
+    training_stop.STOP_FLAG (computed at module level from src.config.DB_PATH)
+    does not raise TypeError: expected str, bytes or os.PathLike, not NoneType.
+    """
+    db = str(tmp_path / "simtest-trainer.sqlite3")
+    monkeypatch.setenv("ARCIS_DB_PATH", db)
+
+    import src.config as _cfg
+    monkeypatch.setattr(_cfg, "DB_PATH", db)
+
+    for _mod in (
+        "src.training.training_stop",
+        "src.training.training_control",
+        "src.training.trainer",
+    ):
+        sys.modules.pop(_mod, None)
+
+    mod = importlib.import_module("src.training.trainer")
+    yield mod
+
+
 # ---------------------------------------------------------------------------
 # (a) subprocess boundary + gguf stub
 # ---------------------------------------------------------------------------
 
-def test_fake_subprocess_returns_success_and_gguf_resolves():
+def test_fake_subprocess_returns_success_and_gguf_resolves(trainer_mod):
     """With the stub active, subprocess.run returns 0 and _find_gguf resolves."""
-    import src.training.trainer as trainer
+    trainer = trainer_mod
 
     with fake_trainer_subprocess() as stub:
         result = trainer.subprocess.run(
@@ -96,9 +123,9 @@ def test_fake_subprocess_returns_success_and_gguf_resolves():
         assert gguf.endswith(".gguf")
 
 
-def test_fake_subprocess_never_spawns_real_child():
+def test_fake_subprocess_never_spawns_real_child(trainer_mod):
     """The stub records calls and never invokes the real subprocess.run."""
-    import src.training.trainer as trainer
+    trainer = trainer_mod
 
     with fake_trainer_subprocess() as stub:
         trainer.subprocess.run(["python", "train.py"])
@@ -120,23 +147,24 @@ def test_fake_subprocess_requires_scrubbed_env_helper():
 # (b) empty-holdout drives REAL trainer logic to return None
 # ---------------------------------------------------------------------------
 
-def test_empty_holdout_blocks_promotion_returns_none():
+def test_empty_holdout_blocks_promotion_returns_none(tmp_path, trainer_mod):
     """Recent-only corpus → holdout==0 → run_fine_tune returns None (real logic)."""
-    import src.training.trainer as trainer
+    trainer = trainer_mod
+    db_path = str(tmp_path / "simtest-trainer.sqlite3")
 
-    _seed_recent_only_corpus(DB_PATH, n=20)
+    _seed_recent_only_corpus(db_path, n=20)
 
     # Confirm the REAL export logic produces train>0, holdout==0.
     with fake_trainer_subprocess(training_data_dir=None):
         split_counts, total = trainer.export_training_data(
-            db_path=DB_PATH, alert_on_empty_holdout=False,
+            db_path=db_path, alert_on_empty_holdout=False,
         )
     assert total == 20
     assert split_counts["training"] > 0
     assert split_counts["holdout"] == 0
 
     with fake_trainer_subprocess() as stub:
-        result = trainer.run_fine_tune(db_path=DB_PATH)
+        result = trainer.run_fine_tune(db_path=db_path)
     assert result is None
     # The empty-holdout guard returns before the subprocess train step.
     assert stub.calls == []

@@ -2,7 +2,7 @@
 
 Covers:
   (a) ALL HEALTHY: RUNNING + fresh ISO heartbeat + connect_ex=0 + 0 errors -> overall='OK'
-  (b) WATCH_LOOP STALE: ISO heartbeat 120s old (>60s threshold) + RUNNING -> 'DEGRADED'
+  (b) WATCH_LOOP STALE: ISO heartbeat 1500s old (>900s threshold) + RUNNING -> 'DEGRADED'
   (c) OLLAMA PORT NOT LISTENING: connect_ex non-zero for 11434 + RUNNING -> 'DEGRADED'
   (d) DASHBOARD STOPPED: nssm_status returns STOPPED -> verdict='DOWN' + overall='DOWN'
   (e) HEARTBEAT FILE MISSING: path doesn't exist -> heartbeat_fresh=False, reason='file_missing'
@@ -121,8 +121,8 @@ def test_all_healthy_returns_ok(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -141,26 +141,29 @@ def test_all_healthy_returns_ok(tmp_path):
 
 
 def test_watchloop_stale_heartbeat_returns_degraded(tmp_path):
-    """(b) WATCH_LOOP STALE: ISO heartbeat 120s old (>60s threshold) + RUNNING -> 'DEGRADED'.
+    """(b) WATCH_LOOP STALE: ISO heartbeat 1500s old (>900s threshold) + RUNNING -> 'DEGRADED'.
+
+    Updated from 120s (old 60s threshold) to 1500s (new 900s threshold) per #122.
+    The WatchLoop threshold was bumped 60->900s to avoid false-positive wedge
+    diagnoses during normal 14-min LLM scan cycles (feedback_wedge_vs_long_iteration).
 
     Verify-by-mutation: Remove worst-of overall aggregation (return 'OK' always)
     -> test (b) overall check fails.
     """
     from src.tools.processmanager.nssm import ServiceState
-    import src.tools.healthprobe.checks as checks_mod
 
     log = tmp_path / "exec.log"
 
-    # Write stale ISO heartbeat (120s old, threshold is 60s)
+    # Write stale ISO heartbeat (1500s old, threshold is 900s)
     hb = tmp_path / "watchdog.txt"
-    stale_time = _now_utc() - timedelta(seconds=120)
+    stale_time = _now_utc() - timedelta(seconds=1500)
     hb.write_text(_iso_ts(stale_time), encoding="utf-8")
 
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -173,7 +176,7 @@ def test_watchloop_stale_heartbeat_returns_degraded(tmp_path):
     assert wl["verdict"] == "DEGRADED", f"Expected DEGRADED, got {wl['verdict']!r}"
     assert wl["heartbeat_fresh"] is False
     assert wl["heartbeat_reason"] is not None
-    assert "age=120s>threshold=60s" in wl["heartbeat_reason"] or "120" in wl["heartbeat_reason"]
+    assert "1500" in wl["heartbeat_reason"]
     assert result["overall"] == "DEGRADED"
 
 
@@ -195,8 +198,8 @@ def test_ollama_port_not_listening_returns_degraded(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -234,8 +237,8 @@ def test_dashboard_stopped_returns_down(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -274,8 +277,8 @@ def test_heartbeat_file_missing_returns_degraded(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -309,8 +312,8 @@ def test_heartbeat_garbage_returns_parse_error(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -348,8 +351,8 @@ def test_stale_seconds_override_makes_previously_stale_ok(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -428,8 +431,8 @@ def test_check_with_nssm_missing_absorbs_to_down_verdict(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -477,8 +480,8 @@ def test_heartbeat_path_is_directory_returns_not_a_file(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb_dir, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -493,3 +496,248 @@ def test_heartbeat_path_is_directory_returns_not_a_file(tmp_path):
         f"Expected 'not_a_file', got {wl['heartbeat_reason']!r}. "
         "If 'parse_error': path.is_file() check not added to _check_heartbeat."
     )
+
+
+# ── (k) TestHeartbeatFilenameMapping ─────────────────────────────────────────
+
+
+class TestHeartbeatFilenameMapping:
+    """(k) Verify _HEARTBEAT_SOURCES maps services to ACTUAL NSSM-produced filenames.
+
+    NSSM writes:
+      ArcisDashboard    -> dashboard-stdout.log
+      ArcisOllamaWatchdog -> ollama_watchdog.out.log
+
+    Old wrong names were:
+      arcis-dashboard.log
+      arcis-ollama-watchdog.log
+
+    Verify-by-mutation proof in test_heartbeat_filename_mapping_reverts_to_degraded_with_old_names.
+    """
+
+    def _make_logs_dir(self, tmp_path: Path, *, fresh: bool):
+        """Create logs dir with CORRECT new filenames at either fresh or stale mtimes."""
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+
+        if fresh:
+            # Write correct new filenames with fresh content (mtime = now)
+            (logs_dir / "dashboard-stdout.log").write_text("alive", encoding="utf-8")
+            (logs_dir / "ollama_watchdog.out.log").write_text("alive", encoding="utf-8")
+        else:
+            # Write ONLY old wrong filenames (so correct names are absent -> stale)
+            import time
+            old_ts = 9999  # epoch seconds — unambiguously stale
+            (logs_dir / "arcis-dashboard.log").write_text("old", encoding="utf-8")
+            (logs_dir / "arcis-ollama-watchdog.log").write_text("old", encoding="utf-8")
+            # Backdate their mtime to be clearly stale
+            for name in ("arcis-dashboard.log", "arcis-ollama-watchdog.log"):
+                p = logs_dir / name
+                import os
+                os.utime(p, (old_ts, old_ts))
+
+        return logs_dir
+
+    def test_correct_filenames_yield_ok_verdict(self, tmp_path):
+        """(k1) CORRECT new filenames present at fresh mtime -> verdict OK for ArcisDashboard and ArcisOllamaWatchdog.
+
+        Verify-by-mutation: change _HEARTBEAT_SOURCES to use old names ->
+        dashboard-stdout.log/ollama_watchdog.out.log not found -> heartbeat_fresh=False -> DEGRADED.
+        Test MUST fail when names are wrong.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb = tmp_path / "watchdog.txt"
+        hb.write_text(_iso_ts(_now_utc()), encoding="utf-8")
+
+        logs_dir = self._make_logs_dir(tmp_path, fresh=True)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn()
+
+        dash = result["services"]["ArcisDashboard"]
+        ollama = result["services"]["ArcisOllamaWatchdog"]
+
+        assert dash["heartbeat_fresh"] is True, (
+            f"ArcisDashboard heartbeat_fresh expected True, got {dash['heartbeat_fresh']!r}. "
+            f"reason={dash['heartbeat_reason']!r}. "
+            "NSSM writes 'dashboard-stdout.log' — _HEARTBEAT_SOURCES must reference that name."
+        )
+        assert dash["verdict"] == "OK", f"ArcisDashboard verdict: {dash['verdict']!r}"
+
+        assert ollama["heartbeat_fresh"] is True, (
+            f"ArcisOllamaWatchdog heartbeat_fresh expected True, got {ollama['heartbeat_fresh']!r}. "
+            f"reason={ollama['heartbeat_reason']!r}. "
+            "NSSM writes 'ollama_watchdog.out.log' — _HEARTBEAT_SOURCES must reference that name."
+        )
+        assert ollama["verdict"] == "OK", f"ArcisOllamaWatchdog verdict: {ollama['verdict']!r}"
+
+    def test_heartbeat_filename_mapping_reverts_to_degraded_with_old_names(self, tmp_path):
+        """(k2) VERIFY-BY-MUTATION proof: old filenames only -> DEGRADED for both services.
+
+        This test creates ONLY the old wrong filenames (arcis-dashboard.log,
+        arcis-ollama-watchdog.log) at stale mtimes, while the correct new filenames
+        are absent. After the fix, _HEARTBEAT_SOURCES reads the new names ->
+        file_missing -> heartbeat_fresh=False -> DEGRADED.
+
+        If this test passes: the fix correctly ignores old filenames.
+        If this test fails: either the code still uses old names (not fixed) or
+        the new files were accidentally created (test setup error).
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb = tmp_path / "watchdog.txt"
+        hb.write_text(_iso_ts(_now_utc()), encoding="utf-8")
+
+        logs_dir = self._make_logs_dir(tmp_path, fresh=False)
+
+        # Confirm: new filenames must NOT exist (test setup invariant)
+        assert not (logs_dir / "dashboard-stdout.log").exists(), (
+            "Test setup error: dashboard-stdout.log must not exist for mutation test"
+        )
+        assert not (logs_dir / "ollama_watchdog.out.log").exists(), (
+            "Test setup error: ollama_watchdog.out.log must not exist for mutation test"
+        )
+
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn()
+
+        dash = result["services"]["ArcisDashboard"]
+        ollama = result["services"]["ArcisOllamaWatchdog"]
+
+        assert dash["heartbeat_fresh"] is False, (
+            f"ArcisDashboard: expected heartbeat_fresh=False when only old filenames present, "
+            f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
+        )
+        assert dash["verdict"] == "DEGRADED", f"ArcisDashboard should be DEGRADED: {dash['verdict']!r}"
+
+        assert ollama["heartbeat_fresh"] is False, (
+            f"ArcisOllamaWatchdog: expected heartbeat_fresh=False when only old filenames present, "
+            f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
+        )
+        assert ollama["verdict"] == "DEGRADED", f"ArcisOllamaWatchdog should be DEGRADED: {ollama['verdict']!r}"
+
+
+# ── (l) TestStaleThresholdNoiseFloor ─────────────────────────────────────────
+
+
+class TestStaleThresholdNoiseFloor:
+    """(l) Verify ArcisWatchLoop staleness threshold is 900s (not 60s).
+
+    Rationale: during normal 14-minute LLM scan cycles, the old 60s threshold
+    caused 2 false-positive wedge diagnoses (feedback_wedge_vs_long_iteration,
+    2026-05-26). 900s gives operator and live-monitor agent room to distinguish
+    "normal long iteration" from "actually wedged."
+
+    Verify-by-mutation: temporarily revert ArcisWatchLoop: 60 in _DEFAULT_STALENESS
+    -> test_840s_old_watchloop_is_ok MUST fail (840 > 60 -> DEGRADED).
+    This proves the test is not vacuous (feedback_vacuous_test_pattern).
+    """
+
+    def _setup(self, tmp_path: Path, *, age_seconds: int):
+        """Write a heartbeat file age_seconds old plus supporting log files."""
+        hb = tmp_path / "watchdog.txt"
+        stale_time = _now_utc() - timedelta(seconds=age_seconds)
+        hb.write_text(_iso_ts(stale_time), encoding="utf-8")
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+        (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+        (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
+
+        return hb, logs_dir
+
+    def test_840s_old_watchloop_is_ok(self, tmp_path):
+        """(l-a) 840s-old heartbeat (14 min) is OK under the new 900s threshold.
+
+        A normal LLM scan cycle can last ~14 minutes. With 900s threshold, a
+        heartbeat that is 840s (14 min) old must be treated as fresh (RUNNING -> OK).
+
+        Verify-by-mutation: revert ArcisWatchLoop to 60 in _DEFAULT_STALENESS
+        -> 840 > 60 -> DEGRADED -> this assertion fails.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb, logs_dir = self._setup(tmp_path, age_seconds=840)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn(services=["ArcisWatchLoop"])
+
+        wl = result["services"]["ArcisWatchLoop"]
+        assert wl["verdict"] == "OK", (
+            f"ArcisWatchLoop with 840s-old heartbeat should be OK under 900s threshold, "
+            f"got {wl['verdict']!r}. heartbeat_reason={wl['heartbeat_reason']!r}. "
+            "Verify ArcisWatchLoop: 900 in _DEFAULT_STALENESS."
+        )
+        assert wl["heartbeat_fresh"] is True, (
+            f"heartbeat_fresh must be True for 840s-old file with 900s threshold."
+        )
+
+    def test_1500s_old_watchloop_is_degraded(self, tmp_path):
+        """(l-b) 1500s-old heartbeat (25 min) is DEGRADED (1500 > 900 threshold).
+
+        A heartbeat that is 25 minutes old is genuinely stale — the loop is wedged.
+        Must yield DEGRADED regardless of threshold bump.
+
+        Verify-by-mutation: bump threshold to 9999 in _DEFAULT_STALENESS
+        -> 1500 < 9999 -> OK -> this assertion fails.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb, logs_dir = self._setup(tmp_path, age_seconds=1500)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn(services=["ArcisWatchLoop"])
+
+        wl = result["services"]["ArcisWatchLoop"]
+        assert wl["verdict"] == "DEGRADED", (
+            f"ArcisWatchLoop with 1500s-old heartbeat should be DEGRADED, "
+            f"got {wl['verdict']!r}."
+        )
+        assert wl["heartbeat_fresh"] is False
+        assert "1500" in (wl["heartbeat_reason"] or ""), (
+            f"Reason should mention age 1500s, got: {wl['heartbeat_reason']!r}"
+        )
+
+    def test_900s_boundary_is_ok(self, tmp_path):
+        """(l-c) Exactly 900s old is at-threshold — boundary is inclusive-OK (age == threshold passes).
+
+        _check_heartbeat uses `age_s > max_age_s` (strict greater-than),
+        so age == 900 is NOT stale.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb, logs_dir = self._setup(tmp_path, age_seconds=900)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn(services=["ArcisWatchLoop"])
+
+        wl = result["services"]["ArcisWatchLoop"]
+        # age_s > max_age_s -> 900 > 900 is False -> fresh=True
+        assert wl["heartbeat_fresh"] is True, (
+            f"Exactly 900s old should be fresh (strict >), got fresh={wl['heartbeat_fresh']!r}, "
+            f"reason={wl['heartbeat_reason']!r}"
+        )
