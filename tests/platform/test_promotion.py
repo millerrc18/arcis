@@ -64,10 +64,10 @@ def _seed_backtest_row(
                 total_return_pct, sharpe, excess_sharpe, deflated_sharpe,
                 pbo, oos_efficiency,
                 sortino, calmar, max_drawdown_pct, win_rate,
-                profit_factor, code_git_sha, created_at)
+                profit_factor, code_git_sha, created_at, provenance_kind)
                VALUES (?, ?, 1, ?, '2020-01-01', '2024-12-31', 100000.0,
                        50, 0.3, 1.5, 1.0, ?, ?, ?, 1.8, 2.0, 0.1, 0.6, 2.5,
-                       'sha', '2024-01-01T00:00:00+00:00')""",
+                       'sha', '2024-01-01T00:00:00+00:00', 'quick_in_sample')""",
             (f"r_{sid}", sid, "abc123", dsr, pbo, oos_efficiency),
         )
         conn.commit()

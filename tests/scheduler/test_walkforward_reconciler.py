@@ -35,7 +35,8 @@ def _make_db(tmp_path: Path) -> str:
             result_id TEXT UNIQUE NOT NULL,
             strategy_id TEXT NOT NULL,
             code_git_sha TEXT DEFAULT 'unknown',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            provenance_kind TEXT NOT NULL CHECK (provenance_kind IN ('quick_in_sample', 'wf_is_window', 'wf_is_window_orphan_partial_run'))
         )
     """)
     conn.execute("""
@@ -66,8 +67,8 @@ def _insert_backtest(db_path: str, strategy_id: str = "strat_x",
     result_id = str(uuid.uuid4())
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO backtest_results (result_id, strategy_id, code_git_sha, created_at) "
-        "VALUES (?, ?, ?, datetime('now', '-1 day'))",
+        "INSERT INTO backtest_results (result_id, strategy_id, code_git_sha, created_at, provenance_kind) "
+        "VALUES (?, ?, ?, datetime('now', '-1 day'), 'quick_in_sample')",
         (result_id, strategy_id, git_sha),
     )
     conn.commit()
