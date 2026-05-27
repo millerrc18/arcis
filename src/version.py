@@ -18,7 +18,8 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.68 (#111
-# /arcis:periodic-discipline meta-skill ships).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.69 (#115
+# email consolidation PR-1 ships — dual-write hold-over mode='shadow').
+# (v0.36.68 reserved for #111 arcis:periodic-discipline on origin/main.)
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.68"
+VERSION = "v0.36.69"
