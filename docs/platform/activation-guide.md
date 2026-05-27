@@ -67,11 +67,18 @@ Initial status: `proposed`.
 python scripts/run_backtest.py \
     --strategy my_strategy_v1 \
     --start 2020-01-01 \
-    --end 2024-12-31 \
-    --with-walkforward
+    --end 2024-12-31
 ```
 
-`--with-walkforward` populates `backtest_results.oos_efficiency`. For PBO population, run a parameter-sweep campaign (v0.24.1 driver — tracked separately).
+For rigor-grade walk-forward analysis (populates `backtest_results.oos_efficiency`), use the canonical surface:
+
+```
+/arcis:strategy backtest my_strategy_v1
+```
+
+> **Note:** `--with-walkforward` is deprecated as of #118. The flag now exits immediately with an error message. Use `/arcis:strategy backtest <strategy-id>` instead.
+
+For PBO population, run a parameter-sweep campaign (v0.24.1 driver — tracked separately).
 
 ## 4. Auto-promotion to `backtested`
 

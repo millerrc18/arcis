@@ -62,14 +62,17 @@ def main() -> int:
     p.add_argument("--db-path", default=DB_PATH)
     p.add_argument(
         "--with-walkforward", action="store_true",
-        help=(
-            "Run a rolling walk-forward analysis (Pardo 2008) against the same "
-            "strategy spec + date range and persist oos_efficiency into the "
-            "backtest_results row. Required for the shadow_trading promotion gate. "
-            "Adds significant runtime (one extra IS+OOS backtest per fold)."
-        ),
+        help="[DEPRECATED — use /arcis:strategy backtest <strategy-id> instead]",
     )
     args = p.parse_args()
+
+    if args.with_walkforward:
+        print(
+            "--with-walkforward is deprecated. "
+            "Use /arcis:strategy backtest <strategy-id> for rigor-grade walkforward.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     spec = load_spec(args.strategy)
     haircut_bps = _get_survivorship_haircut_bps(args.strategy, db_path=args.db_path)
@@ -78,15 +81,6 @@ def main() -> int:
         survivorship_haircut_bps=haircut_bps,
     )
     result = run_backtest(cfg)
-
-    if args.with_walkforward:
-        from src.platform.rigor.walkforward import run_walkforward
-        wf = run_walkforward(spec, args.start, args.end)
-        result.metrics["oos_efficiency"] = wf["oos_efficiency"]
-        print(
-            f"walk-forward: oos_efficiency={wf['oos_efficiency']:.4f} "
-            f"(overfit={'yes' if wf['overfit_flag'] else 'no'})"
-        )
 
     if args.persist:
         result_id = persist_backtest_result(
