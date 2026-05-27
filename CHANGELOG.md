@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+<!-- PR-A entries -->
+### Added
+
+- **Phase 5 PR-A — boundary-touch standards + PR template** (`chore(phase-5/pr-a)`):
+  Created `.github/PULL_REQUEST_TEMPLATE.md` (none existed previously) carrying
+  the 6-item boundary-touch self-check verbatim per master-spec §6.5, cross-
+  linked to the canonical `docs/standards/boundary-touch-tests.md`. The
+  standards doc itself was already authoritative as of v0.36.59 (#103); this
+  PR completes DD-39 by closing the template-side gap so every reviewer sees
+  the checklist on every PR.
+- **Phase 5 PR-A — two new repo-root structure rules** in
+  `tests/test_repo_structure.py`:
+  - `test_no_underscore_scratch_at_repo_root` — forbids `_*.py` REPL scratch
+    at repo root (excludes `__init__.py` / `__main__.py`).
+  - `test_no_sqlite_at_repo_root` — forbids `*.sqlite` / `*.sqlite3` /
+    `*.sqlite-journal` / `*.db` at repo root; runtime DB lives at
+    `C:/arcis/data/ai_research_desk.sqlite3` per `CLAUDE.md:26`.
+  Both rules paired with `tmp_path`-anchored sentinel tests
+  (`test_repo_root_underscore_scratch_rule_detects_violation` /
+  `..._sqlite_rule_detects_violation`) that prove non-vacuousness without
+  writing to the real repo root.
+
+### Removed
+
+- 17 `_*.py` REPL-scratch files at repo root: `_a.py`, `_audit.py`,
+  `_ck.py`, `_f.py`, `_p.py`, `_q.py`, `_t1.py`, `_t1b.py`, `_t1c.py`,
+  `_t1d.py`, `_t1e.py`, `_t1e0.py`, `_t1f.py`, `_t1h.py`, `_t1i.py`,
+  `_t1i2.py`, `_v.py` (all gitignored via `/_*.py`, 32 days stale, no
+  in-repo consumers).
+- `_582_operator_action.sql` — historical one-shot for #582 (long-closed),
+  gitignored via `/_*.sql`.
+- `--db-path` (0-byte git-tracked CLI typo artifact whose filename is the
+  literal `--db-path` flag).
+- `ai_research_desk.sqlite3` (0-byte) moved from repo root to
+  `archive/sqlite-debris-2026-05-27/` — was a violation of `CLAUDE.md:26`;
+  canonical runtime DB at `C:/arcis/data/ai_research_desk.sqlite3` (566 MB,
+  82 tables) is untouched.
+
+<!-- /PR-A entries -->
+
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 
 ### Fixed

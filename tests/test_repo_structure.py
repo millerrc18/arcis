@@ -478,3 +478,147 @@ def test_no_legacy_alpaca_trade_api_imports():
         "Legacy alpaca_trade_api imports detected (use alpaca-py):\n"
         + "\n".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# Repo-root cleanliness rules — added by Phase 5 PR-A (master-spec §4.1, DD-06)
+# Canonical context: docs/audits/2026-05-27-phase-5-unified/master-spec.md
+# ---------------------------------------------------------------------------
+
+
+def _list_repo_root_underscore_scratch(root: Path) -> list[Path]:
+    """Return underscore-prefixed Python scratch files at the given root.
+
+    Excludes `__init__.py` / `__main__.py` (dunder-bound module markers).
+    The function takes an explicit root so the sentinel tests in PR-A can
+    drive it with a fake `tmp_path` root — see test_repo_structure_rule_*
+    in this file for the non-vacuous verification.
+    """
+    return [
+        p
+        for p in root.glob("_*.py")
+        if p.is_file() and p.name not in {"__init__.py", "__main__.py"}
+    ]
+
+
+def _list_repo_root_sqlite(root: Path) -> list[Path]:
+    """Return SQLite files at the given root.
+
+    Catches `*.sqlite`, `*.sqlite3`, `*.sqlite-journal`, `*.db` — anything a
+    stray test fixture or accidental write might drop at the repo root.
+    Runtime SQLite lives under `C:\\arcis\\data\\` per CLAUDE.md:26.
+    """
+    patterns = ("*.sqlite", "*.sqlite3", "*.sqlite-journal", "*.db")
+    return sorted({p for pat in patterns for p in root.glob(pat) if p.is_file()})
+
+
+def test_no_underscore_scratch_at_repo_root():
+    """Forbid `_*.py` REPL-scratch files at the repo root.
+
+    Phase 5 PR-A removed 17 such files (`_a.py`, `_audit.py`, `_ck.py`,
+    `_f.py`, `_p.py`, `_q.py`, `_t1.py`..`_t1i2.py`, `_v.py`) — see
+    CHANGELOG entry under <!-- PR-A entries -->. The rule prevents
+    silent re-introduction: REPL scratch belongs in a private branch
+    or a worktree, never the canonical repo root.
+
+    Exclusions: `__init__.py`, `__main__.py` (legitimate dunder modules).
+    """
+    offenders = _list_repo_root_underscore_scratch(Path("."))
+    assert not offenders, (
+        "Underscore-prefixed scratch files detected at repo root "
+        "(disallowed by Phase 5 PR-A; see master-spec §4.1):\n"
+        + "\n".join(f"  - {p.name}" for p in offenders)
+    )
+
+
+def test_no_sqlite_at_repo_root():
+    """Forbid SQLite database files at the repo root.
+
+    Phase 5 PR-A removed a 0-byte stub `ai_research_desk.sqlite3` (the
+    canonical runtime DB lives at `C:\\arcis\\data\\ai_research_desk.sqlite3`
+    per CLAUDE.md:26). The rule prevents accidental writes to a repo-root
+    stub which would create a confusing parallel DB invisible to the
+    `ARCIS_DB_PATH` configuration.
+    """
+    offenders = _list_repo_root_sqlite(Path("."))
+    assert not offenders, (
+        "SQLite/DB files detected at repo root "
+        "(disallowed by Phase 5 PR-A; runtime DB lives at "
+        "C:/arcis/data/ai_research_desk.sqlite3 per CLAUDE.md:26):\n"
+        + "\n".join(f"  - {p.name}" for p in offenders)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sentinel tests for the 2 repo-root cleanliness rules (Phase 5 PR-A T3).
+# Verified non-vacuous: each sentinel constructs a fake repo root under
+# tmp_path, drops a single violating file, and asserts the helper detects
+# the file. If the helper were silently broken (always returning []) these
+# tests would fail. They never touch the real repo root — verified by the
+# tmp_path fixture's scope guarantee.
+# ---------------------------------------------------------------------------
+
+
+def test_repo_root_underscore_scratch_rule_detects_violation(tmp_path):
+    """Sentinel: _list_repo_root_underscore_scratch correctly identifies a
+    `_*.py` scratch file as a violation.
+
+    Verified non-vacuous: with the helper disabled (e.g. returning `[]`)
+    this test correctly identifies the temp `_scratch_sentinel.py` as a
+    violation and fails. The test does NOT write to the real repo root —
+    it constructs a fake root under pytest's tmp_path fixture.
+
+    Also exercises the exclusion contract: `__init__.py` at the fake root
+    must NOT be flagged.
+    """
+    # Drop a single violating file at the fake root.
+    violator = tmp_path / "_scratch_sentinel.py"
+    violator.write_text("# scratch — should be detected\n", encoding="utf-8")
+
+    # Drop the exclusion sentinel — must NOT be flagged.
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+
+    offenders = _list_repo_root_underscore_scratch(tmp_path)
+    offender_names = {p.name for p in offenders}
+
+    assert "_scratch_sentinel.py" in offender_names, (
+        f"Helper failed to detect _scratch_sentinel.py — got {offender_names!r}"
+    )
+    assert "__init__.py" not in offender_names, (
+        "Exclusion broken: __init__.py was flagged as scratch"
+    )
+
+
+def test_repo_root_sqlite_rule_detects_violation(tmp_path):
+    """Sentinel: _list_repo_root_sqlite correctly identifies SQLite/DB files
+    at a repo root.
+
+    Verified non-vacuous: with the helper disabled (e.g. returning `[]`)
+    this test correctly identifies the temp `sentinel.sqlite3` as a
+    violation and fails. The test does NOT write to the real repo root —
+    it constructs a fake root under pytest's tmp_path fixture.
+
+    Exercises all four extensions in the helper's pattern list.
+    """
+    violators = [
+        tmp_path / "sentinel.sqlite",
+        tmp_path / "sentinel.sqlite3",
+        tmp_path / "sentinel.sqlite-journal",
+        tmp_path / "sentinel.db",
+    ]
+    for p in violators:
+        p.write_bytes(b"")  # empty file; existence is what matters
+
+    # Drop a non-violating sibling to confirm we don't over-match.
+    (tmp_path / "README.md").write_text("# not a db\n", encoding="utf-8")
+
+    offenders = _list_repo_root_sqlite(tmp_path)
+    offender_names = {p.name for p in offenders}
+
+    for v in violators:
+        assert v.name in offender_names, (
+            f"Helper failed to detect {v.name} — got {offender_names!r}"
+        )
+    assert "README.md" not in offender_names, (
+        "Over-match: README.md was flagged as a SQLite file"
+    )
