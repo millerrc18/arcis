@@ -432,3 +432,142 @@ def test_full_roundtrip_trade_opened_dataclass_enqueue_to_dispatch():
     )
     assert p.ticker == "AAPL"
     assert p.entry_price == 100.0
+
+
+# ── T3 (Sprint #115): source_tag_match filter + length-cap assertion (DD-35, DA-MAJ-9, DA-MIN-16) ──
+
+
+def test_flush_with_source_tag_match_filters_rows_exact():
+    """DD-35: flush(source_tag_match='email:preopen') drains only exact-matching rows."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    for _ in range(3):
+        q.enqueue(event_type="trade_opened", severity="low",
+                  payload={"ticker": "AAPL"}, source_tag="email:preopen")
+    for _ in range(2):
+        q.enqueue(event_type="trade_closed", severity="low",
+                  payload={"ticker": "MSFT"}, source_tag="email:postclose")
+    q.enqueue(event_type="risk_alert", severity="medium",
+              payload={"detail": "x"}, source_tag="safe_send")
+
+    dispatched = []
+    result = q.flush(dispatcher=lambda p: dispatched.append(p),
+                     source_tag_match="email:preopen")
+
+    assert result.successes == 3, f"expected 3 successes, got {result.successes}"
+    assert len(dispatched) == 3
+
+    # Non-matching rows remain pending
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM notifications_digest_queue WHERE flush_status='pending'"
+    ).fetchone()[0]
+    assert pending == 3, f"expected 3 pending non-matching rows, got {pending}"
+
+
+def test_flush_with_source_tag_match_includes_colon_subtags():
+    """DD-35: flush(source_tag_match='email:preopen') matches 'email:preopen:<sub>' too."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    for _ in range(2):
+        q.enqueue(event_type="trade_opened", severity="low",
+                  payload={"ticker": "AAPL"}, source_tag="email:preopen")
+    for _ in range(2):
+        q.enqueue(event_type="trade_opened", severity="low",
+                  payload={"ticker": "GOOG"}, source_tag="email:preopen:critical-overflow")
+
+    dispatched = []
+    result = q.flush(dispatcher=lambda p: dispatched.append(p),
+                     source_tag_match="email:preopen")
+
+    assert result.successes == 4, f"expected 4 successes (2 exact + 2 sub-tag), got {result.successes}"
+    assert len(dispatched) == 4
+
+
+def test_flush_with_source_tag_match_does_not_match_partial_word():
+    """DA-MAJ-9 critical: source_tag='email:preopened' is NOT claimed by match='email:preopen'."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    q.enqueue(event_type="trade_opened", severity="low",
+              payload={"ticker": "AAPL"}, source_tag="email:preopened")
+
+    dispatched = []
+    result = q.flush(dispatcher=lambda p: dispatched.append(p),
+                     source_tag_match="email:preopen")
+
+    assert result.successes == 0
+    assert len(dispatched) == 0
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM notifications_digest_queue WHERE flush_status='pending'"
+    ).fetchone()[0]
+    assert pending == 1, "row with source_tag='email:preopened' must remain pending (DA-MAJ-9)"
+
+
+def test_flush_default_no_match_drains_all():
+    """Default behavior preserved: flush() without source_tag_match drains all pending rows."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    q.enqueue(event_type="trade_opened", severity="low",
+              payload={"ticker": "A"}, source_tag="email:preopen")
+    q.enqueue(event_type="trade_closed", severity="low",
+              payload={"ticker": "B"}, source_tag="safe_send")
+    q.enqueue(event_type="risk_alert", severity="low",
+              payload={"detail": "x"}, source_tag="email:weekly")
+
+    dispatched = []
+    result = q.flush(dispatcher=lambda p: dispatched.append(p))
+
+    assert result.successes == 3
+    assert len(dispatched) == 3
+
+
+def test_orphan_recovery_respects_match():
+    """_recover_orphaned_in_progress(source_tag_match=...) recovers only matching rows."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    preopen_id = q.enqueue(event_type="trade_opened", severity="low",
+                           payload={"ticker": "AAPL"}, source_tag="email:preopen")
+    safe_id = q.enqueue(event_type="trade_closed", severity="low",
+                        payload={"ticker": "TSLA"}, source_tag="safe_send")
+
+    # Manually mark both as in_progress (simulating crash mid-flush)
+    conn.execute(
+        "UPDATE notifications_digest_queue SET flush_status='in_progress' WHERE id IN (?, ?)",
+        (preopen_id, safe_id),
+    )
+    conn.commit()
+
+    # Tier-scoped flush should only recover the email:preopen row and then drain it
+    dispatched = []
+    q.flush(dispatcher=lambda p: dispatched.append(p),
+            source_tag_match="email:preopen")
+
+    # preopen row: was in_progress -> recovered to pending -> claimed -> sent
+    preopen_row = conn.execute(
+        "SELECT flush_status FROM notifications_digest_queue WHERE id=?", (preopen_id,)
+    ).fetchone()
+    assert preopen_row["flush_status"] == "sent", (
+        f"expected preopen row sent, got {preopen_row['flush_status']}"
+    )
+
+    # safe_send row: must remain in_progress (untouched by tier-scoped recovery)
+    safe_row = conn.execute(
+        "SELECT flush_status FROM notifications_digest_queue WHERE id=?", (safe_id,)
+    ).fetchone()
+    assert safe_row["flush_status"] == "in_progress", (
+        f"expected safe_send row untouched (in_progress), got {safe_row['flush_status']}"
+    )
+
+
+def test_enqueue_source_tag_length_64_max():
+    """DA-MIN-16: source_tag longer than 64 chars must raise AssertionError at enqueue."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    # 64 chars: OK
+    tag_64 = "a" * 64
+    q.enqueue(event_type="trade_opened", severity="low",
+              payload={"ticker": "AAPL"}, source_tag=tag_64)
+    # 65 chars: must raise
+    tag_65 = "a" * 65
+    with pytest.raises(AssertionError):
+        q.enqueue(event_type="trade_opened", severity="low",
+                  payload={"ticker": "AAPL"}, source_tag=tag_65)

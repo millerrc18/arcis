@@ -65,8 +65,8 @@
     },
     {
       "file": "src/evaluation/auditor.py",
-      "lines": 780,
-      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2; 645 after T2's _check_regime_classification). W21 audit-hotfix series grew it to 780: v0.36.22 drawdown sample guard, v0.36.27 _LLM_AUDIT_MIN_SAMPLE LLM-narrative guard (#1139), v0.36.31 _MODEL_WIN_RATE_MIN_SAMPLE precheck guard (#1143). These small-sample guards are co-located with the deterministic precheck loop by design. Recorded as W21 cleanup (v0.36.34); real split into auditor_daily/_weekly/_escalation deferred to post-freeze."
+      "lines": 906,
+      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2; 645 after T2's _check_regime_classification). W21 audit-hotfix series grew it to 780: v0.36.22 drawdown sample guard, v0.36.27 _LLM_AUDIT_MIN_SAMPLE LLM-narrative guard (#1139), v0.36.31 _MODEL_WIN_RATE_MIN_SAMPLE precheck guard (#1143). Sprint #115 T9 grew it to 906 (+126L): Hybrid CRITICAL flow (DD-01 + DD-30 revised + DD-34) — Step 1 enqueue_for_email_digest call (canonical for digest replay), Step 2 immediate send_email (24h-throttled), ImportError/ModuleNotFoundError-only fallback with logger.critical FIREHOSE FALLBACK marker + best-effort safe_send Telegram alert, notifications_sent throttled_suppressed audit row writer; ALERT severity path also rewritten to enqueue-only with the same ImportError fallback shape. Real split into auditor_daily/_weekly/_escalation deferred to post-freeze."
     },
     {
       "file": "src/evaluation/build_score.py",
@@ -102,6 +102,11 @@
       "file": "src/llm/packet_writer.py",
       "lines": 1294,
       "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 1012. Wave C7b.1 / T21 added _render_institutional_flow (+45L). Wave C7b.2 / T22 added _render_filings_sentiment_subblock + _render_material_events (+56L) \u2014 plan-gated MATERIAL EVENTS packet section at index 7.5 wrapping the filings_sentiment sub-block (Decision 30 + composition rule: section absent when no sub-block has plan-support). Wave C7b.3 / T23 added _render_press_releases_subblock + extended _render_material_events to compose both sub-blocks (+29L). Wave C7b.4 / T24 added _render_fundamental_snapshot_live + _collect_tier2_omissions + _render_data_context_header (~149L total) \u2014 plan-gated DATA CONTEXT header preamble (spec 4.8.1 + 4.8.2) that surfaces omitted Tier-2 sections and stale-data ageing for the LLM, plus FUNDAMENTAL SNAPSHOT live-enrichment trailer reading the Finnhub stock_financials JSON sink. Each section/header is a coherent rendering unit; the renderers all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to post-Sprint-5."
+    },
+    {
+      "file": "src/notifications/email_digest.py",
+      "lines": 1236,
+      "rationale": "Sprint #115 T5 baseline 393; T6 +~370L (preopen + postclose rendering); T7 +~260L (weekly tier rendering subsuming Saturday training + CTO content per DD-12: _collect_weekly_data orchestrator + 4 per-section collectors + 6 per-section renderers + dispatcher hookup). T17 grew it to 1236 (+207L): real handover_check() body (DA-MAJ-7 + DA-MAJ-11) with 4 DB tripwires (abandoned-rows + 3 dispatch counts) + shadow-files-present + DA-MAJ-11 row-ID inclusion check; extracted to 4 private helpers (_handover_db_tripwires, _handover_shadow_tripwire, _handover_inclusion_tripwire, _row_id_inclusion_check) + DD-23 holiday-skip helper (_should_skip_on_holiday) called by flush_tier. Per DD-29 the design intentionally chose a flat module layout: routing dict + 5 public functions + private helpers tightly coupled to the queue table schema and routing matrix. Per-section helpers extracted to satisfy the 60-line function cap (longest fn is now _render_weekly_performance_section at ~28L). Real split into sibling email_digest_render.py + email_digest_handover.py deferred to post-PR-2 cleanup once the renderer + handover boundaries stabilize (PR 2 will delete digest_builder.py + simplify the module by removing dual-write hold-over branches)."
     },
     {
       "file": "src/notifications/telegram.py",
@@ -546,7 +551,8 @@
     {
       "file": "src/evaluation/auditor.py",
       "function": "check_escalation",
-      "lines": 92
+      "lines": 222,
+      "rationale": "Sprint #115 T9: grew from 92 to 222 lines via Hybrid CRITICAL flow (DD-01 + DD-30 revised + DD-34) — Step 1 enqueue (canonical), Step 2 immediate send (24h-throttled), ImportError/ModuleNotFoundError-only fallback with logger.critical FIREHOSE FALLBACK marker + best-effort safe_send Telegram alert + bypass-throttle fallback send_email, notifications_sent 'throttled_suppressed' audit-trail writer for the throttled-immediate case, ALERT severity rewrite to enqueue-only with the same ImportError fallback shape (catch (ImportError, ModuleNotFoundError) ONLY per DA-MIN-19 so module-load AssertionError still propagates). Splitting would scatter the Hybrid Step 1 + Step 2 sequencing across helpers — Step 1 enqueue MUST commit BEFORE Step 2 send so the throttle-suppressed-but-queued case (DD-34 single source of truth) still appears in the next pre-open digest. The bootcamp downgrade, severity dispatch, and per-severity error-handling are all co-located. Real split is owned by the auditor refactor track (auditor_daily/_weekly/_escalation post-freeze)."
     },
     {
       "file": "src/evaluation/auditor.py",
@@ -935,6 +941,12 @@
       "function": "_run_plan_gated_collector",
       "lines": 67,
       "rationale": "Pre-existing (v0.36.26); surfaced during v0.36.38 T1 which touched overnight.py. Real split deferred."
+    },
+    {
+      "file": "src/scheduler/overnight.py",
+      "function": "run_daily_audit",
+      "lines": 70,
+      "rationale": "#115 T10: was 60 (just at floor); +10L for DD-20 revised dual-write routing through _route_email_via_digest helper (audit_red_assessment payload structured kwargs). Helper extraction kept the growth minimal; further splitting the CUSUM + leakage post-audit blocks is deferred."
     },
     {
       "file": "src/scheduler/overnight.py",

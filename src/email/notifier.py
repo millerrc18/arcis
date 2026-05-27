@@ -10,6 +10,8 @@ Tests: tests/email/test_notifier.py
 import logging
 import os
 import smtplib
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from src.config import load_config
@@ -55,10 +57,66 @@ def _write_notification_sent(
                 pass
 
 
-def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
-    """Send a plain-text email via SMTP.
+def build_message(
+    subject: str,
+    plain_body: str,
+    html_body: str | None = None,
+    attachments: list[tuple[str, bytes]] | None = None,
+):
+    """Build a MIME message with optional html body and attachments.
+
+    - Both None → MIMEText(plain_body).
+    - html_body provided + no attachments → MIMEMultipart('alternative') with plain + html parts.
+    - attachments provided → MIMEMultipart('mixed') outer; if html_body: nest 'alternative'
+      inside; else plain MIMEText inside; then each attachment as MIMEApplication with
+      Content-Disposition: attachment; filename='...'.
+
+    Subject header is set on the outermost envelope. From/To/Cc are set by callers.
+    """
+    if not attachments and html_body is None:
+        msg = MIMEText(plain_body, _charset="utf-8")
+        msg["Subject"] = subject
+        return msg
+
+    if not attachments and html_body is not None:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg.attach(MIMEText(plain_body, "plain", _charset="utf-8"))
+        msg.attach(MIMEText(html_body, "html", _charset="utf-8"))
+        return msg
+
+    # attachments is non-empty → mixed outer
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+
+    if html_body is not None:
+        inner = MIMEMultipart("alternative")
+        inner.attach(MIMEText(plain_body, "plain", _charset="utf-8"))
+        inner.attach(MIMEText(html_body, "html", _charset="utf-8"))
+        msg.attach(inner)
+    else:
+        msg.attach(MIMEText(plain_body, "plain", _charset="utf-8"))
+
+    for filename, content in attachments:
+        part = MIMEApplication(content)
+        part.add_header("Content-Disposition", "attachment", filename=filename)
+        msg.attach(part)
+
+    return msg
+
+
+def send_email(
+    subject: str,
+    body: str,
+    to_address: str | None = None,
+    *,
+    html_body: str | None = None,
+    attachments: list[tuple[str, bytes]] | None = None,
+) -> bool:
+    """Send an email via SMTP.
 
     Supports CC recipients via config email.cc_addresses (list of strings).
+    Supports optional html alternative body and file attachments.
 
     Returns True on success, False on failure.
     """
@@ -88,8 +146,7 @@ def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
         logger.warning("Email configuration is incomplete. Check your settings.")
         return False
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
+    msg = build_message(subject, body, html_body=html_body, attachments=attachments)
     msg["From"] = from_address
     msg["To"] = recipient
     if cc_addresses:

@@ -1390,6 +1390,112 @@ def _load_notifications_config(yaml_path: str):
     )
 
 
+# ── Email-tier event_type stubs (Sprint #115 T4 — DD-24 + DD-26) ──────────
+# Email-tier events are dispatched through src.notifications.email_digest.
+# They are registered in _EVENT_MAP_MUTABLE below ONLY so DigestQueue.enqueue
+# (which validates event_type membership against _KNOWN_EVENT_TYPES) accepts
+# them. Invoking any of these stubs through the Telegram path is a routing
+# bug — the stub raises NotImplementedError to surface it loudly.
+#
+# Tuple of (event_type, stub_function_name) pairs. The frozenset
+# EMAIL_TIER_EVENT_TYPES is published below as the public allowlist.
+
+EMAIL_TIER_EVENT_TYPES: frozenset[str] = frozenset({
+    "audit_critical",
+    "audit_alert",
+    "audit_red_assessment",
+    "morning_watchlist",
+    "action_packet",
+    "eod_recap_email",
+    "premarket_content",
+    "midday_content",
+    "eod_content",
+    "evening_content",
+    "weekly_digest_content",
+    "saturday_training_report",
+    "saturday_cto_report",
+    "research_synthesis_email",
+})
+
+
+def _email_tier_stub_error(event_name: str) -> NotImplementedError:
+    """Build the canonical NotImplementedError for an email-tier stub."""
+    return NotImplementedError(
+        f"Event {event_name} is email-tier-only; dispatch via "
+        f"src.notifications.email_digest.flush_tier() instead."
+    )
+
+
+def notify_audit_critical_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("audit_critical")
+
+
+def notify_audit_alert_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("audit_alert")
+
+
+def notify_audit_red_assessment_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("audit_red_assessment")
+
+
+def notify_morning_watchlist_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("morning_watchlist")
+
+
+def notify_action_packet_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("action_packet")
+
+
+def notify_eod_recap_email_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("eod_recap_email")
+
+
+def notify_premarket_content_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("premarket_content")
+
+
+def notify_midday_content_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("midday_content")
+
+
+def notify_eod_content_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("eod_content")
+
+
+def notify_evening_content_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("evening_content")
+
+
+def notify_weekly_digest_content_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("weekly_digest_content")
+
+
+def notify_saturday_training_report_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("saturday_training_report")
+
+
+def notify_saturday_cto_report_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("saturday_cto_report")
+
+
+def notify_research_synthesis_email_email_only(*args, **kwargs):
+    """Email-tier stub — raises if reached via Telegram path. See DD-24."""
+    raise _email_tier_stub_error("research_synthesis_email")
+
+
 # ── Module-level event map (T12 D3 consolidation) ─────────────────────────
 # Single source of truth. _KNOWN_EVENT_TYPES is derived here so the two
 # representations can never diverge. Place after all notify_* functions.
@@ -1445,6 +1551,27 @@ _EVENT_MAP_MUTABLE: dict = {
     "manual_intervention_drift": notify_manual_intervention_drift,
     # Monitoring (Wave D T14 D5)
     "alert_silence": notify_alert_silence,
+    # ── Email-tier event_types (Sprint #115 T4 — DD-24 + DD-26) ───────────
+    # These events are NEVER dispatched via Telegram. The stub mappings exist
+    # only so DigestQueue.enqueue accepts them (the queue validates against
+    # _KNOWN_EVENT_TYPES which is derived from _EVENT_MAP below). Actual
+    # delivery flows through src.notifications.email_digest.flush_tier().
+    # Each stub raises NotImplementedError if invoked through the Telegram
+    # path so misrouted events fail loudly rather than silently no-op.
+    "audit_critical": notify_audit_critical_email_only,
+    "audit_alert": notify_audit_alert_email_only,
+    "audit_red_assessment": notify_audit_red_assessment_email_only,
+    "morning_watchlist": notify_morning_watchlist_email_only,
+    "action_packet": notify_action_packet_email_only,
+    "eod_recap_email": notify_eod_recap_email_email_only,
+    "premarket_content": notify_premarket_content_email_only,
+    "midday_content": notify_midday_content_email_only,
+    "eod_content": notify_eod_content_email_only,
+    "evening_content": notify_evening_content_email_only,
+    "weekly_digest_content": notify_weekly_digest_content_email_only,
+    "saturday_training_report": notify_saturday_training_report_email_only,
+    "saturday_cto_report": notify_saturday_cto_report_email_only,
+    "research_synthesis_email": notify_research_synthesis_email_email_only,
 }
 _EVENT_MAP = MappingProxyType(_EVENT_MAP_MUTABLE)
 
@@ -1554,7 +1681,18 @@ def _do_dispatch_escalated(event_type: str, payload: dict, severity: str, channe
                 f"\nForensic detail: SELECT * FROM notifications_sent WHERE event_type = '{event_type}' "
                 f"ORDER BY sent_at DESC LIMIT 1;"
             )
-            if send_email(subject=subject, body=body):
+            # NOTE: This is a CARVE-OUT — Telegram-failure escalation must fire email IMMEDIATELY.
+            # Do NOT route through src.notifications.email_digest.enqueue_for_email_digest() — see #115 DD-14.
+            email_ok = send_email(subject=subject, body=body)
+            # Audit-trail row with distinguishable event_type='escalated_telegram_fail' so the
+            # escalation carve-out is queryable independently of send_email's internal 'email_send' row.
+            _write_notification_sent(
+                event_type="escalated_telegram_fail",
+                channel="email",
+                status="ok" if email_ok else "failed",
+                error_msg=None if email_ok else f"send_email returned False for {event_type}",
+            )
+            if email_ok:
                 success = True
         except (
             urllib3.exceptions.HTTPError,

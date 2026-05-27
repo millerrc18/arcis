@@ -54,7 +54,10 @@ app:
 
 
 # ─── EMAIL ──────────────────────────────────────────────────────────────
-# SMTP configuration for digest emails (pre-market, midday, EOD, evening).
+# SMTP configuration for the digest emails. Issue #115 consolidates the
+# legacy 4-15 emails/weekday firehose down to 2 daily digests (pre-open
+# 07:30 ET, post-close 17:00 ET) + 1 weekly digest (Sun 18:00 ET).
+#
 # For Gmail: use smtp.gmail.com / port 587 / an App Password (NOT your
 # regular password — generate one at myaccount.google.com/apppasswords).
 # Password should be in .env as EMAIL_PASSWORD, not here.
@@ -70,11 +73,85 @@ email:
   to_address: your.work@email.com            # Primary recipient
   cc_addresses:                              # Optional additional recipients
     - your.personal@email.com
+
+  # DEPRECATED (#115 DD-10) — kept for backward-compat. Loader maps
+  # premarket→tier_times.preopen and eod→tier_times.postclose with a
+  # logger.warning. midday/evening are folded into postclose (no separate
+  # digest in the consolidated schedule). Migrate to email.tier_times below.
   digest_times:                              # When to send each digest (ET)
-    premarket: "07:30"                       #   Portfolio status, overnight events
-    midday: "12:00"                          #   Morning trades, P&L, risk alerts
-    eod: "16:15"                             #   Full day recap, cumulative stats
-    evening: "20:00"                         #   Training data, model quality, costs
+    premarket: "07:30"                       #   → tier_times.preopen (deprecated)
+    midday: "12:00"                          #   → folded into postclose (deprecated)
+    eod: "16:15"                             #   → tier_times.postclose (deprecated; default shifts to 17:00)
+    evening: "20:00"                         #   → folded into postclose (deprecated)
+
+  # NEW (#115 DD-10) — tier-named schedule. Three tiers only.
+  # Format: 'HH:MM' for weekday tiers. Weekly is '<DOW> HH:MM' where DOW
+  # is one of Mon/Tue/Wed/Thu/Fri/Sat/Sun (case-insensitive); HH is 24-hour
+  # 00-23, MM is 00-59. Invalid formats (e.g. 'Funday 99:99', 'Sun' with
+  # no time) raise ValueError at config-load with a remediation message.
+  tier_times:
+    preopen: "07:30"
+    postclose: "17:00"
+    weekly: "Sun 18:00"
+
+  # NEW (#115 DD-07, DD-33) — per-tier on/off + empty-tier suppression.
+  # When enabled=false, events still enqueue (for audit), but flush is
+  # skipped. send_when_empty controls whether a tier with zero events
+  # AND zero critical replays still sends an email. Defaults match DD-33:
+  # preopen/postclose default to false (no "no notable events" mails);
+  # weekly defaults to true (rolling 7-day P&L is the operator's regular
+  # checkpoint and always sends).
+  tiers:
+    preopen:
+      enabled: true
+      send_when_empty: false   # DD-33: suppress empty pre-open digest
+    postclose:
+      enabled: true
+      send_when_empty: false   # DD-33: suppress empty post-close digest
+    weekly:
+      enabled: true
+      send_when_empty: true    # DD-33: weekly always sends (rolling P&L)
+
+  # NEW (#115 DD-05 revised, DD-19) — digest truncation + overflow policy.
+  # top_k_per_section caps the number of rows rendered per section.
+  # overflow_strategy:
+  #   "attach_overflow_file" — write the overflow rows to
+  #                            <tier>-overflow-YYYY-MM-DD.txt, attach to
+  #                            the email, mark rows attached.
+  #   "defer_to_next_tier"   — overflow rows stay flush_status='pending';
+  #                            the next tier window picks them up.
+  # NO "dashboard" option (DA-CRIT-2: dashboard URL is out-of-scope).
+  digest_truncation:
+    top_k_per_section: 10
+    overflow_strategy: "attach_overflow_file"
+    overflow_attach_format: "plain"          # plain | json
+
+  # NEW (#115 DD-21) — respect NYSE market holidays for the daily digests.
+  # The weekly digest fires regardless (Sunday is non-trading anyway).
+  holidays:
+    skip_preopen_on_market_holidays: true
+    skip_postclose_on_market_holidays: true
+
+  # NEW (#115 DD-20 revised — DA-CRIT-1 fix) — dual-write hold-over.
+  # mode:
+  #   "shadow"       (default — safest) — new path RENDERS digests but
+  #                  WRITES TO DISK at shadow_output_dir instead of
+  #                  emailing. Inbox volume unchanged from current state.
+  #                  Operator inspects shadow files at leisure.
+  #   "time_aligned" — new path emails at the canonical tier times;
+  #                  old paths SUPPRESS midday + evening (still fire
+  #                  premarket + EOD). Net: ~2 extra emails/day.
+  #   "off"          — new path is sole sender; old paths fully retired.
+  #                  PR 2 (separate, post-1-week shadow soak) flips
+  #                  mode='shadow' → mode='off' in settings.local.yaml.
+  # old_path_enabled is a DEPRECATED alias retained for backward-compat:
+  #   true == mode='shadow', false == mode='off'. Loader emits a warning
+  #   when it's still present without an explicit mode.
+  dual_write_hold_over:
+    enabled: true
+    mode: "shadow"
+    shadow_output_dir: "tmp/digest-shadow"
+    old_path_enabled: true                   # DEPRECATED; see mode
 
 
 # ─── ALPACA ─────────────────────────────────────────────────────────────

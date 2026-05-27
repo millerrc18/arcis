@@ -15,6 +15,7 @@ from src.config import DB_PATH
 from src.utils.db import connect_db
 from src.email.notifier import send_email
 from src.journal.store import initialize_database
+from src.notifications import email_digest as _email_digest_mod
 from src.notifications import safe_send
 from src.notifications.telegram import is_telegram_enabled, send_telegram
 from src.packets.template import build_demo_packet
@@ -98,6 +99,7 @@ def cmd_scan(args):
         dry_run=getattr(args, "dry_run", False),
         send_email_flag=getattr(args, "email", False),
         run_shadow=not getattr(args, "no_shadow", False),
+        via_cli=True,
     )
     verbose = getattr(args, "verbose", False)
     if verbose:
@@ -127,6 +129,7 @@ def cmd_morning_watchlist(args):
     result = generate_morning_watchlist(
         load_config(),
         send_email_flag=getattr(args, "email", False) and not getattr(args, "dry_run", False),
+        via_cli=True,
     )
     print(result["email_body"])
 
@@ -138,6 +141,7 @@ def cmd_eod_recap(args):
     result = generate_eod_recap(
         load_config(),
         send_email_flag=getattr(args, "email", False) and not getattr(args, "dry_run", False),
+        via_cli=True,
     )
     print(result["email_body"])
 
@@ -1439,3 +1443,89 @@ def cmd_validate_schema(args):
         for a in actions:
             print(f"  FIX: {a}")
 
+
+# ── #115 T15 — Email-digest CLI ───────────────────────────────────────────
+
+_VALID_DIGEST_TIERS = ("preopen", "postclose", "weekly")
+
+
+def cmd_digest_preview(args):
+    """Preview an email digest tier (#115 T15).
+
+    Default mode: render preview_tier(tier) and print plain-text body.
+    --pending: query notifications_digest_queue for pending rows matching the
+               tier's source_tag prefix and print a table.
+    --dry-run: alias for default-preview (explicit no-side-effects flag).
+    """
+    tier = getattr(args, "tier", None)
+    if tier not in _VALID_DIGEST_TIERS:
+        raise ValueError(
+            f"invalid --tier {tier!r}; expected one of {_VALID_DIGEST_TIERS!r}"
+        )
+
+    if getattr(args, "pending", False):
+        # Print a table of pending queue rows for this tier.
+        source_prefix = f"email:{tier}"
+        with connect_db() as conn:
+            cur = conn.execute(
+                "SELECT id, event_type, severity, source_tag, created_at "
+                "FROM notifications_digest_queue "
+                "WHERE flush_status = 'pending' "
+                "  AND (source_tag = ? OR source_tag LIKE ? || ':%') "
+                "ORDER BY created_at ASC",
+                (source_prefix, source_prefix),
+            )
+            rows = cur.fetchall()
+        # Header
+        header = f"{'id':>6}  {'event_type':<28}  {'severity':<10}  {'source_tag':<40}  created_at"
+        _safe_print(header)
+        _safe_print("-" * len(header))
+        if not rows:
+            _safe_print(f"(no pending rows for tier {tier!r})")
+            return
+        for r in rows:
+            # Support both sqlite3.Row and dict-like rows.
+            try:
+                rid = r["id"]
+                etype = r["event_type"]
+                sev = r["severity"]
+                stag = r["source_tag"]
+                created = r["created_at"]
+            except (KeyError, IndexError, TypeError):
+                rid, etype, sev, stag, created = r
+            _safe_print(
+                f"{rid!s:>6}  {str(etype):<28}  {str(sev):<10}  {str(stag):<40}  {created}"
+            )
+        return
+
+    # Default + --dry-run: render and print plain-text body via the
+    # decorated public API (preview_tier on the email_digest module).
+    body = _email_digest_mod.preview_tier(tier)
+    _safe_print(body)
+
+
+def cmd_digest_handover_check(args):
+    """Run handover-readiness tripwires (#115 T15, DA-MAJ-7 + DA-MAJ-11).
+
+    Calls email_digest.handover_check(window_days=...). Exit 0=PASS, 1=FAIL.
+    --compare-window 7d triggers the row-ID inclusion check (DA-MAJ-11).
+    """
+    window_days = int(getattr(args, "window_days", 7))
+    compare_window = getattr(args, "compare_window", None)
+
+    # Call handover_check via the decorated public API on email_digest.
+    if compare_window:
+        result = _email_digest_mod.handover_check(
+            window_days=window_days,
+            compare_window=compare_window,
+        )
+    else:
+        result = _email_digest_mod.handover_check(window_days=window_days)
+
+    status = str(result.get("status", "FAIL")).upper()
+    _safe_print(f"Handover-check: {status}")
+    tripwires = result.get("tripwires", {}) or {}
+    for name, detail in tripwires.items():
+        _safe_print(f"  - {name}: {detail}")
+
+    sys.exit(0 if status == "PASS" else 1)

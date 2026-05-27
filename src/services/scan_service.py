@@ -23,6 +23,34 @@ if TYPE_CHECKING:
     from src.platform.strategy_spec import StrategySpec
 
 
+def _route_packet_email(
+    *, ticker: str, subject: str, rendered: str,
+    via_cli: bool, send_email_flag: bool,
+) -> bool:
+    """DD-13/DD-25/DD-30: route action_packet email to direct-send OR digest.
+
+    Returns True iff a delivery (direct or enqueue) was performed.
+    """
+    from src.email.notifier import send_email
+    if send_email_flag or via_cli:
+        return bool(send_email(subject, rendered))
+    try:
+        from src.notifications.email_digest import enqueue_for_email_digest
+        enqueue_for_email_digest(
+            "action_packet", severity="normal",
+            payload={"ticker": ticker, "rendered": rendered, "subject": subject},
+            source_tag="email:postclose",
+        )
+        return True
+    except (ImportError, ModuleNotFoundError) as err:
+        logger.critical("[SCAN] email_digest unavailable for %s — fallback: %s", ticker, err)
+        try:
+            safe_send("action_packet", ticker=ticker, subject=subject)
+        except Exception as _safe_err:
+            logger.warning("[SCAN] safe_send fallback failed: %s", _safe_err)
+        return bool(send_email(subject, rendered))
+
+
 def _log_regime_capture_failure(ticker: str, feat: dict) -> None:
     """Forensic logging for the regime_at_entry NULL class (2026-05-17).
 
@@ -76,6 +104,7 @@ def run_scan(
     send_email_flag: bool = False,
     run_shadow: bool = True,
     strategy: "StrategySpec" | None = None,
+    via_cli: bool = False,
 ) -> dict:
     """Execute the full scan pipeline and return structured results.
 
@@ -370,10 +399,12 @@ def run_scan(
             except Exception as e:
                 logger.debug("[ATTRIBUTION] Phase 2 failed for %s: %s", ticker, e)
 
-        if send_email_flag and not dry_run:
-            from src.email.notifier import send_email
+        if not dry_run:
             subject = f"[TRADE DESK] Action Packet - {ticker}"
-            if send_email(subject, rendered):
+            if _route_packet_email(
+                ticker=ticker, subject=subject, rendered=rendered,
+                via_cli=via_cli, send_email_flag=send_email_flag,
+            ):
                 packets_emailed += 1
 
         if shadow_enabled and rec_id:
