@@ -98,6 +98,7 @@ def cmd_scan(args):
         dry_run=getattr(args, "dry_run", False),
         send_email_flag=getattr(args, "email", False),
         run_shadow=not getattr(args, "no_shadow", False),
+        via_cli=True,
     )
     verbose = getattr(args, "verbose", False)
     if verbose:
@@ -127,6 +128,7 @@ def cmd_morning_watchlist(args):
     result = generate_morning_watchlist(
         load_config(),
         send_email_flag=getattr(args, "email", False) and not getattr(args, "dry_run", False),
+        via_cli=True,
     )
     print(result["email_body"])
 
@@ -138,6 +140,7 @@ def cmd_eod_recap(args):
     result = generate_eod_recap(
         load_config(),
         send_email_flag=getattr(args, "email", False) and not getattr(args, "dry_run", False),
+        via_cli=True,
     )
     print(result["email_body"])
 

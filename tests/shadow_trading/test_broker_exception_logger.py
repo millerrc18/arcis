@@ -223,7 +223,10 @@ def test_recap_service_shadow_data_failure_logs_warning(caplog):
                                                 "src.packets.eod_recap.get_shadow_data_for_recap",
                                                 side_effect=RuntimeError("DB unavailable"),
                                             ):
-                                                recap_service.generate_eod_recap(config)
+                                                with patch(
+                                                    "src.notifications.email_digest.enqueue_for_email_digest"
+                                                ):
+                                                    recap_service.generate_eod_recap(config)
 
     warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert warning_records, (
