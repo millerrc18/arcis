@@ -870,3 +870,8 @@ Each inner list is one wave; tasks within a wave dispatch in parallel.
 **Scope fence:** Subsumption commits ONLY if OQ-1 operator-confirmed; else tag without subsumption and leave #125/#126 open for Phase-6.
 
 ---
+
+
+## Implementation receipts
+
+- **PR-A LANDED 2026-05-27** commit `a8bf5ff9` (PR #1186) — T100 + T1 + T2 + T3 shipped as 6 commits in suggested order; dual-Opus QA both SOUND; +4 tests / -19 debris files; +.github/PULL_REQUEST_TEMPLATE.md + archive/sqlite-debris-2026-05-27/. Procedural skips: T1e known_violations.json prune (no debris entries existed; verified empty). Pre-existing failure surfaced: test_no_file_over_400_lines on scan_service.py — out of scope, owned by PR-C T15.
