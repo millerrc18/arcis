@@ -547,3 +547,78 @@ def test_no_sqlite_at_repo_root():
         "C:/arcis/data/ai_research_desk.sqlite3 per CLAUDE.md:26):\n"
         + "\n".join(f"  - {p.name}" for p in offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# Sentinel tests for the 2 repo-root cleanliness rules (Phase 5 PR-A T3).
+# Verified non-vacuous: each sentinel constructs a fake repo root under
+# tmp_path, drops a single violating file, and asserts the helper detects
+# the file. If the helper were silently broken (always returning []) these
+# tests would fail. They never touch the real repo root — verified by the
+# tmp_path fixture's scope guarantee.
+# ---------------------------------------------------------------------------
+
+
+def test_repo_root_underscore_scratch_rule_detects_violation(tmp_path):
+    """Sentinel: _list_repo_root_underscore_scratch correctly identifies a
+    `_*.py` scratch file as a violation.
+
+    Verified non-vacuous: with the helper disabled (e.g. returning `[]`)
+    this test correctly identifies the temp `_scratch_sentinel.py` as a
+    violation and fails. The test does NOT write to the real repo root —
+    it constructs a fake root under pytest's tmp_path fixture.
+
+    Also exercises the exclusion contract: `__init__.py` at the fake root
+    must NOT be flagged.
+    """
+    # Drop a single violating file at the fake root.
+    violator = tmp_path / "_scratch_sentinel.py"
+    violator.write_text("# scratch — should be detected\n", encoding="utf-8")
+
+    # Drop the exclusion sentinel — must NOT be flagged.
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+
+    offenders = _list_repo_root_underscore_scratch(tmp_path)
+    offender_names = {p.name for p in offenders}
+
+    assert "_scratch_sentinel.py" in offender_names, (
+        f"Helper failed to detect _scratch_sentinel.py — got {offender_names!r}"
+    )
+    assert "__init__.py" not in offender_names, (
+        "Exclusion broken: __init__.py was flagged as scratch"
+    )
+
+
+def test_repo_root_sqlite_rule_detects_violation(tmp_path):
+    """Sentinel: _list_repo_root_sqlite correctly identifies SQLite/DB files
+    at a repo root.
+
+    Verified non-vacuous: with the helper disabled (e.g. returning `[]`)
+    this test correctly identifies the temp `sentinel.sqlite3` as a
+    violation and fails. The test does NOT write to the real repo root —
+    it constructs a fake root under pytest's tmp_path fixture.
+
+    Exercises all four extensions in the helper's pattern list.
+    """
+    violators = [
+        tmp_path / "sentinel.sqlite",
+        tmp_path / "sentinel.sqlite3",
+        tmp_path / "sentinel.sqlite-journal",
+        tmp_path / "sentinel.db",
+    ]
+    for p in violators:
+        p.write_bytes(b"")  # empty file; existence is what matters
+
+    # Drop a non-violating sibling to confirm we don't over-match.
+    (tmp_path / "README.md").write_text("# not a db\n", encoding="utf-8")
+
+    offenders = _list_repo_root_sqlite(tmp_path)
+    offender_names = {p.name for p in offenders}
+
+    for v in violators:
+        assert v.name in offender_names, (
+            f"Helper failed to detect {v.name} — got {offender_names!r}"
+        )
+    assert "README.md" not in offender_names, (
+        "Over-match: README.md was flagged as a SQLite file"
+    )
