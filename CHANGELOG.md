@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
+
+### Fixed
+
 - **#124b — TradingState GPU_METRICS text=date type mismatch fixed** (`fix(#124b)`):
   `GPU_METRICS_PG` in `src/tools/tradingstate/queries.py` cast `metric_date::date`
   before comparing with `CURRENT_DATE`. Root cause: `schedule_metrics.metric_date`
