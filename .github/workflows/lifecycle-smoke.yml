@@ -155,9 +155,22 @@ jobs:
         # the core lifecycle suite is the regression net around it. T9 organic
         # runner writes via real prod scan path, so PG is required.
         #
-        # --timeout=600: the run_smoke organic runs (multi-tick scan +
-        # check_and_manage_open_trades + reconcile + oracle) take 200-500s
-        # on hosted runners (slower than local). 600s = 10 min ceiling.
+        # --timeout=480: #113 tightened from the original 600s ceiling.
+        #
+        # BOTTLENECK (identified in #113): run_smoke() drives the full prod
+        # scan path (universe_scanner.run_universe_scan -> WatchLoop._run_scan)
+        # with FakeLLM / FakeMarketData fakes — no real I/O, but real compute.
+        # Each call takes ~50-100s on hosted runners. Worst-case single test is
+        # test_no_conn_leak_smoke_accumulator (3 run_smoke() iterations by
+        # default, SIM_LEAK_LOOP_ITERATIONS=3) at ~150-300s.
+        #
+        # WHY 300s NOT ACHIEVED IN ONE PASS: no time.sleep calls exist in these
+        # tests (_noop_sleep already installed for WatchLoop). The bottleneck is
+        # scan computation through run_universe_scan, which is prod code and
+        # off-limits. Reducing coverage to hit 300s is forbidden by spec.
+        # FOLLOW-UP: see GitHub issue filed as #113-followup — session-scoped
+        # run_smoke() fixture caching could reduce test_entrypoints + test_determinism
+        # from 9 independent run_smoke() calls to 1, saving ~400-700s total.
         #
         # -k "not full_gate": the 4 test_run_full_gate_* tests are the
         # AUTHORITATIVE nightly tier (multi-day, all faults, all invariants).
@@ -167,7 +180,7 @@ jobs:
         # service block, but the tests are designed for the heavyweight
         # nightly schedule, not the per-PR fast tier. Filter them out so
         # per-PR runs stay fast.
-        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=600 -k "not full_gate"
+        run: python -m pytest tests/simulation/lifecycle/ -q --timeout=480 -k "not full_gate"
 
       - name: Smoke verdict (run_smoke direct invocation)
         # Direct call so the rendered, non-authoritative verdict is visible in
