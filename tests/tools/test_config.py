@@ -339,3 +339,21 @@ def test_nvidia_smi_watchloop_contract_in_real_config():
     assert contract.normalize["gpu_vram_used_mb"].tolerance == 2048.0
     assert contract.normalize["gpu_temp_c"].tolerance == 10.0
     assert contract.normalize["gpu_power_w"].tolerance == 50.0
+
+
+def test_logs_runtime_is_repo_local():
+    """logs_runtime must resolve to the repo-local canonical path (fix #119).
+
+    Asserts cfg.paths.logs_runtime ends in 'halcyon-lab/logs' so that a
+    hand-edit reverting to the stale 'C:/arcis/logs' is caught immediately.
+    Does NOT require the directory to physically exist (CI worktrees lack it).
+    """
+    from src.tools._config import load_arcis_config
+
+    cfg = load_arcis_config()
+    # Normalise to forward-slashes for comparison regardless of OS
+    path_str = cfg.paths.logs_runtime.as_posix()
+    assert path_str.endswith("halcyon-lab/logs"), (
+        f"logs_runtime should end with 'halcyon-lab/logs' but got: {path_str!r}. "
+        "Expected 'C:/arcis/halcyon-lab/logs' (fix #119); stale value is 'C:/arcis/logs'."
+    )

@@ -24,7 +24,7 @@ The runtime data lives **outside** the git repo. This is intentional, not accide
 - `C:\arcis\halcyon-lab\` — git repo. Must be cwd when running CLI (`python -m src.main ...`)
 - `C:\arcis\halcyon-lab\.env` — sets `ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3` (canonical)
 - `C:\arcis\data\ai_research_desk.sqlite3` — active SQLite DB (~1 GB). **DO NOT** create or write a SQLite file at the repo root or `halcyon-lab/data/`; those are stub locations and have been removed (#642). Code reads `src.config.DB_PATH` which respects the env override.
-- `C:\arcis\logs\` — runtime logs (mirrored to Render-deployed instances)
+- `C:\arcis\halcyon-lab\logs\` — runtime logs (`arcis.log`, `arcis_err.log`; auto-rotated 10 MB × 7 files)
 - `C:\arcis\data\reference\`, `data\simulation_cache\`, `data\watch.lock`, `data\watchdog.txt` — runtime artifacts
 
 **Why state lives outside the repo:**
