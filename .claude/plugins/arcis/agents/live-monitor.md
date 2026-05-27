@@ -50,7 +50,11 @@ You receive the following via DYNAMIC CONTEXT:
 
 6. **(If INCLUDE_CI_CONTEXT)** Fetch the most recent CI run: `gh run list --json databaseId,status,conclusion,headSha --limit 1` (timeout: 60000), then `python -m src.tools.ciinvestigate <run_id> --json` (timeout: 120000) — context only, not the focus.
 
-7. **Cross-correlate.** Synthesize the snapshot: NSSM state vs heartbeat freshness vs port listening vs recent errors vs trading state vs CI state. Flag inconsistencies (e.g., RUNNING + STALE heartbeat = wedged process). Use the Step-0 ET timestamp for any freshness math.
+7. **Cross-correlate.** Synthesize the snapshot: NSSM state vs heartbeat freshness vs port listening vs recent errors vs trading state vs CI state. Flag inconsistencies (e.g., RUNNING + STALE heartbeat = wedged process). Use the Step-0 ET timestamp for any freshness math. When assessing whether the watchloop is wedged, apply the **4-point wedge-diagnostic protocol** (all four MUST hold before declaring wedge — see CONSTRAINTS):
+   1. Heartbeat staleness > 20 min (NOT just > 60s or > 15 min; agent applies stricter operator-judgment than the HealthProbe 900s binary threshold)
+   2. arcis.log silence > 20 min (corroborated silence — no new log lines in 20 min, verified via `logtail --lines 20` timestamp comparison against ET wall-clock)
+   3. No in-progress task markers in last 20 log lines (scan for patterns: `RUNNING`, `in progress`, `polling`, `scanning`, `executing`, `[CYCLE`, `[RUN`, or any active-work indicator)
+   4. Current staleness exceeds `baseline_p99` for the current hour-of-day (compare against live-monitor's `historical_baseline_min` field for the service)
 
 8. **Sibling-search.** When you find a defect at `file:line`, the next step is NOT to report-and-move-on. Grep the file (and adjacent ones) for the same anti-pattern at other lines BEFORE finalizing the verdict. Document what you searched for and what you found in the report's `sibling_search_results[]` array. Three-form regex for symbol references (deletions/renames): `grep -rn -E 'from src\.X|import src\.X|src\.X\.' tests/ src/ --include='*.py'`.
 
@@ -81,6 +85,7 @@ You receive the following via DYNAMIC CONTEXT:
 - MUST perform sibling-search per verbatim prose in Workflow Step 8 above.
 - MUST always pass `--json` and parse the JSON envelope on every subprocess exit. On error, surface `envelope.error.type` + `envelope.error.message`. On JSON parse failure / Bash `timeout` exceeded, surface the subprocess crash verbatim with the `timeout_exceeded` marker.
 - MUST NOT suppress or retry tool failures silently. Anti-handwave per #103 discipline.
+- **MUST NOT declare wedge unless ALL FOUR of the wedge-diagnostic conditions are met:** (1) heartbeat staleness > 20 min, (2) arcis.log silence > 20 min, (3) no in-progress task markers in last 20 log lines, (4) current staleness exceeds `baseline_p99` for the current hour-of-day. A 14-minute-stale heartbeat with active in-progress task markers MUST NOT be declared a wedge (regression case: 2026-05-26 11:14 ET false positive).
 
 ---
 
@@ -110,7 +115,8 @@ Snapshot synthesis decisions, cross-correlation logic, ET clock evaluation, over
       "heartbeat_fresh": true,
       "port_listening": true,
       "recent_error_count": 0,
-      "composite_verdict": "healthy | degraded | unhealthy | unknown"
+      "composite_verdict": "healthy | degraded | unhealthy | unknown",
+      "historical_baseline_min": null
     }
   ],
   "correlations": [
@@ -152,3 +158,4 @@ Rules:
 - `coverage_assessment` is REQUIRED — never omit it. `coverage_judgment` must reflect reality.
 - `recommendations[]` is a read-only list. This agent NEVER executes recommendations. Omit restart recommendations entirely if `snapshot_timestamp` falls in the 21:30–22:30 ET overnight window.
 - `trading_state` and `ci_context` are null when `INCLUDE_TRADING_STATE` / `INCLUDE_CI_CONTEXT` are false or skipped.
+- `historical_baseline_min` — per `service_state[]` entry, the agent's best-effort estimate of p99 heartbeat staleness (in minutes) for the current hour-of-day, sourced from log analysis of prior days' arcis.log timestamps at the same hour window. Set to `null` if fewer than 3 prior-day samples exist for the hour or if log access fails. Used as the denominator for wedge-diagnostic condition 4: current staleness MUST exceed this value before wedge can be declared. Example: if p99 staleness at 11:00–12:00 ET across 5 prior weekdays was 12 min, and current staleness is 14 min, condition 4 is NOT met (14 < p99=12 is false, but 14 barely exceeds p99; agent judgment required on margin).
