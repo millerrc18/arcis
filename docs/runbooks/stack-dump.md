@@ -29,7 +29,7 @@ The script queries the NSSM registry key for ArcisWatchLoop's supervised PID fir
 
 **Explicit PID:**
 ```powershell
-pwsh.exe scripts/dump_watchloop.ps1 -Pid 12345
+pwsh.exe scripts/dump_watchloop.ps1 -ProcessId 12345
 ```
 
 Use this when NSSM is not installed or the service has a non-standard name.

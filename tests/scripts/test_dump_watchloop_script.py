@@ -95,3 +95,21 @@ def test_live_invocation_no_readonly_variable_crash():
     assert "read-only" not in result.stderr.lower(), (
         f"Script crashed with read-only error. stderr={result.stderr!r}"
     )
+
+
+def test_runbook_uses_canonical_processid_param():
+    """Regression guard: runbook must use the canonical -ProcessId param name.
+
+    The PowerShell script's param is `[int]$ProcessId` (after the round-2 rename
+    away from the read-only $Pid automatic variable). PowerShell does NOT
+    partial-match `-Pid` to `-ProcessId` (Pid is not a prefix of ProcessId), so
+    an operator following a runbook example that uses `-Pid <N>` would silently
+    have their explicit PID dropped — the script would fall through to
+    NSSM auto-discovery instead. This test pins the docs/script invariant.
+    """
+    text = _runbook_text()
+    assert "-ProcessId" in text, "Runbook must document the canonical -ProcessId param"
+    assert "-Pid " not in text and "-Pid\n" not in text, (
+        "Runbook references stale -Pid param; the script no longer accepts it. "
+        "PowerShell does not partial-match -Pid to -ProcessId."
+    )
