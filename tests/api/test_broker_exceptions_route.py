@@ -371,141 +371,45 @@ class TestConnectionClosed:
         )
 
 
-# ── Postgres-cloud routing tests (#87) ───────────────────────────────────────
-# When DATABASE_URL is set (Render), the route MUST query Postgres via psycopg2
-# instead of opening a SQLite connection. Without this, the cloud dashboard
-# reads from an empty SQLite file on Render and shows stale/empty data even
-# though the table is sync_to_postgres=True in the registry.
+# ── SQLite routing tests (post-Render decommission, Phase 5 §3.2) ────────────
+# DATABASE_URL PG branches removed 2026-05-18. Routes always use SQLite.
 
 class TestPostgresRouting:
-    """Tests asserting DATABASE_URL → psycopg2 path; no DATABASE_URL → SQLite."""
+    """Tests asserting all paths use SQLite (DATABASE_URL no longer consulted)."""
 
-    def test_recent_uses_psycopg2_when_database_url_set(self, monkeypatch):
-        """With DATABASE_URL set, the route opens a Postgres connection and
-        does NOT call connect_db (SQLite). The SQL `?` placeholders must be
-        rewritten to `%s` for the Postgres path."""
+    def test_recent_uses_sqlite_regardless_of_database_url(self, monkeypatch):
+        """Even if DATABASE_URL is set, the route uses SQLite via connect_db
+        (Render PG decommissioned 2026-05-18; dual-mode branch removed)."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
-
-        captured = {}
-
-        class _FakeCursor:
-            def __init__(self):
-                self._rows = []
-
-            def execute(self, sql, params):
-                captured["sql"] = sql
-                captured["params"] = params
-
-            def fetchall(self):
-                return []
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        class _FakeConn:
-            def cursor(self, cursor_factory=None):
-                captured["cursor_factory"] = cursor_factory
-                return _FakeCursor()
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        fake_psycopg2 = MagicMock()
-        fake_psycopg2.connect.return_value = _FakeConn()
-        fake_extras = MagicMock()
-        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
-        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
-
-        sqlite_called = MagicMock()
+        recent = _make_row(id_=1)
+        conn = _in_memory_conn_with_rows([recent])
         with patch(
             "src.api.cloud_routes.broker_exceptions.connect_db",
-            side_effect=sqlite_called,
+            return_value=conn,
         ):
             result = get_recent_exceptions(limit=50, since_hours=24)
-        sqlite_called.assert_not_called()
-        fake_psycopg2.connect.assert_called_once_with("postgresql://fake:fake@host/db")
-        # Placeholder rewrite: `?` -> `%s`
-        assert "?" not in captured["sql"]
-        assert "%s" in captured["sql"]
-        assert result["rows"] == []
-        assert result["count"] == 0
+        assert result["count"] == 1
+        assert result["rows"][0]["ticker"] == "CVS"
 
-    def test_summary_uses_psycopg2_when_database_url_set(self, monkeypatch):
-        """The /summary endpoint must also route to Postgres when DATABASE_URL
-        is set. All four count queries should use psycopg2, not SQLite."""
+    def test_summary_uses_sqlite_regardless_of_database_url(self, monkeypatch):
+        """Even if DATABASE_URL is set, /summary uses SQLite via connect_db."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
-
-        executed_sqls: list[str] = []
-
-        class _FakeCursor:
-            def __init__(self):
-                self._next_result = None
-
-            def execute(self, sql, params):
-                executed_sqls.append(sql)
-                # COUNT(*) queries return a one-row, one-column result.
-                # GROUP BY queries return a list with (key, count) tuples.
-                lower = sql.lower()
-                if "group by" in lower:
-                    self._next_result = []
-                else:
-                    self._next_result = [{"count": 0}]
-
-            def fetchall(self):
-                return self._next_result or []
-
-            def fetchone(self):
-                rows = self._next_result or []
-                return rows[0] if rows else None
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        class _FakeConn:
-            def cursor(self, cursor_factory=None):
-                return _FakeCursor()
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        fake_psycopg2 = MagicMock()
-        fake_psycopg2.connect.return_value = _FakeConn()
-        fake_extras = MagicMock()
-        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
-        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
-
-        sqlite_called = MagicMock()
+        rows = [
+            _make_row(id_=1, broker="alpaca"),
+            _make_row(id_=2, broker="alpaca", outcome="alert_qty_mismatch"),
+        ]
+        conn = _in_memory_conn_with_rows(rows)
         with patch(
             "src.api.cloud_routes.broker_exceptions.connect_db",
-            side_effect=sqlite_called,
+            return_value=conn,
         ):
             result = get_summary()
-        sqlite_called.assert_not_called()
-        # All SQL placeholders rewritten
-        for sql in executed_sqls:
-            assert "?" not in sql, f"SQLite-style placeholder leaked: {sql}"
-        assert result["total_24h"] == 0
-        assert result["total_7d"] == 0
-        assert result["alert_qty_mismatch_count"] == 0
-        assert result["by_broker"] == {}
-        assert result["by_operation"] == {}
+        assert result["total_24h"] == 2
+        assert result["alert_qty_mismatch_count"] == 1
+        assert result["by_broker"] == {"alpaca": 2}
 
-    def test_recent_falls_back_to_sqlite_when_database_url_unset(self, monkeypatch):
-        """Without DATABASE_URL, the route still uses SQLite via connect_db.
-        Local-dev parity: the cloud route must keep working on the operator's
-        machine where DATABASE_URL is unset."""
+    def test_recent_uses_sqlite_when_database_url_unset(self, monkeypatch):
+        """Without DATABASE_URL, the route uses SQLite via connect_db."""
         monkeypatch.delenv("DATABASE_URL", raising=False)
         recent = _make_row(id_=1)
         conn = _in_memory_conn_with_rows([recent])
@@ -517,7 +421,7 @@ class TestPostgresRouting:
         assert result["count"] == 1
         assert result["rows"][0]["ticker"] == "CVS"
 
-    def test_summary_falls_back_to_sqlite_when_database_url_unset(self, monkeypatch):
+    def test_summary_uses_sqlite_when_database_url_unset(self, monkeypatch):
         monkeypatch.delenv("DATABASE_URL", raising=False)
         rows = [
             _make_row(id_=1, broker="alpaca"),

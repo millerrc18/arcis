@@ -41,26 +41,7 @@ def verify_auth() -> None:  # noqa: D401  # placeholder, overridden in prod
 
 
 def _read_rows(sql: str, params: tuple = ()) -> list[dict]:
-    """Run a read-only query against Postgres (if DATABASE_URL is set) or
-    local SQLite (dev mode).
-
-    Reason: this module is registered into cloud_app.py AND used in local
-    dev. Previously it always used sqlite3 — which silently creates an
-    empty DB on Render, so SELECTs failed. Gate on DATABASE_URL so the
-    cloud path reads from Render Postgres.
-
-    Placeholder convention: pass `?`-style SQL. Converted to `%s` for
-    Postgres automatically. SQLs in this module do not contain literal `?`.
-    """
-    database_url = os.environ.get("DATABASE_URL", "")
-    if database_url:
-        import psycopg2
-        import psycopg2.extras
-        pg_sql = sql.replace("?", "%s")
-        with psycopg2.connect(database_url) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(pg_sql, params)
-                return [dict(r) for r in cur.fetchall()]
+    """Run a read-only query against local SQLite."""
     conn = connect_db(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
