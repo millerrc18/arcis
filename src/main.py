@@ -40,6 +40,8 @@ from src.cli.commands import (
     cmd_cto_report,
     cmd_dashboard,
     cmd_demo_packet,
+    cmd_digest_handover_check,
+    cmd_digest_preview,
     cmd_eod_recap,
     cmd_evaluate_gate,
     cmd_evaluate_holdout,
@@ -107,6 +109,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("send-test-email").set_defaults(func=cmd_send_test_email)
     subparsers.add_parser("send-test-telegram", help="Test Telegram notification delivery").set_defaults(func=cmd_send_test_telegram)
     subparsers.add_parser("ingest").set_defaults(func=cmd_ingest)
+
+    # #115 email consolidation — digest inspection + handover gate
+    digest_preview = subparsers.add_parser("digest-preview", help="Preview the body that a tier digest would emit (no send)")
+    digest_preview.add_argument("--tier", choices=["preopen", "postclose", "weekly"], required=True)
+    digest_preview.add_argument("--pending", action="store_true", help="Show pending queue rows for the tier instead of preview body")
+    digest_preview.add_argument("--dry-run", action="store_true", help="Alias for default preview mode")
+    digest_preview.set_defaults(func=cmd_digest_preview)
+
+    digest_handover = subparsers.add_parser("digest-handover-check", help="Verify hold-over exit tripwires before flipping mode='off' (#115 DA-MAJ-7)")
+    digest_handover.add_argument("--window-days", type=int, default=7)
+    digest_handover.add_argument("--compare-window", default=None, help="Row-ID inclusion check window, e.g. '7d' (DA-MAJ-11)")
+    digest_handover.set_defaults(func=cmd_digest_handover_check)
 
     scan = subparsers.add_parser("scan")
     scan.add_argument("--verbose", action="store_true")
