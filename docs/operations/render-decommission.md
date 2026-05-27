@@ -210,3 +210,62 @@ This is the nuclear-option restore. It rebuilds a full PG mirror from the snapsh
 - Cutover rollback record: commits `344e5e6` → `ed1757c` → `449dfc0` on `main`
 - SQLite-isms prelim audit (input for Sprint 5 design): `docs/audits/2026-05-10-cloudflare-tunnel-cutover/sqlite-isms-prelim-audit.md`
 - This runbook: `docs/operations/render-decommission.md`
+
+---
+
+## Phase 4 receipt (2026-05-27)
+
+Render code sweep landed in Phase 5 PR-B (#73). The cloud_app FastAPI entry, Render deployment manifest, requirements, and DB-init helper are gone; the cloud_routes/ modules no longer gate on DATABASE_URL (single-mode SQLite). 7 tier-2 tests redirected to `src/api/app.py`; 2 tier-2 tests with heavy cloud_app-internal patches deleted with rewrite kins (#10, #11). 2 regression-lock sentinels (`tests/test_cloud_app_removed.py` + `tests/test_no_database_url_branch.py`) enforce no-reintroduction.
+
+### Commits
+
+| Commit | Task | Description |
+|---|---|---|
+| `b7984155` | T4 | delete cloud_app.py + render.yaml + requirements-cloud.txt + scripts/render_init_db.py |
+| `c2f7c4de` | T4b | delete dedicated cloud_app test suite + check_cloud_deploy_imports.py + structure-test fn (2233L) |
+| `fa95d4a7` | T4c | redirect 7 tier-2 tests + render_architecture_doc.py to src.api.app |
+| `b7c2d1ff` | T4d | delete 2 tier-2 tests with heavy cloud_app patches (kin #10, #11) |
+| `2abe0fcb` | T6 | strip DATABASE_URL batch 1 (platform, broker_exceptions, commands, kpis_compute) |
+| `bdde5cf9` | T7 | strip DATABASE_URL batch 2 (notifications, preflight, walkforward) + __init__ docstring |
+| `7d708598` | T8 | add 2 regression-lock sentinels (test_cloud_app_removed + test_no_database_url_branch) |
+| `<this commit>` | T9 | CHANGELOG entries + this receipt |
+
+### Two-step rollback protocol (per Phase 5 §3.4)
+
+If post-merge regression appears that traces to PR-B:
+
+1. **Revert the merge commit on `main`**:
+   ```bash
+   git revert -m 1 <PR-B-merge-sha>
+   git push origin main
+   ```
+   This restores cloud_app.py + cloud_routes DATABASE_URL branches in one step. Watch-loop and dashboard processes can be restarted to pick up the reverted code.
+
+2. **Re-delete the sentinel commit** (separate step to keep history clean):
+   The sentinels (`tests/test_cloud_app_removed.py` + `tests/test_no_database_url_branch.py`) will FAIL once cloud_app.py is restored — that's the regression-lock working as intended. Delete the sentinel files in a follow-up commit:
+   ```bash
+   git rm tests/test_cloud_app_removed.py tests/test_no_database_url_branch.py
+   git commit -m "rollback: remove PR-B sentinels (companion to PR-B revert)"
+   git push origin main
+   ```
+
+The two-step structure (revert + sentinel-delete in separate companion commit, per DA6) is required because step 1 alone leaves the test suite RED — the sentinels would assert "cloud_app should be gone" but cloud_app is back. The companion deletion clears the contradiction.
+
+### Skipped sub-tasks
+
+- T5 (delete `scripts/render_to_local_migrate.py`) — deferred to dedicated PR per kin #13. Script houses load-bearing `apply_ownership_reconciliation` function (the 2026-05-14 incident fix). Proper migration: move the function to `scripts/_shared_migration_utils.py`, update dependent tests, then delete the script.
+
+### Verification
+
+- All 7 cloud_routes modules: `grep DATABASE_URL src/api/cloud_routes/` → 0 hits
+- All cloud_app references in tests/scripts (excl. 1 historical comment): `git grep src.api.cloud_app tests/ scripts/` → 0 hits in tests/, 1 in scripts/close_triage_bundle_issues.sh:42 (historical issue #598 context, intentionally preserved)
+- Test floor: 7007 → ~6870 (delta -137; well above 5,467 floor)
+- Regression-lock sentinels PASS with verify-by-mutation evidence (sabotage cycles documented in T8 commit body)
+
+### Kins filed during PR-B execution
+
+- #9: PLAN GAP T4 — cloud_app deletion required broader cleanup than original scope_fence allowed
+- #10: rewrite tests/api/test_status.py using src.api.app
+- #11: rewrite tests/test_shadow_desk_filter.py using src.api.app
+- #12: test_route_excludes_operator_confirm_rows hardcoded-timestamp flake (unrelated, surfaced during T4c)
+- #13: PLAN GAP T5 — render_to_local_migrate.py proper-expansion deletion
