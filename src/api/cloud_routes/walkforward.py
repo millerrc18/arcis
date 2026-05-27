@@ -1,12 +1,12 @@
 """/api/walkforward/* endpoints — walk-forward validation dashboard data.
 
 Called by: frontend/src/pages/WalkforwardResults.jsx.
-Calls: none (direct SQLite/Postgres reads via the same mechanism as platform.py).
+Calls: none (direct SQLite reads).
 Owns tables: reads walkforward_results, walkforward_trades.
-Config keys: none.
 Tests: tests/api/test_walkforward_routes.py.
 
-Mirrors the sqlite/postgres-dual read pattern from platform.py. Exposes:
+Single-mode SQLite (Render resources stopped 2026-05-18; post-cutover).
+Exposes:
     GET  /api/walkforward/runs               list runs (latest per strategy)
     GET  /api/walkforward/runs/{run_id}      single-run metadata
     GET  /api/walkforward/runs/{run_id}/windows   per-window breakdown
@@ -22,7 +22,6 @@ show the INCONCLUSIVE_POWER badge distinct from INSUFFICIENT_DATA.
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -47,15 +46,6 @@ def verify_auth() -> None:  # noqa: D401  # placeholder, overridden in prod
 
 
 def _read_rows(sql: str, params: tuple = ()) -> list[dict]:
-    database_url = os.environ.get("DATABASE_URL", "")
-    if database_url:
-        import psycopg2
-        import psycopg2.extras
-        pg_sql = sql.replace("?", "%s")
-        with psycopg2.connect(database_url) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(pg_sql, params)
-                return [dict(r) for r in cur.fetchall()]
     conn = connect_db(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
