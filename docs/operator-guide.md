@@ -3597,3 +3597,96 @@ These files contain assertions referencing the old `vram_handoff` metric names a
 ---
 
 End of Dual-GPU Cutover Runbook section.
+
+---
+
+## Email Consolidation (#115) — Digest CLIs + Hold-Over Operations
+
+> **Sprint #115 reference.** Section 9 of `docs/audits/2026-05-26-email-consolidation/specs/2026-05-26-email-consolidation-design.md`. Use this section after PR 1 deploys (shadow-mode hold-over) and before PR 2 merge (old-path retirement).
+
+### Routing matrix
+
+The load-bearing event→tier mapping lives in `src/notifications/email_digest.py` (`EVENT_TO_TIER` dict). Routing is also documented in the spec at Section 5. Tiers: `preopen` (07:30 ET weekday), `postclose` (17:00 ET weekday), `weekly` (Sun 18:00 ET).
+
+### New CLI commands
+
+#### `digest-preview` — preview a tier's email body or inspect its pending queue
+
+```bash
+# Render the preopen tier as plain text (what the next 07:30 ET digest will send)
+python -m src.main digest-preview --tier preopen
+
+# Same, explicit dry-run flag (no side effects, identical to default)
+python -m src.main digest-preview --tier postclose --dry-run
+
+# Inspect rows currently queued for the preopen tier
+python -m src.main digest-preview --tier preopen --pending
+
+# Inspect the weekly digest queue
+python -m src.main digest-preview --tier weekly --pending
+```
+
+Valid `--tier` values: `preopen`, `postclose`, `weekly`. Default mode (and `--dry-run`) call `src.notifications.email_digest.preview_tier(tier)` and print the plain-text body to stdout. `--pending` queries `notifications_digest_queue` for `flush_status='pending'` rows where `source_tag` matches `email:<tier>` (or any sub-tag like `email:preopen:critical-overflow`) and prints a table of `(id, event_type, severity, source_tag, created_at)`.
+
+#### `digest-handover-check` — handover-readiness tripwires (DA-MAJ-7 + DA-MAJ-11)
+
+```bash
+# Run all tripwires over the past 7 days (default window)
+python -m src.main digest-handover-check
+
+# Custom window
+python -m src.main digest-handover-check --window-days 14
+
+# Row-ID inclusion check: every shadow_trade.id in old eod between Mon 16:15 ET
+# and Tue 07:30 ET appears in the NEW postclose Mon 17:00 ET shadow file OR the
+# NEW preopen Tue 07:30 ET shadow file (DA-MAJ-11)
+python -m src.main digest-handover-check --compare-window 7d
+```
+
+Exit code: `0` on PASS, `1` on FAIL. Prints `PASS`/`FAIL` plus per-tripwire detail lines.
+
+### Post-deploy operator checklist (spec §9.2)
+
+Run these in order after PR 1 deploys (shadow-mode hold-over):
+
+1. **Day 0** — Confirm inbox volume UNCHANGED from before the deploy. Shadow mode does NOT send new emails. Telegram still receives notifications as today.
+2. **Day +1** — Open `tmp/digest-shadow/preopen-YYYY-MM-DD.html` in a browser. Verify rendering looks correct (subject line, sections, alert formatting).
+3. **Day +1** — Run `python -m src.main digest-preview --tier preopen --pending`. Confirm the queue is draining when expected (no stuck rows past the tier's flush time).
+4. **Day +7** — Run `python -m src.main digest-handover-check`. Expect `status=PASS`.
+5. **Day +7** — Run `python -m src.main digest-handover-check --compare-window 7d`. Verifies row-ID inclusion (DA-MAJ-11): every `shadow_trade.id` in old eod between Mon 16:15 ET and Tue 07:30 ET appears in the new postclose Mon 17:00 ET OR new preopen Tue 07:30 ET shadow files.
+6. **Before PR 2 merge** — `digest-handover-check` MUST return PASS. This is the concrete operator gate (no subjective judgment).
+7. **After PR 2 deploy** — Inbox volume drops from current ~6–10/day to ~2/day weekdays + 1/week.
+
+### Hold-over exit criteria (spec §9.5, DA-MAJ-7)
+
+PR 2 merge is gated on `digest-handover-check` returning PASS. The check verifies:
+
+1. **Zero abandoned rows** in `notifications_digest_queue` where `source_tag LIKE 'email:%'` in the past 7 days.
+2. **Preopen tier flushed ≥ 5 weekdays** of expected weekdays in the past 7 days (one shadow file per weekday in `tmp/digest-shadow/preopen-*.html`).
+3. **Postclose tier flushed ≥ 5 weekdays** in the past 7 days.
+4. **Weekly tier flushed exactly once** in the past 7 days (one shadow file `tmp/digest-shadow/weekly-*.html` in the past Sunday's date range).
+5. **Zero operator-reported missing-signal incidents** (operator's responsibility to clear; the check is a placeholder for operator confirmation).
+6. **Optional `--compare-window 7d`** — every `shadow_trade.id` mentioned in old eod between Mon 16:15 ET and Tue 07:30 ET appears in the NEW postclose Mon 17:00 ET shadow file OR the NEW preopen Tue 07:30 ET shadow file (row-ID inclusion check, DA-MAJ-11).
+
+Tying PR 2 merge to this CLI's PASS output is the concrete operator gate.
+
+### Rollback (spec §9.3)
+
+- **Within PR 1's life — pause new path silently:** flip `email.dual_write_hold_over.mode=shadow` in `config/settings.local.yaml` (default). The new aggregator path stays silent (shadow files only); the old path continues emailing as today.
+- **Within PR 1's life — silence one tier:** flip `email.tiers.<tier>.enabled=false` for the offending tier.
+- **Within PR 1's life — full disable:** flip ALL `email.tiers.*.enabled=false`. The new aggregator goes silent (events still enqueue for audit, no email sent). Old path continues.
+- **Emergency:** `git revert` the PR 1 merge commit. The old `_check_digest_schedule` is intact and continues working as before.
+
+### Where to inspect shadow files
+
+```
+tmp/digest-shadow/preopen-YYYY-MM-DD.html
+tmp/digest-shadow/preopen-YYYY-MM-DD.txt
+tmp/digest-shadow/postclose-YYYY-MM-DD.html
+tmp/digest-shadow/postclose-YYYY-MM-DD.txt
+tmp/digest-shadow/weekly-YYYY-MM-DD.html
+tmp/digest-shadow/weekly-YYYY-MM-DD.txt
+```
+
+Open the `.html` in a browser to verify rendering before operator sign-off on PR 2.
+
