@@ -2,7 +2,142 @@
 
 ## [Unreleased]
 
-### Arcis Strategy Skill (#110) — research-desk capstone
+## [v0.36.71] — 2026-05-27 — Cleanup Sprint 1 — observability + backtest CLI + sim/test infra (#112/113/114/118/119/120/121/122/123/124)
+
+Spec/plan: `docs/audits/cleanup-1/`. Ten-fix bundled backlog sweep landing as
+one PR with one commit per fix plus a sibling-search consolidation commit and
+the integration commit. Dual-Opus QA gate ran on the bundle, not per-commit.
+Discipline (operator-stated): architect autonomy + batching + sibling-search +
+verify-by-mutation + no-out-of-scope-deferral.
+
+### Cluster A — observability accuracy
+
+- **#119 — `paths.logs_runtime` config drift fixed** (`fix(#119)`):
+  `config/arcis_config.yaml` `paths.logs_runtime` corrected from
+  `C:/arcis/logs` to repo-local canonical `C:/arcis/halcyon-lab/logs`.
+  Architect-locked option (b) — config + docs only; runtime log files
+  NOT physically moved (would risk watch-loop downtime).
+  Doc sweep: `CLAUDE.md`, `src/training/training_control.py:31` comment.
+  Audit-doc historical receipts under `docs/audits/2026-*/` preserved
+  intentionally. Known Consideration: `TRAINING_PID_FILE` derivation at
+  `training_control.py:35-37` still computes the legacy
+  `C:/arcis/logs/training.pid` path; the comment was updated but the
+  runtime derivation was deliberately NOT changed (would drift to
+  rejected option (a)). Filed for follow-up.
+- **#120 — HealthProbe heartbeat filenames mapped to NSSM-actual filenames**
+  (`fix(#120)`): `_HEARTBEAT_SOURCES` + `_LOG_SOURCES` in
+  `src/tools/healthprobe/core.py` updated from stale `arcis-dashboard.log` /
+  `arcis-ollama-watchdog.log` to NSSM-produced `dashboard-stdout.log` /
+  `ollama_watchdog.out.log`. Eliminates false-DEGRADED noise on the
+  Dashboard + Ollama services. Sibling-fix in `nssm.py:121-123` rolled
+  into the cleanup commit.
+- **#122 — `ArcisWatchLoop` staleness threshold bumped 60 → 900s**
+  (`fix(#122)`): `_DEFAULT_STALENESS['ArcisWatchLoop']` increased to
+  900 seconds (15 minutes). Addresses 2 false-positive wedge diagnoses
+  during normal 14-min LLM scan cycles (per
+  `feedback_wedge_vs_long_iteration`). V2 enhancement: per-task
+  intra-iteration heartbeat lets threshold drop back to 60s — deferred.
+  Other services' thresholds unchanged.
+- **#123 — Live-monitor agent 4-point wedge protocol + golden cases**
+  (`docs(#123)`): `.claude/plugins/arcis/agents/live-monitor.md` and
+  `.claude/plugins/arcis/commands/operate.md` updated with the 4-point
+  wedge-diagnostic protocol (staleness > 20 min + arcis.log silence > 20
+  min + no in-progress markers + p99 baseline comparison). New
+  `OUTPUT FORMAT` field `historical_baseline_min` per `service_state[]`
+  entry. New CONSTRAINT: "MUST NOT declare wedge unless ALL FOUR met."
+  Golden cases at `docs/agent-tests/live-monitor-golden.md` encode the
+  2026-05-26 11:14 ET misdiagnosis regression case and a true-wedge case
+  with explicit `EXPECTED_VERDICT` markers. Sibling: same 4-point list
+  byte-equivalent across live-monitor.md, operate.md, and
+  `watchloop-wedged.md` runbook.
+- **#124 — TradingState structured error envelope on UndefinedTable**
+  (`fix(#124)`): `src/tools/tradingstate/core.py` `_pg_snapshot` and
+  `_sqlite_snapshot` now wrap individual `cur.execute()` calls in
+  targeted try/except for `psycopg2.errors.UndefinedTable` and
+  `sqlite3.OperationalError` (no-such-table). Missing-table conditions
+  produce `{field: None, errors: {field: {error_type, error_message,
+  table_name}}}` rather than crash or silent-empty. Closes the
+  silent-failure anti-pattern class that masked the morning-wedge
+  misdiagnosis. Other DB error types still propagate.
+
+### Cluster B — backtest CLI plumbing
+
+- **#118 — `scripts/run_backtest.py --with-walkforward` deprecated**
+  (`chore(#118)`): the flag now emits a deprecation message and exits
+  non-zero. Argparse entry retained so `--help` exposes the deprecation.
+  Default mode unchanged. Architect-locked option (b) — deprecate, do
+  NOT update the call-site (`/arcis:strategy backtest` is the canonical
+  surface). Three out-of-scope string-literal hits in `src/platform/`
+  (`promotion.py:529` operator-visible error message, `backtest_persist.py:62`,
+  `__init__.py:23`) rolled into the cleanup commit.
+
+### Cluster E — sim/test infra trio
+
+- **#112 — `test_trainer_stub.py` env-drift fixed via lazy import**
+  (`fix(#112)`): production module import moved inside a pytest fixture
+  so conftest env injection lands before `DB_PATH` resolution. Removed
+  the corresponding `--ignore=...test_trainer_stub.py` flag from
+  `.github/workflows/lifecycle-smoke.yml`. Architect-locked: test-side
+  fix only — production code in `src/training/` untouched.
+- **#113 — lifecycle-smoke CI timeout tightened 600 → 480s**
+  (`chore(#113)`): 300s target NOT achieved this pass — 480s is the
+  honest residual. Bottleneck identified: `test_no_conn_leak_smoke_accumulator`
+  with `SIM_LEAK_LOOP_ITERATIONS=3` default. Follow-up: session-scoped
+  `run_smoke()` fixture caching could collapse ~9 independent invocations
+  to ~1; deferred per discipline ("don't trade smoke coverage for runtime").
+- **#114 — sim per-fault matrix T10/T11/T12 added** (`test(#114)`):
+  new `tests/simulation/lifecycle/test_per_fault_matrix.py` with 13
+  tests covering broker-submit timeout (T10), virtual-clock drift (T11),
+  and market-data feed gap (T12). Each fault includes a verify-by-mutation
+  hook proving the test reaches the production code path. T11
+  `_now`-mutation pattern matches the existing offset-naive convention.
+
+### Cluster F — tooling
+
+- **#121 — py-spy admin stack-dump wrapper** (`feat(#121)`): new
+  `scripts/dump_watchloop.ps1` elevates via `Start-Process -Verb RunAs`,
+  invokes `py-spy dump --pid <N>`, captures dump output under the
+  corrected `logs_runtime` path (`C:/arcis/halcyon-lab/logs`). New
+  operator runbook at `docs/runbooks/stack-dump.md` covers when to use,
+  prerequisites (`pip install py-spy`), and how to interpret the output.
+
+### Sibling-search consolidation commit
+
+- **`chore(cleanup-1): finish sibling-search sweep`** — five
+  out-of-scope hits flagged during Wave-1+2 sibling-searches, fixed in
+  one coherent commit:
+  1. `src/platform/promotion.py:529` — operator-visible error message
+     updated from "run with --with-walkforward first" to canonical
+     `/arcis:strategy backtest <id>` advice.
+  2. `src/platform/backtest_persist.py:62` — comment updated.
+  3. `src/platform/__init__.py:23` — tool description updated.
+  4. `src/tools/processmanager/nssm.py:121-123` — `_resolve_log_evidence_path`
+     filename map updated to match #120 (same anti-pattern).
+  5. `.claude/plugins/arcis/skills/operate/runbooks/watchloop-wedged.md` —
+     4-point protocol mirrored byte-equivalent to live-monitor.md +
+     operate.md (sibling of #123).
+
+### Tests
+
+Net-add: **+27 new tests** across the sprint (Wave 1: 19; Wave 2: 5;
+sibling cleanup: 1; +2 baseline test fixture updates for thresholds).
+Total collected: **6,997** (well above the 5,467 CI floor).
+
+### Known Considerations / follow-ups
+
+- `TRAINING_PID_FILE` derivation discrepancy (see #119 entry above).
+- `scan_service.py` grew from 440 → 517 lines past its grandfathered
+  tolerance — pre-existing on `main`, not introduced this sprint;
+  `config/known_violations.json` entry should be updated or the file
+  split in a future cleanup.
+- lifecycle-smoke session-scoped `run_smoke()` fixture caching (#113
+  follow-up).
+- Six tests under `tests/` import `src.training` modules at module
+  scope; safe in CI today because lifecycle-smoke is scoped, but
+  vulnerable to env-drift if collection order changes — applying the
+  #112 lazy-import pattern would harden them.
+
+## [v0.36.70] — 2026-05-27 — Arcis Strategy Skill (#110) — research-desk capstone
 
 Spec/plan: `docs/audits/2026-05-26-arcis-strategy/`. New `/arcis:strategy` skill
 with 4 verbs (ideate / backtest / analyze / status). Composes db-investigator +

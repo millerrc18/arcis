@@ -18,7 +18,8 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.70 (#110
-# arcis:strategy skill ships — research-desk capstone with 4 verbs).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.71
+# (Cleanup Sprint 1 — observability accuracy + backtest CLI plumbing +
+# sim/test infra; 10 fixes across #112/113/114/118/119/120/121/122/123/124).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.70"
+VERSION = "v0.36.71"

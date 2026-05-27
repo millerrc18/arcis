@@ -229,3 +229,48 @@ any of the CI workflow changes in #113.
 - Per-task heartbeat for watch loop (#122 v2 enhancement) — defer
 - TradingState reactive cleanup beyond `shadow_trades` — file as follow-up
   if sibling-search finds more
+
+---
+
+## STATUS: COMPLETE (2026-05-27 — v0.36.71)
+
+All 10 primary fixes plus one sibling-search consolidation commit landed on
+branch `sprint/cleanup-1/impl` and merged to `main` as PR.
+
+**Commit range (top to bottom):**
+
+- `<INTEGRATE>` — `chore(cleanup-1): bump v0.36.71 + CHANGELOG + integration receipt`
+- `441f6694` — `chore(cleanup-1): finish sibling-search sweep — platform deprecation refs + nssm filename map + wedge runbook`
+- `e5b799ea` — `docs(#123): live-monitor 4-point wedge protocol + operate.md sibling + golden cases`
+- `c4eeec96` — `fix(#122): bump ArcisWatchLoop heartbeat staleness threshold 60→900s`
+- `a93f99ed` — `chore(#113): tighten lifecycle-smoke timeout 600s → 480s`
+- `12cea1d1` — `fix(#120): map HealthProbe heartbeat sources to actual NSSM filenames`
+- `2f89ae12` — `chore(#118): deprecate scripts/run_backtest.py --with-walkforward (canonical: /arcis:strategy backtest)`
+- `5e7a9210` — `fix(#124): TradingState returns structured error envelope on UndefinedTable`
+- `d1ebb32c` — `test(#114): add per-fault matrix T10/T11/T12 — broker timeout, clock drift, data feed gap`
+- `96fc7243` — `fix(#112): lazy-import production module in test_trainer_stub to absorb env scrub`
+- `afcbbe83` — `feat(#121): py-spy admin stack-dump wrapper for watchloop wedge diagnostic`
+- `edb68ab6` — `fix(#119): correct logs_runtime to repo-local path`
+- `5222c9bf` — `spec(cleanup-1): commit specification as deliverable 0 for PR provenance`
+
+**Net-add:** +27 new tests across the sprint. Total collected: 6,997
+(well above 5,467 CI floor).
+
+**Dual-Opus QA verdict:** _(to be filled in at merge time)_
+
+**Follow-ups filed (per `feedback_complete_efforts_no_deferral` deferred-with-reason):**
+
+1. `TRAINING_PID_FILE` runtime derivation alignment vs the updated
+   `logs_runtime` config (or revert the #119 comment to acknowledge the
+   discrepancy honestly). Architect-locked option (b) on #119 forbade
+   moving log file locations at runtime, so this is a deliberate
+   carry-over.
+2. `scan_service.py` 440 → 517 lines past grandfathered tolerance —
+   pre-existing on `main`. Either split or update
+   `config/known_violations.json`.
+3. lifecycle-smoke session-scoped `run_smoke()` fixture caching —
+   would collapse ~9 independent invocations to ~1 and let timeout
+   drop from 480s to ≤300s.
+4. Six tests under `tests/` import `src.training` modules at module
+   scope — apply the #112 lazy-import pattern for hardening.
+
