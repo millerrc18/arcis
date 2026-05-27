@@ -20,7 +20,7 @@ _LAST_REVIEWED = date(2026, 4, 18)
     description=(
         "Run a backtest for a registered strategy over a date range. "
         "Writes results to backtest_results; long-running strategies can "
-        "be followed up with --with-walkforward for OOS efficiency."
+        "be followed up with `/arcis:strategy backtest <id>` for OOS efficiency."
     ),
     category="backtest",
     version="1.0",

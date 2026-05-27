@@ -526,7 +526,7 @@ def _evaluate_shadow_trading_gate(
     if oos_efficiency is None:
         evidence["error"] = (
             "backtest has no walk-forward OOS efficiency — "
-            "run with --with-walkforward first"
+            "use `/arcis:strategy backtest <strategy-id>` for rigor-grade walkforward analysis"
         )
         mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
             strategy_id, db_path,
