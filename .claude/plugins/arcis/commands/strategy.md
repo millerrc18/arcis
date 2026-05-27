@@ -929,8 +929,10 @@ with portalocker.Lock(LOCK_PATH, timeout=10):
         )
 
         # Persist the walkforward aggregate + per-window OOS trades.
+        # NOTE: persist_run_result's enumerate() expects a sequence — pass a list,
+        # NOT a dict (per T8 verification-log §C1 finding S1).
         wf_run_id = wf_result.run_id
-        oos_trades_per_window = {i: window_trades[i]["oos"] for i in window_trades}
+        oos_trades_per_window = [window_trades[i]["oos"] for i in sorted(window_trades)]
         persist_run_result(
             wf_result,
             strategy_spec_raw=spec.raw,
