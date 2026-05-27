@@ -36,8 +36,8 @@ _DEFAULT_STALENESS: dict[str, int] = {
 
 _HEARTBEAT_SOURCES: dict[str, tuple] = {
     "ArcisWatchLoop": (lambda cfg: cfg.paths.watchdog_heartbeat, "iso"),
-    "ArcisDashboard": (lambda cfg: cfg.paths.logs_runtime / "arcis-dashboard.log", "mtime"),
-    "ArcisOllamaWatchdog": (lambda cfg: cfg.paths.logs_runtime / "arcis-ollama-watchdog.log", "mtime"),
+    "ArcisDashboard": (lambda cfg: cfg.paths.logs_runtime / "dashboard-stdout.log", "mtime"),
+    "ArcisOllamaWatchdog": (lambda cfg: cfg.paths.logs_runtime / "ollama_watchdog.out.log", "mtime"),
 }
 
 _PORT_SOURCES: dict[str, object] = {
@@ -48,8 +48,8 @@ _PORT_SOURCES: dict[str, object] = {
 
 _LOG_SOURCES: dict[str, object] = {
     "ArcisWatchLoop": lambda cfg: cfg.paths.logs_runtime / "arcis.log",
-    "ArcisDashboard": lambda cfg: cfg.paths.logs_runtime / "arcis-dashboard.log",
-    "ArcisOllamaWatchdog": lambda cfg: cfg.paths.logs_runtime / "arcis-ollama-watchdog.log",
+    "ArcisDashboard": lambda cfg: cfg.paths.logs_runtime / "dashboard-stdout.log",
+    "ArcisOllamaWatchdog": lambda cfg: cfg.paths.logs_runtime / "ollama_watchdog.out.log",
 }
 
 

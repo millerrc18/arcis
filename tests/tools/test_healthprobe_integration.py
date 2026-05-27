@@ -121,8 +121,8 @@ def test_all_healthy_returns_ok(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -159,8 +159,8 @@ def test_watchloop_stale_heartbeat_returns_degraded(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -195,8 +195,8 @@ def test_ollama_port_not_listening_returns_degraded(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -234,8 +234,8 @@ def test_dashboard_stopped_returns_down(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -274,8 +274,8 @@ def test_heartbeat_file_missing_returns_degraded(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -309,8 +309,8 @@ def test_heartbeat_garbage_returns_parse_error(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -348,8 +348,8 @@ def test_stale_seconds_override_makes_previously_stale_ok(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -428,8 +428,8 @@ def test_check_with_nssm_missing_absorbs_to_down_verdict(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -477,8 +477,8 @@ def test_heartbeat_path_is_directory_returns_not_a_file(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "arcis.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-dashboard.log").write_text("", encoding="utf-8")
-    (logs_dir / "arcis-ollama-watchdog.log").write_text("", encoding="utf-8")
+    (logs_dir / "dashboard-stdout.log").write_text("", encoding="utf-8")
+    (logs_dir / "ollama_watchdog.out.log").write_text("", encoding="utf-8")
 
     fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb_dir, logs_runtime=logs_dir)
     fn = _build_check(log, fake_cfg)
@@ -493,3 +493,133 @@ def test_heartbeat_path_is_directory_returns_not_a_file(tmp_path):
         f"Expected 'not_a_file', got {wl['heartbeat_reason']!r}. "
         "If 'parse_error': path.is_file() check not added to _check_heartbeat."
     )
+
+
+# ── (k) TestHeartbeatFilenameMapping ─────────────────────────────────────────
+
+
+class TestHeartbeatFilenameMapping:
+    """(k) Verify _HEARTBEAT_SOURCES maps services to ACTUAL NSSM-produced filenames.
+
+    NSSM writes:
+      ArcisDashboard    -> dashboard-stdout.log
+      ArcisOllamaWatchdog -> ollama_watchdog.out.log
+
+    Old wrong names were:
+      arcis-dashboard.log
+      arcis-ollama-watchdog.log
+
+    Verify-by-mutation proof in test_heartbeat_filename_mapping_reverts_to_degraded_with_old_names.
+    """
+
+    def _make_logs_dir(self, tmp_path: Path, *, fresh: bool):
+        """Create logs dir with CORRECT new filenames at either fresh or stale mtimes."""
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+
+        if fresh:
+            # Write correct new filenames with fresh content (mtime = now)
+            (logs_dir / "dashboard-stdout.log").write_text("alive", encoding="utf-8")
+            (logs_dir / "ollama_watchdog.out.log").write_text("alive", encoding="utf-8")
+        else:
+            # Write ONLY old wrong filenames (so correct names are absent -> stale)
+            import time
+            old_ts = 9999  # epoch seconds — unambiguously stale
+            (logs_dir / "arcis-dashboard.log").write_text("old", encoding="utf-8")
+            (logs_dir / "arcis-ollama-watchdog.log").write_text("old", encoding="utf-8")
+            # Backdate their mtime to be clearly stale
+            for name in ("arcis-dashboard.log", "arcis-ollama-watchdog.log"):
+                p = logs_dir / name
+                import os
+                os.utime(p, (old_ts, old_ts))
+
+        return logs_dir
+
+    def test_correct_filenames_yield_ok_verdict(self, tmp_path):
+        """(k1) CORRECT new filenames present at fresh mtime -> verdict OK for ArcisDashboard and ArcisOllamaWatchdog.
+
+        Verify-by-mutation: change _HEARTBEAT_SOURCES to use old names ->
+        dashboard-stdout.log/ollama_watchdog.out.log not found -> heartbeat_fresh=False -> DEGRADED.
+        Test MUST fail when names are wrong.
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb = tmp_path / "watchdog.txt"
+        hb.write_text(_iso_ts(_now_utc()), encoding="utf-8")
+
+        logs_dir = self._make_logs_dir(tmp_path, fresh=True)
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn()
+
+        dash = result["services"]["ArcisDashboard"]
+        ollama = result["services"]["ArcisOllamaWatchdog"]
+
+        assert dash["heartbeat_fresh"] is True, (
+            f"ArcisDashboard heartbeat_fresh expected True, got {dash['heartbeat_fresh']!r}. "
+            f"reason={dash['heartbeat_reason']!r}. "
+            "NSSM writes 'dashboard-stdout.log' — _HEARTBEAT_SOURCES must reference that name."
+        )
+        assert dash["verdict"] == "OK", f"ArcisDashboard verdict: {dash['verdict']!r}"
+
+        assert ollama["heartbeat_fresh"] is True, (
+            f"ArcisOllamaWatchdog heartbeat_fresh expected True, got {ollama['heartbeat_fresh']!r}. "
+            f"reason={ollama['heartbeat_reason']!r}. "
+            "NSSM writes 'ollama_watchdog.out.log' — _HEARTBEAT_SOURCES must reference that name."
+        )
+        assert ollama["verdict"] == "OK", f"ArcisOllamaWatchdog verdict: {ollama['verdict']!r}"
+
+    def test_heartbeat_filename_mapping_reverts_to_degraded_with_old_names(self, tmp_path):
+        """(k2) VERIFY-BY-MUTATION proof: old filenames only -> DEGRADED for both services.
+
+        This test creates ONLY the old wrong filenames (arcis-dashboard.log,
+        arcis-ollama-watchdog.log) at stale mtimes, while the correct new filenames
+        are absent. After the fix, _HEARTBEAT_SOURCES reads the new names ->
+        file_missing -> heartbeat_fresh=False -> DEGRADED.
+
+        If this test passes: the fix correctly ignores old filenames.
+        If this test fails: either the code still uses old names (not fixed) or
+        the new files were accidentally created (test setup error).
+        """
+        from src.tools.processmanager.nssm import ServiceState
+
+        log = tmp_path / "exec.log"
+        hb = tmp_path / "watchdog.txt"
+        hb.write_text(_iso_ts(_now_utc()), encoding="utf-8")
+
+        logs_dir = self._make_logs_dir(tmp_path, fresh=False)
+
+        # Confirm: new filenames must NOT exist (test setup invariant)
+        assert not (logs_dir / "dashboard-stdout.log").exists(), (
+            "Test setup error: dashboard-stdout.log must not exist for mutation test"
+        )
+        assert not (logs_dir / "ollama_watchdog.out.log").exists(), (
+            "Test setup error: ollama_watchdog.out.log must not exist for mutation test"
+        )
+
+        fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
+        fn = _build_check(log, fake_cfg)
+
+        with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
+            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+                result = fn()
+
+        dash = result["services"]["ArcisDashboard"]
+        ollama = result["services"]["ArcisOllamaWatchdog"]
+
+        assert dash["heartbeat_fresh"] is False, (
+            f"ArcisDashboard: expected heartbeat_fresh=False when only old filenames present, "
+            f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
+        )
+        assert dash["verdict"] == "DEGRADED", f"ArcisDashboard should be DEGRADED: {dash['verdict']!r}"
+
+        assert ollama["heartbeat_fresh"] is False, (
+            f"ArcisOllamaWatchdog: expected heartbeat_fresh=False when only old filenames present, "
+            f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
+        )
+        assert ollama["verdict"] == "DEGRADED", f"ArcisOllamaWatchdog should be DEGRADED: {ollama['verdict']!r}"
