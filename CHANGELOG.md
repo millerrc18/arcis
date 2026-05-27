@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
+
+### Fixed
+
+- **#124b — TradingState GPU_METRICS text=date type mismatch fixed** (`fix(#124b)`):
+  `GPU_METRICS_PG` in `src/tools/tradingstate/queries.py` cast `metric_date::date`
+  before comparing with `CURRENT_DATE`. Root cause: `schedule_metrics.metric_date`
+  is stored as `TEXT` (writer uses `date.today().isoformat()`), but `CURRENT_DATE`
+  is PG type `date`; no implicit `text = date` cast exists in PostgreSQL
+  (`UndefinedFunction` error). Sibling-search confirmed no other occurrences.
+  `GPU_METRICS_SQLITE` forked from `GPU_METRICS_PG` to preserve the original
+  `=` comparison (correct for SQLite where both `metric_date` TEXT and
+  `CURRENT_DATE` return text). Fast-follow on v0.36.71 (cleanup-1 baseline).
+
 ## [v0.36.71] — 2026-05-27 — Cleanup Sprint 1 — observability + backtest CLI + sim/test infra (#112/113/114/118/119/120/121/122/123/124)
 
 Spec/plan: `docs/audits/cleanup-1/`. Ten-fix bundled backlog sweep landing as

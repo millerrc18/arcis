@@ -35,11 +35,19 @@ LIMIT 1
 GPU_METRICS_PG = """
 SELECT metric_name, metric_value
 FROM schedule_metrics
-WHERE metric_date = CURRENT_DATE
+WHERE metric_date::date = CURRENT_DATE
 """
 
-# SQLite variants: identical — LEFT JOIN, COALESCE, and CURRENT_DATE are all
-# valid SQLite syntax. If SQLite syntax diverges in practice, fork here.
+# SQLite variants: OPEN_POSITIONS and RECENT_AUDIT are identical to PG —
+# LEFT JOIN, COALESCE, and ORDER BY are all valid SQLite syntax.
+# GPU_METRICS diverges: PG requires metric_date::date = CURRENT_DATE because
+# schedule_metrics.metric_date is stored as TEXT and PostgreSQL has no implicit
+# text=date cast (UndefinedFunction). In SQLite, CURRENT_DATE returns TEXT
+# ('YYYY-MM-DD') and metric_date is also TEXT, so plain = works.
 OPEN_POSITIONS_SQLITE = OPEN_POSITIONS_PG
 RECENT_AUDIT_SQLITE = RECENT_AUDIT_PG
-GPU_METRICS_SQLITE = GPU_METRICS_PG
+GPU_METRICS_SQLITE = """
+SELECT metric_name, metric_value
+FROM schedule_metrics
+WHERE metric_date = CURRENT_DATE
+"""
