@@ -166,8 +166,8 @@
     },
     {
       "file": "src/schema/registry.py",
-      "lines": 2623,
-      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. T11 Wave D D2: grew to 2623 with notifications_digest_queue TableDef (+37L). Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
+      "lines": 2902,
+      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. T11 Wave D D2: grew to 2623 with notifications_digest_queue TableDef (+37L). Drift to 2883 via subsequent table additions (pre-#110 baseline). #110 T0: +19L for provenance_kind ColumnDef on backtest_results (TEXT NOT NULL CHECK three-state enum) + ColumnDef.check field declaration. Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
     },
     {
       "file": "src/services/scan_service.py",

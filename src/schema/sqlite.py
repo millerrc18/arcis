@@ -105,6 +105,9 @@ def _render_column(c: ColumnDef, inline_pk_col: str | None) -> str:
             parts.append("AUTOINCREMENT")
     if c.default is not None:
         parts.append(f"DEFAULT {_format_default(c.default)}")
+    # #110 (T0) — inline CHECK constraint (e.g. enum enforcement).
+    if getattr(c, "check", None):
+        parts.append(f"CHECK ({c.check})")
     return " ".join(parts)
 
 
@@ -213,13 +216,13 @@ def ensure_columns(db_path: str) -> list[str]:
                 continue
             for col in table.columns:
                 if col.name not in existing:
-                    default_clause = (
-                        f" DEFAULT {_format_default(col.default)}" if col.default else ""
-                    )
+                    default_clause = f" DEFAULT {_format_default(col.default)}" if col.default else ""
+                    notnull_clause = " NOT NULL" if not col.nullable else ""
+                    check_clause = f" CHECK ({col.check})" if getattr(col, "check", None) else ""  # #110 (T0)
                     try:
                         conn.execute(
                             f"ALTER TABLE {table.name} ADD COLUMN "
-                            f"{col.name} {col.type}{default_clause}"
+                            f"{col.name} {col.type}{notnull_clause}{default_clause}{check_clause}"
                         )
                         added.append(f"{table.name}.{col.name}")
                     except sqlite3.OperationalError as e:
