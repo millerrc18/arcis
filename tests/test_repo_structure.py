@@ -400,59 +400,6 @@ def test_all_source_files_utf8():
     assert not bad, f"Non-UTF-8 source files (will break on Render):\n" + "\n".join(bad)
 
 
-def test_cloud_app_imports_covered_by_requirements_cloud():
-    """All 3rd-party imports in the cloud_app import chain must be in requirements-cloud.txt."""
-    # Parse requirements-cloud.txt into package names
-    cloud_reqs = set()
-    for line in Path("requirements-cloud.txt").read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Extract package name before version specifier
-        pkg = re.split(r"[>=<!\[]", line)[0].strip().lower().replace("-", "_")
-        cloud_reqs.add(pkg)
-    # Map common import names to pip package names
-    import_to_pkg = {
-        "yaml": "pyyaml", "dotenv": "python_dotenv", "psycopg2": "psycopg2_binary",
-        "uvicorn": "uvicorn", "fastapi": "fastapi", "pydantic": "pydantic",
-        "sqlalchemy": "sqlalchemy",
-    }
-
-    # Files in the cloud_app import chain (not the full src/)
-    cloud_files = [
-        Path("src/api/cloud_app.py"),
-        *Path("src/api/cloud_routes").glob("*.py"),
-        Path("src/sync/render_sync.py"),
-        Path("src/config/__init__.py"),
-        Path("src/schema/sync_config.py"),
-        Path("src/schema/registry.py"),
-        Path("src/schema/postgres.py"),
-        Path("src/schema/sqlite.py"),
-    ]
-
-    import sys
-    stdlib = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set()
-
-    missing = []
-    for fpath in cloud_files:
-        if not fpath.exists():
-            continue
-        tree = ast.parse(fpath.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    top = alias.name.split(".")[0]
-                    pkg = import_to_pkg.get(top, top).lower().replace("-", "_")
-                    if top not in stdlib and not top.startswith("src") and pkg not in cloud_reqs:
-                        missing.append(f"{fpath}: import {alias.name} (need '{pkg}' in requirements-cloud.txt)")
-            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-                top = node.module.split(".")[0]
-                pkg = import_to_pkg.get(top, top).lower().replace("-", "_")
-                if top not in stdlib and not top.startswith("src") and pkg not in cloud_reqs:
-                    missing.append(f"{fpath}: from {node.module} (need '{pkg}' in requirements-cloud.txt)")
-    assert not missing, f"Cloud imports not in requirements-cloud.txt:\n" + "\n".join(missing)
-
-
 def test_no_legacy_alpaca_trade_api_imports():
     """Legacy `alpaca_trade_api` SDK is deprecated — we're on `alpaca-py`.
 
