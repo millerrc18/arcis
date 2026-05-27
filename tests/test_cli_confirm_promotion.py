@@ -417,10 +417,10 @@ def test_cli_confirm_promotion_re_fire_includes_methodology_gate(temp_db):
                 total_return_pct, sharpe, excess_sharpe, deflated_sharpe,
                 pbo, oos_efficiency,
                 sortino, calmar, max_drawdown_pct, win_rate,
-                profit_factor, code_git_sha, created_at)
+                profit_factor, code_git_sha, created_at, provenance_kind)
                VALUES ('r1', 's_mg', 1, 'abc123', '2020-01-01', '2024-12-31', 100000.0,
                        50, 0.3, 1.5, 1.0, 0.9, 0.30, 0.35, 1.8, 2.0, 0.1, 0.6, 2.5,
-                       'sha', '2024-01-01T00:00:00+00:00')""",
+                       'sha', '2024-01-01T00:00:00+00:00', 'quick_in_sample')""",
         )
         conn.commit()
     finally:
