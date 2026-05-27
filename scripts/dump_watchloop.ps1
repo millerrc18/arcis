@@ -15,7 +15,7 @@
 #   already elevated.
 
 param(
-    [int]$Pid = 0
+    [int]$ProcessId = 0
 )
 
 Set-StrictMode -Version Latest
@@ -30,30 +30,30 @@ try {
 }
 
 # --- 2. Discover PID if not supplied ---
-if ($Pid -eq 0) {
+if ($ProcessId -eq 0) {
     # Try NSSM registry first
     $nssmKey = "HKLM:\SYSTEM\CurrentControlSet\Services\ArcisWatchLoop\Parameters"
     if (Test-Path $nssmKey) {
         $nssmPid = (Get-ItemProperty -Path $nssmKey -Name AppPID -ErrorAction SilentlyContinue).AppPID
         if ($nssmPid -and $nssmPid -gt 0) {
-            $Pid = [int]$nssmPid
+            $ProcessId = [int]$nssmPid
         }
     }
 
     # Fallback: scan python processes whose command line contains "arcis" or "watch"
-    if ($Pid -eq 0) {
+    if ($ProcessId -eq 0) {
         $candidates = Get-WmiObject Win32_Process -Filter "Name='python.exe'" |
             Where-Object { $_.CommandLine -match 'arcis|watch' }
         if ($candidates.Count -eq 1) {
-            $Pid = [int]$candidates[0].ProcessId
+            $ProcessId = [int]$candidates[0].ProcessId
         } elseif ($candidates.Count -gt 1) {
-            Write-Error "ERROR: Multiple matching python processes found. Supply -Pid explicitly."
+            Write-Error "ERROR: Multiple matching python processes found. Supply -ProcessId explicitly."
             exit 1
         }
     }
 
-    if ($Pid -eq 0) {
-        Write-Error "ERROR: Could not discover ArcisWatchLoop PID. Supply -Pid explicitly."
+    if ($ProcessId -eq 0) {
+        Write-Error "ERROR: Could not discover ArcisWatchLoop PID. Supply -ProcessId explicitly."
         exit 1
     }
 }
@@ -76,7 +76,7 @@ $tmpErr = [System.IO.Path]::GetTempFileName()
 try {
     $proc = Start-Process `
         -FilePath "py-spy" `
-        -ArgumentList @("dump", "--pid", "$Pid") `
+        -ArgumentList @("dump", "--pid", "$ProcessId") `
         -Verb RunAs `
         -Wait `
         -PassThru `

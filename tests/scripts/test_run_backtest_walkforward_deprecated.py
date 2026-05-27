@@ -82,23 +82,30 @@ def test_with_walkforward_flag_stderr_contains_deprecated(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# (b) Mock path — run_walkforward must never be called when flag is set
+# (b) Mock path — auto_fire_walkforward must never be called when flag is set
 # ---------------------------------------------------------------------------
 
-def test_run_walkforward_not_called_when_flag_set(monkeypatch, tmp_path):
-    """run_walkforward must not be called even when --with-walkforward is passed.
+def test_auto_fire_walkforward_not_called_when_flag_set(monkeypatch, tmp_path):
+    """auto_fire_walkforward must not be called even when --with-walkforward is passed.
 
-    Patches sys.argv and all heavy imports so main() reaches the flag-check
-    without hitting the DB or strategy spec. Confirms the deprecation path
-    calls sys.exit before any import/call of run_walkforward.
+    Patches sys.argv (including --persist so the auto_fire code path is reachable
+    when the deprecation gate is absent) and all heavy imports.  Confirms the
+    deprecation path calls sys.exit(2) before any call of auto_fire_walkforward.
+
+    Patch target: src.platform.walkforward_autofire.auto_fire_walkforward
+    (the actual symbol scripts/run_backtest.py imports locally at the persist
+    call-site via `from src.platform.walkforward_autofire import auto_fire_walkforward`).
+
+    Non-vacuity guarantee: --persist is included in sys.argv so that IF the
+    deprecation exit were removed, execution would reach the persist block and
+    call auto_fire_walkforward — making the assertion fail.  The old test used
+    src.platform.rigor.walkforward.run_walkforward (never imported by the script)
+    so it passed vacuously regardless of the deprecation being present.
     """
     monkeypatch.setenv("ARCIS_DB_PATH", str(tmp_path / "dummy.sqlite3"))
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
-    mock_run_walkforward = MagicMock(return_value={
-        "oos_efficiency": 0.80,
-        "overfit_flag": False,
-    })
+    mock_auto_fire = MagicMock(return_value=None)
 
     import importlib
     import scripts.run_backtest as run_backtest_mod
@@ -107,20 +114,23 @@ def test_run_walkforward_not_called_when_flag_set(monkeypatch, tmp_path):
 
     mock_result = MagicMock()
     mock_result.metrics = {}
+    mock_result.strategy_id = "dummy_strategy"
 
     with (
-        patch("src.platform.rigor.walkforward.run_walkforward", mock_run_walkforward),
+        patch("src.platform.walkforward_autofire.auto_fire_walkforward", mock_auto_fire),
         patch.object(run_backtest_mod, "load_spec", return_value=MagicMock()),
         patch.object(
             run_backtest_mod, "_get_survivorship_haircut_bps", return_value=75
         ),
         patch.object(run_backtest_mod, "run_backtest", return_value=mock_result),
+        patch.object(run_backtest_mod, "persist_backtest_result", return_value="result-123"),
         patch("sys.argv", [
             "run_backtest.py",
             "--strategy", "dummy_strategy",
             "--start", "2022-01-01",
             "--end", "2023-01-01",
             "--with-walkforward",
+            "--persist",
         ]),
         patch("sys.stderr"),
     ):
@@ -129,8 +139,8 @@ def test_run_walkforward_not_called_when_flag_set(monkeypatch, tmp_path):
         except SystemExit:
             pass  # expected — deprecation path calls sys.exit(2)
 
-    assert mock_run_walkforward.called is False, (
-        "run_walkforward was invoked despite --with-walkforward being deprecated"
+    assert mock_auto_fire.called is False, (
+        "auto_fire_walkforward was invoked despite --with-walkforward being deprecated"
     )
 
 
