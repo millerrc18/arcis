@@ -95,15 +95,15 @@ class TestPlatformPostsHaveVerifyAuth:
         )
 
     def test_cloud_app_overrides_platform_verify_auth(self):
-        """cloud_app must wire its real verify_auth into platform's placeholder
+        """app.py must wire its real verify_auth into platform's placeholder
         via dependency_overrides — the placeholder is a no-op until it does."""
-        from src.api import cloud_app
+        from src.api import app
         # The override is a runtime dict; presence of the assignment is enough
         # to assert the wiring exists (we can't easily verify the override is
         # active without a full TestClient run).
-        src = pathlib.Path("src/api/cloud_app.py").read_text(encoding="utf-8")
-        assert "dependency_overrides" in src and "_platform_module.verify_auth" in src, (
-            "cloud_app must override _platform_module.verify_auth with the real verify_auth (#598)"
+        src = pathlib.Path("src/api/app.py").read_text(encoding="utf-8")
+        assert "dependency_overrides" in src and "route_module.verify_auth" in src, (
+            "app.py must override route_module.verify_auth with the real verify_auth (#598)"
         )
 
 

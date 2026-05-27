@@ -24,7 +24,7 @@ def test_local_api_binds_to_loopback():
 def test_cloud_api_rejects_requests_without_secret():
     """Fix #349: cloud API must reject all requests when API_SECRET is empty."""
     import pytest
-    with patch("src.api.cloud_app.API_SECRET", ""):
-        from src.api.cloud_app import verify_auth
+    with patch("src.api.app.API_SECRET", ""):
+        from src.api.app import verify_auth
         with pytest.raises(RuntimeError, match="API_SECRET"):
             verify_auth(credentials=None)

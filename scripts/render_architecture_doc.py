@@ -117,7 +117,7 @@ def route_description(node: ast.AST) -> str:
 
 
 def render_api_inventory() -> str:
-    route_files = [ROOT / "src" / "api" / "cloud_app.py", *sorted((ROOT / "src" / "api" / "routes").glob("*.py"))]
+    route_files = [*sorted((ROOT / "src" / "api" / "routes").glob("*.py"))]
     lines: list[str] = []
     for path in route_files:
         if path.name == "__init__.py":

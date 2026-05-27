@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     """App with platform router registered + isolated temp database.
 
-    NOTE: uses importlib.reload because cloud_app.py has no create_app()
+    NOTE: uses importlib.reload because app.py has no create_app()
     factory — app is built at module level. The platform module must be
-    reloaded BEFORE cloud_app so its ``from src.config import DB_PATH``
+    reloaded BEFORE app so its ``from src.config import DB_PATH``
     re-binds to the monkeypatched value. Tech debt: accessing
     src.config.DB_PATH at call time would remove this reload chain.
     """
@@ -30,9 +30,9 @@ def client(tmp_path, monkeypatch):
     import importlib
     import src.api.cloud_routes.platform as platform_mod
     importlib.reload(platform_mod)
-    import src.api.cloud_app as cloud_mod
+    import src.api.app as cloud_mod
     importlib.reload(cloud_mod)
-    # #598 — cloud_app now overrides platform.verify_auth with the real
+    # #598 — app.py now overrides platform.verify_auth with the real
     # verify_auth via dependency_overrides at module load. The TestClient
     # doesn't send the bearer token, so tests that exercise POST endpoints
     # (promotions, demotions, backtests) need the override cleared.

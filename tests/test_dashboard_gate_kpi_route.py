@@ -43,7 +43,7 @@ def _make_app(api_secret: str = _API_SECRET):
     verify_auth dependency_overrides are wired correctly.
     """
     import importlib
-    import src.api.cloud_app as cloud_mod
+    import src.api.app as cloud_mod
     with patch.dict(os.environ, {"API_SECRET": api_secret, "DATABASE_URL": ""}):
         importlib.reload(cloud_mod)
         return cloud_mod.app
