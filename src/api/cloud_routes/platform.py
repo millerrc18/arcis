@@ -203,6 +203,7 @@ async def _run_backtest_async(req: BacktestKickoffReq, result_id: str) -> None:
         result = run_backtest(cfg)
         persist_backtest_result(
             result, db_path=DB_PATH,
+            provenance_kind="quick_in_sample",  # #110 T0: cloud-routes trigger is IS-only
             git_sha=os.environ.get("RENDER_GIT_COMMIT", "unknown"),
         )
         from src.notifications.platform_events import notify_backtest_complete
