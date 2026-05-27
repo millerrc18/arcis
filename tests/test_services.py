@@ -777,6 +777,7 @@ def test_get_postmortem_detail(mock_rec):
 # ===================================================================
 
 
+@patch("src.notifications.email_digest.enqueue_for_email_digest")
 @patch("src.packets.eod_recap.build_eod_recap", return_value="EOD Recap body text")
 @patch("src.journal.store.get_todays_recommendations", return_value=[
     {"ticker": "AAPL"}, {"ticker": "MSFT"},
@@ -791,7 +792,7 @@ def test_get_postmortem_detail(mock_rec):
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
 @patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL", "MSFT", "GOOG"])
 def test_recap_basic(mock_uni, mock_ohlcv, mock_spy, mock_feat, mock_rank,
-                     mock_top, mock_journal, mock_build):
+                     mock_top, mock_journal, mock_build, mock_enqueue):
     from src.services.recap_service import generate_eod_recap
 
     result = generate_eod_recap({"shadow_trading": {"enabled": False}})
@@ -814,6 +815,7 @@ def test_recap_empty_spy(mock_uni, mock_ohlcv, mock_spy):
     assert "ERROR" in result["email_body"]
 
 
+@patch("src.notifications.email_digest.enqueue_for_email_digest")
 @patch("src.packets.eod_recap.build_eod_recap", return_value="body")
 @patch("src.journal.store.get_todays_recommendations", return_value=[])
 @patch("src.ranking.ranker.get_top_candidates", return_value={"packet_worthy": [], "watchlist": []})
@@ -823,7 +825,7 @@ def test_recap_empty_spy(mock_uni, mock_ohlcv, mock_spy):
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={})
 @patch("src.universe.sp100.get_sp100_universe", return_value=[])
 def test_recap_no_journal_entries(mock_uni, mock_ohlcv, mock_spy, mock_feat,
-                                   mock_rank, mock_top, mock_journal, mock_build):
+                                   mock_rank, mock_top, mock_journal, mock_build, mock_enqueue):
     from src.services.recap_service import generate_eod_recap
 
     result = generate_eod_recap({"shadow_trading": {"enabled": False}})
@@ -837,6 +839,7 @@ def test_recap_no_journal_entries(mock_uni, mock_ohlcv, mock_spy, mock_feat,
 # ===================================================================
 
 
+@patch("src.notifications.email_digest.enqueue_for_email_digest")
 @patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
 @patch("src.packets.watchlist.build_morning_watchlist", return_value="Morning watchlist body")
 @patch("src.llm.watchlist_writer.generate_watchlist_narrative", return_value="Market is bullish today.")
@@ -860,7 +863,7 @@ def test_recap_no_journal_entries(mock_uni, mock_ohlcv, mock_spy, mock_feat,
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
 @patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL", "GOOG"])
 def test_watchlist_basic(mock_uni, mock_ohlcv, mock_spy, mock_feat, mock_rank,
-                         mock_top, mock_narr, mock_build, mock_name):
+                         mock_top, mock_narr, mock_build, mock_name, mock_enqueue):
     from src.services.watchlist_service import generate_morning_watchlist
 
     result = generate_morning_watchlist({"llm": {"enabled": True}})
@@ -889,6 +892,7 @@ def test_watchlist_empty_spy(mock_uni, mock_ohlcv, mock_spy):
     assert "ERROR" in result["email_body"]
 
 
+@patch("src.notifications.email_digest.enqueue_for_email_digest")
 @patch("src.universe.company_names.get_company_name", return_value="N/A")
 @patch("src.packets.watchlist.build_morning_watchlist", return_value="body")
 @patch("src.llm.watchlist_writer.generate_watchlist_narrative", return_value=None)
@@ -899,7 +903,7 @@ def test_watchlist_empty_spy(mock_uni, mock_ohlcv, mock_spy):
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={})
 @patch("src.universe.sp100.get_sp100_universe", return_value=[])
 def test_watchlist_no_candidates(mock_uni, mock_ohlcv, mock_spy, mock_feat,
-                                  mock_rank, mock_top, mock_narr, mock_build, mock_name):
+                                  mock_rank, mock_top, mock_narr, mock_build, mock_name, mock_enqueue):
     from src.services.watchlist_service import generate_morning_watchlist
 
     result = generate_morning_watchlist({"llm": {"enabled": False}})
