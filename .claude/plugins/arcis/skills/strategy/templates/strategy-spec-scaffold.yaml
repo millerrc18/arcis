@@ -1,0 +1,127 @@
+# Strategy spec scaffold — emitted by `/arcis:strategy ideate` Phase I3.
+#
+# This is a starting skeleton. Fill the TODO sections below, save under
+# src/platform/specs/<strategy_id>.yaml, then run:
+#
+#     /arcis:strategy backtest <strategy_id> --quick    # in-sample sanity
+#     /arcis:strategy backtest <strategy_id>            # full walkforward
+#
+# The validator (src/platform/strategy_spec.py::validate_spec) requires
+# all keys present in REQUIRED_KEYS (line 83) and rejects unknown enum
+# values for entry.kind / exit.kind / position_sizing.method.
+
+spec_version: 1
+
+# TODO — replace __FILL_IN__ with a slug like "my_strategy_v1".
+# Must be filename-safe (alphanumeric + underscore). Saved file becomes
+# src/platform/specs/<strategy_id>.yaml — the file stem MUST equal this
+# value or load_spec(<strategy_id>) will not find it.
+strategy_id: __FILL_IN__
+
+# TODO — human-readable display name surfaced in CLI + dashboard.
+display_name: __FILL_IN__
+
+# R8(a): derived_from is a REQUIRED key on every strategy spec. The
+# explicit `null` value declares that this strategy was NOT derived from
+# any forensic audit, bootcamp backtest, shadow-trading cohort, or
+# similar internal analysis. If the strategy IS derived from such a
+# source, replace `null` with the structured block (source_type,
+# source_run_id, source_date_range) — see
+# src/platform/specs/post_audit_ruleset_v1.yaml for the populated shape.
+#
+# DO NOT omit this key. R8 requires the explicit declaration.
+derived_from: null
+
+# TODO — one-paragraph description of what the strategy does and why.
+description: >
+  __FILL_IN__ — describe the hypothesis, signal substrate, and intended
+  holding-period regime in 2-4 sentences. This text surfaces in the
+  research log and audit reports.
+
+# TODO — citation (paper, audit ID, or internal memo). Free text.
+citation: __FILL_IN__
+
+universe:
+  # TODO — universe selector. Common values: sp100, sp500, nasdaq100.
+  tickers: sp100
+  # Optional sector filter — uncomment + populate with GICS sector
+  # names from src/universe/sectors.py SECTOR_MAP values.
+  # sector_filter:
+  #   - Consumer Staples
+  #   - Health Care
+
+entry:
+  # TODO — one of: scheduled, event_driven, python_plugin.
+  # See ALLOWED_ENTRY_KINDS in src/platform/strategy_spec.py.
+  kind: event_driven
+  # TODO — when kind == event_driven, specify event_table + event_filter.
+  # When kind == scheduled, specify cron or interval.
+  # When kind == python_plugin, specify module + callable.
+  event_table: __FILL_IN__
+  event_filter:
+    __FILL_IN__: __FILL_IN__
+  # Optional event_exclusion — uncomment to skip entries on KNOWN_EVENTS
+  # rows matching the listed categories.
+  # event_exclusion:
+  #   categories:
+  #     - Trade Policy
+  # TODO — signal definition. Each entry is one predicate; combinator
+  # joins them with 'all' (AND) or 'any' (OR).
+  signal:
+    - metric: __FILL_IN__
+      target: __FILL_IN__
+      operator: __FILL_IN__
+      threshold: __FILL_IN__
+  combinator: all
+
+exit:
+  # TODO — one of: mechanical, python_plugin.
+  # See ALLOWED_EXIT_KINDS in src/platform/strategy_spec.py.
+  kind: mechanical
+  # TODO — bar count to force-exit if neither target nor stop hits.
+  timeout_days: 21
+  stop:
+    method: atr_based
+    atr_period: 14
+    multiplier: 3.0
+    floor_pct: 0.05
+    cap_pct: 0.12
+  target:
+    method: atr_based
+    atr_period: 14
+    multiplier: 6.0
+    floor_pct: 0.10
+    cap_pct: 0.25
+
+position_sizing:
+  # TODO — one of: fixed_pct_equity, regime_adaptive.
+  # See ALLOWED_SIZING_METHODS in src/platform/strategy_spec.py.
+  method: fixed_pct_equity
+  # When method == fixed_pct_equity: pct in (0.0, 1.0], max_concurrent int.
+  pct: 0.15
+  max_concurrent: 5
+  # When method == regime_adaptive: replace pct/max_concurrent with a
+  # `regimes` dict keyed by KNOWN_REGIME_KEYS (BULL_LOW_VOL, BULL_HIGH_VOL,
+  # TRANSITION, CORRECTION, BEAR_EARLY, BEAR_ESTABLISHED, CRISIS) — each
+  # value a dict with min_score (int 0-100) and position_pct (float 0.0-1.0).
+
+attribution:
+  # TODO — benchmark identifier the attribution layer compares against.
+  benchmark: SPY_matched_window
+  # TODO — list of metrics to compute. Common: raw_sharpe, excess_sharpe,
+  # win_rate, profit_factor, max_drawdown.
+  metrics:
+    - raw_sharpe
+    - excess_sharpe
+    - win_rate
+    - profit_factor
+    - max_drawdown
+
+# Optional LLM enhancement block — uncomment if the strategy uses an LLM
+# to score / filter / annotate candidates. Default = disabled.
+# llm_enhancement:
+#   enabled: false
+#   model: halcyon-v1.0.0
+#   role: structured_extraction
+#   prompt_template: __FILL_IN__
+#   validation: verbatim_quote_grounded
