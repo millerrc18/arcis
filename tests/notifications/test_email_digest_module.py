@@ -265,14 +265,21 @@ def test_off_mode_calls_send_email(tmp_path, monkeypatch):
     assert sentinel["send_called"] is True
 
 
-# ── (i) handover_check returns PASS skeleton on clean data ──
+# ── (i) handover_check returns the documented dict shape ──
 
-def test_handover_check_returns_pass_on_clean_data():
-    """Skeleton: handover_check returns {'status': 'PASS', 'tripwires': {...}}."""
+def test_handover_check_returns_documented_dict_shape():
+    """Real (T17) handover_check returns {'status', 'tripwires', 'details'}.
+
+    Status may be PASS or FAIL depending on the DB state — this test only
+    pins the dict shape. End-to-end status semantics are covered in
+    tests/notifications/test_email_digest_handover.py.
+    """
     from src.notifications.email_digest import handover_check
 
     result = handover_check()
     assert isinstance(result, dict)
-    assert result.get("status") == "PASS"
+    assert result.get("status") in ("PASS", "FAIL")
     assert "tripwires" in result
     assert isinstance(result["tripwires"], dict)
+    assert "details" in result
+    assert isinstance(result["details"], dict)

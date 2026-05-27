@@ -2,6 +2,73 @@
 
 ## [Unreleased]
 
+### Email Consolidation (#115) — PR 1 (hold-over)
+
+Spec/plan: `docs/audits/2026-05-26-email-consolidation/`. Three-tier email
+aggregator (`preopen` / `postclose` / `weekly`) wired alongside the legacy
+`digest_builder` paths, gated by `email.dual_write_hold_over.mode` (default
+`shadow`). PR 2 deletes the legacy paths once `digest-handover-check` reports
+`status=PASS`.
+
+#### Added
+
+- **New CLI commands** (T15):
+  - `python -m src.main digest-preview --tier {preopen,postclose,weekly} [--pending] [--dry-run]`
+  - `python -m src.main digest-handover-check [--window-days N] [--compare-window 7d]`
+  - Exit code: `0` on PASS, `1` on FAIL.
+- **New YAML config keys** (under `email:`):
+  - `tier_times.{preopen,postclose,weekly}` — wall-clock dispatch times.
+  - `tiers.<tier>.{enabled,send_when_empty}`.
+  - `dual_write_hold_over.{mode,shadow_output_dir,enabled}` — `mode` ∈ `{shadow, time_aligned, off}`.
+  - `digest_truncation.{top_k_per_section,overflow_strategy,overflow_attach_format}` (DD-05/DD-19).
+  - `holidays.{skip_preopen_on_market_holidays,skip_postclose_on_market_holidays}` (DD-23).
+- **New test files** (all under `tests/notifications/`):
+  - `test_email_digest_module.py`, `test_email_digest_render_daily.py`,
+    `test_email_digest_render_weekly.py`, `test_email_digest_holdover.py`,
+    `test_email_digest_crash_recovery.py`, `test_email_digest_dst.py`,
+    `test_email_digest_opt_out.py`, `test_email_digest_coverage_matrix.py`,
+    `test_email_digest_holiday.py` (T17),
+    `test_email_digest_handover.py` (T17).
+- **Holiday-aware suppression in `flush_tier`** (T17, DD-23) — preopen and
+  postclose tiers skip dispatch when `is_market_holiday()` returns True AND
+  the per-tier `skip_*_on_market_holidays` config flag is True (default).
+  Weekly tier is unaffected.
+- **Real `handover_check` tripwire logic** (T17, DA-MAJ-7 + DA-MAJ-11) —
+  PR 2 merge gate. Returns `{status, tripwires, details}` with six
+  tripwires: abandoned-rows-under-threshold, preopen/postclose-flushed,
+  weekly-flushed, shadow-files-present, and the optional
+  `row_id_inclusion_check` when `compare_window='7d'` is passed.
+
+#### Changed
+
+- **`send_email` signature** (T2) — accepts `html_body` + `attachments` for
+  HTML-multipart digest dispatch with overflow attachment.
+- **`DigestQueue.flush()` contract** (T4/T16) — recovers orphaned
+  `in_progress` rows on the next flush tick; honors retry-attempt exhaustion
+  by marking abandoned with `flush_error` populated.
+- **Scheduler dispatch** (T8, watch.py) — `_check_digest_schedule` invokes
+  `email_digest.flush_tier(tier=...)` at each tier's wall-clock window.
+  The legacy `_check_legacy_digest_schedule` continues firing the four old
+  branches gated by `dual_write_hold_over.mode`.
+
+#### Deprecated
+
+- **Old digest_builder paths** (`src/email/digest_builder.py` —
+  `build_premarket_digest`, `build_midday_digest`, `build_eod_digest`,
+  `build_evening_digest`). Scheduled for deletion in PR 2 once the
+  `digest-handover-check` CLI reports `status=PASS`.
+- **Saturday email branches** — subsumed by the weekly tier (DD-12).
+  Saturday training-report + Saturday CTO-report flow through
+  `weekly_digest_content` payloads aggregated at Sun 18:00 ET.
+- **`email_mode=full_stream`** and **`email_mode=daily_summary`** —
+  redundant with the new tiered aggregator; will be removed in PR 2.
+
+#### Fixed
+
+- **Dead `run_saturday_reports`** (F-MAJ-1, T11) — deleted from
+  `src/scheduler/reports.py`; never invoked from any scheduler tick after
+  the digest_builder Saturday branches landed.
+
 ## [v0.36.67] — 2026-05-26 — `/arcis:operate` skill — incident response + change orchestration (#109)
 
 ### Added
