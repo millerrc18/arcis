@@ -51,7 +51,8 @@ class TestRetention:
             )
 
         result = run_retention(db_path=tmp_db)
-        assert result.get("activity_log", 0) == 1
+        assert result.metadata.get("activity_log", 0) == 1
+        assert result.primary_count == 1
 
         with sqlite3.connect(tmp_db) as conn:
             remaining = conn.execute("SELECT COUNT(*) FROM activity_log").fetchone()[0]
@@ -59,10 +60,11 @@ class TestRetention:
 
     def test_skips_missing_tables(self, tmp_db):
         """Retention does not crash when a table does not exist."""
+        from src.data_collection.result import CollectorResult
         from src.data_collection.retention import run_retention
 
         result = run_retention(db_path=tmp_db)
-        assert isinstance(result, dict)
+        assert isinstance(result, CollectorResult)
 
     def test_never_prunes_protected_tables(self, tmp_db):
         """Tables like shadow_trades are never listed in RETENTION_RULES."""

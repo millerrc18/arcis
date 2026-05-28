@@ -37,6 +37,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection.errors import CollectorConfigError
+from src.data_collection.result import CollectorResult
 from src.universe.sp100 import get_sp100_universe
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -59,7 +60,7 @@ _MASS_FAILURE_MIN_UNIVERSE = 10
 def collect_finra_short_volume(
     target_date: date | None = None,
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect FINRA daily short-volume data for the SP100 universe.
 
     Args:
@@ -69,15 +70,16 @@ def collect_finra_short_volume(
         db_path: SQLite database path. Defaults to DB_PATH from config.
 
     Returns:
-        dict with keys:
-            tickers_collected (int): SP100 tickers with data found.
-            rows_inserted (int): Rows inserted (deduplicated via upsert).
-            target_date (str): ISO date fetched (YYYY-MM-DD).
-            source (str): Always "finra".
+        CollectorResult('short_volume_finra'): primary_count = tickers_collected;
+        rows_inserted in metadata. The string fields (target_date, source) the
+        legacy dict carried are persisted to short_volume_daily, not the
+        in-memory result, since metadata is typed dict[str, int].
 
     Raises:
         CollectorConfigError: If HTTP request fails after all retries
             (4xx/5xx persistent failure from FINRA CDN).
+        CollectorPartialFailureError: If 0 SP100 tickers matched against a
+            healthy universe (CDN format drift / empty file mass-failure).
     """
     if target_date is None:
         from src.scheduler.holidays import subtract_trading_days
@@ -200,11 +202,13 @@ def collect_finra_short_volume(
             errors=len(sp100), total=len(sp100),
         )
 
-    result = {
-        "tickers_collected": tickers_collected,
-        "rows_inserted": rows_inserted,
-        "target_date": trade_date_str,
-        "source": "finra",
-    }
-    logger.info("[SHORT_VOLUME_FINRA] Collection complete: %s", result)
+    result = CollectorResult.ok_from_count(
+        "short_volume_finra",
+        tickers_collected,
+        rows_inserted=rows_inserted,
+    )
+    logger.info(
+        "[SHORT_VOLUME_FINRA] Collection complete: %s tickers, %s rows for %s",
+        tickers_collected, rows_inserted, trade_date_str,
+    )
     return result

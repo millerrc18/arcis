@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db, engine_aware_column_info, engine_aware_table_list
 
 logger = logging.getLogger(__name__)
@@ -58,11 +59,12 @@ _TIME_COLUMNS: dict[str, str] = {
 }
 
 
-def run_retention(db_path: str = DB_PATH) -> dict[str, int]:
+def run_retention(db_path: str = DB_PATH) -> CollectorResult:
     """Delete rows older than retention period per table.
 
-    Returns dict of table_name -> rows_deleted.
-    Skips tables that don't exist or lack the expected time column.
+    Returns a CollectorResult: primary_count is total rows pruned; per-table
+    rows_deleted counts go in metadata. Skips tables that don't exist or lack
+    the expected time column.
     """
     now = datetime.now(ET)
     deleted: dict[str, int] = {}
@@ -99,7 +101,9 @@ def run_retention(db_path: str = DB_PATH) -> dict[str, int]:
     else:
         logger.debug("[RETENTION] No rows to prune")
 
-    return deleted
+    return CollectorResult.ok_from_count(
+        "retention", sum(deleted.values()), **deleted
+    )
 
 
 def _get_existing_tables(conn: sqlite3.Connection) -> set[str]:

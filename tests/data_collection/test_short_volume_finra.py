@@ -89,14 +89,22 @@ def test_parser_pipe_delimited(tmp_path):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         result = collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
 
-    assert result["tickers_collected"] == 2, (
-        f"FOO should be filtered out; expected 2, got {result['tickers_collected']}"
+    assert result.primary_count == 2, (
+        f"FOO should be filtered out; expected 2, got {result.primary_count}"
     )
-    assert result["rows_inserted"] >= 2, (
-        f"expected >= 2 rows inserted, got {result['rows_inserted']}"
+    assert result.metadata["rows_inserted"] >= 2, (
+        f"expected >= 2 rows inserted, got {result.metadata['rows_inserted']}"
     )
-    assert result["target_date"] == "2026-05-16"
-    assert result["source"] == "finra"
+    # target_date/source were string fields on the legacy dict — now persisted
+    # to short_volume_daily, not carried in the (dict[str,int]) result. Assert
+    # the persisted source instead, and the collector identity.
+    assert result.collector_name == "short_volume_finra"
+    with sqlite3.connect(db_path) as conn:
+        src = conn.execute(
+            "SELECT source FROM short_volume_daily WHERE ticker = ? AND trade_date = ?",
+            ("AAPL", "2026-05-16"),
+        ).fetchone()
+    assert src is not None and src[0] == "finra"
 
 
 # ---------------------------------------------------------------------------

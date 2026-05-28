@@ -60,8 +60,8 @@ def test_no_raise_when_some_tickers_matched(tmp_path):
          patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL", "MSFT"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         result = collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
-    assert result["tickers_collected"] == 1
-    assert result["source"] == "finra"
+    assert result.primary_count == 1
+    assert result.collector_name == "short_volume_finra"
 
 
 def test_no_raise_when_universe_too_small(tmp_path):
@@ -73,4 +73,4 @@ def test_no_raise_when_universe_too_small(tmp_path):
          patch("src.data_collection.short_volume_finra.get_sp100_universe", return_value=["AAPL", "MSFT"]):
         from src.data_collection.short_volume_finra import collect_finra_short_volume
         result = collect_finra_short_volume(target_date=date(2026, 5, 16), db_path=db_path)
-    assert result["tickers_collected"] == 0  # no match, but universe too small to alarm
+    assert result.primary_count == 0  # no match, but universe too small to alarm
