@@ -38,7 +38,7 @@ catastrophic "doubling down to recover" behavior that blows up accounts.
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -46,6 +46,15 @@ from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.notifications import safe_send
 from src.shadow_trading._status_sql import terminal_in_clause
+
+# T14: the deterministic-audit entry-suppression gate moved to
+# ``governor_audit.py``. Re-exported here so ``RiskGovernor.check_trade`` (and
+# any external caller that imported ``src.risk.governor.audit_entry_suppression_reason``)
+# keeps resolving the symbol unchanged.
+from src.risk.governor_audit import (  # noqa: F401
+    _AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS,
+    audit_entry_suppression_reason,
+)
 
 # All risk timestamps use Eastern Time because US equity markets
 # operate on ET and daily loss limits reset at midnight ET.
@@ -120,7 +129,6 @@ def effective_position_cap(config: dict) -> int:
 # kill-switch, daily-loss, VIX, sector, correlation, BP, max-positions,
 # event, and duplicate checks — with only an INFO-level log trail.
 _governor_disabled_alerted = False
-_AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS = 36
 
 
 def _warn_governor_disabled_once() -> None:
@@ -144,53 +152,6 @@ def _warn_governor_disabled_once() -> None:
         detail="all trades auto-approved. Review config/settings.local.yaml risk_governor.enabled.",
     )
 
-
-def audit_entry_suppression_reason(db_path: str = DB_PATH) -> str | None:
-    """Return a reason to block new entries when deterministic audit is critical.
-
-    This does not write the global halt file. Entry risk is suppressed while
-    exit management and reconciliation continue to run.
-    """
-    try:
-        with connect_db(db_path) as conn:
-            row = conn.execute(
-                "SELECT created_at, overall_assessment, full_report "
-                "FROM audit_reports ORDER BY created_at DESC LIMIT 1",
-            ).fetchone()
-    except Exception as exc:
-        logger.debug("[RISK] Audit entry suppression check failed: %s", exc)
-        return None
-
-    if not row:
-        return None
-
-    try:
-        created_dt = datetime.fromisoformat(str(row[0]))
-        if created_dt.tzinfo is None:
-            created_dt = created_dt.replace(tzinfo=_ET)
-        if datetime.now(_ET) - created_dt > timedelta(hours=_AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS):
-            return None
-    except (TypeError, ValueError):
-        return None
-
-    try:
-        report = json.loads(row[2] or "{}")
-    except (TypeError, json.JSONDecodeError):
-        return None
-
-    deterministic = report.get("deterministic_prechecks") or [
-        flag for flag in report.get("flags", [])
-        if flag.get("source") == "deterministic_precheck"
-    ]
-    critical = [
-        flag for flag in deterministic
-        if flag.get("severity") == "critical"
-    ]
-    if not critical:
-        return None
-
-    description = critical[0].get("description") or "entry risk suppressed"
-    return f"Latest deterministic audit is critical: {description}"
 
 # Kill switch is a file-based flag rather than a DB column so it works
 # even when the database is corrupt or locked.  The sentinel file path

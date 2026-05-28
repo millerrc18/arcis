@@ -33,8 +33,9 @@
       "lines": 603
     },
     {
-      "file": "src/api/routes/system.py",
-      "lines": 723
+      "file": "src/api/routes/system_status.py",
+      "lines": 455,
+      "rationale": "Phase 5 PR-C T14 extraction: the read-only dashboard-data endpoints (metric-history, data-collection-stats, earnings, activity-log, schedule-metrics, table-counts, activity/feed, scan/metrics, training/history, attribution/stats, stress-test/results, monitoring/*, simulation/results) moved out of system.py (which dropped from 723L to 370L, now under the 400 limit and removed from this list). system_status.py is 455L: ~370L of faithfully-moved endpoint bodies + the required 5-header module docstring + the _DATA_COLLECTION_QUERIES (12-table) and _TABLE_WHITELIST (50-table) literal blocks. The endpoints decorate system.py's shared router so URLs are byte-for-byte unchanged. Splitting a thin route module further (e.g. read-vs-monitoring) would over-fragment the API surface; recorded as the new structural baseline per operator Option-A. Phase-6 sub-target: lift the two literal blocks into a shared schema constants module if the file grows."
     },
     {
       "file": "src/cli/commands_data.py",
@@ -152,8 +153,8 @@
     },
     {
       "file": "src/risk/governor.py",
-      "lines": 949,
-      "rationale": "Pre-existing growth from 847 to 949 lines (before v0.36.13). Risk governor is a core safety component; splitting is a structural refactor out of scope for v0.36.13. Deferred to post-Sprint-6 cleanup track."
+      "lines": 931,
+      "rationale": "Pre-existing growth from 847 to 949 lines (before v0.36.13). Risk governor is a core safety component; splitting is a structural refactor out of scope for v0.36.13. Deferred to post-Sprint-6 cleanup track. Phase 5 PR-C T14: the deterministic-audit entry-suppression gate (audit_entry_suppression_reason + _AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS) extracted to governor_audit.py and re-exported; governor.py 949 -> 931L. Still oversized — the remaining bulk is the RiskGovernor.check_trade 8-gate body, deferred."
     },
     {
       "file": "src/scheduler/ollama_watchdog.py",

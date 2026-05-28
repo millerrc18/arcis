@@ -125,15 +125,19 @@ def test_site2_cto_report_sortino_value_matches_canonical_mar_150():
 # ── Site 3: api.routes.system rolling-Sharpe snapshot ───────────────────
 
 def test_site3_system_rolling_sharpe_delegates_to_canonical():
-    """system.py:283 — rolling-Sharpe must use canonical compute_sharpe
-    with periods_per_year=150."""
-    from src.api.routes import system
-    src = inspect.getsource(system)
+    """rolling-Sharpe must use canonical compute_sharpe with periods_per_year=150.
+
+    T14: the rolling-Sharpe helper (_build_metric_snapshots) moved from
+    system.py to system_status.py; the source-text guard now inspects the new
+    home module.
+    """
+    from src.api.routes import system_status
+    src = inspect.getsource(system_status)
     # Raw formula must be gone; canonical reference must appear.
     assert "math.sqrt(150)" not in src, \
-        "system.py rolling-Sharpe must not retain raw math.sqrt(150)"
+        "system_status.py rolling-Sharpe must not retain raw math.sqrt(150)"
     assert "compute_sharpe" in src, \
-        "system.py must reference canonical compute_sharpe"
+        "system_status.py must reference canonical compute_sharpe"
 
 
 def test_site3_system_rolling_sharpe_value_matches_canonical():

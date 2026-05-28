@@ -315,7 +315,7 @@ class TestAPIEndpoint:
                  '{"normal": {"trades": 45}}', "2026-01-01T00:00:00"),
             )
 
-        with patch("src.api.routes.system.DB_PATH", db_path):
+        with patch("src.api.routes.system_status.DB_PATH", db_path):
             from src.api.routes.system import simulation_results
             result = simulation_results()
             assert "results" in result
