@@ -3,6 +3,7 @@
 Called by: src.api.app (router registered at /api/preflight/latest)
 Calls: scripts/preflight_monday.py transcript on disk.
 Owns tables: none (reads preflight_runs)
+Config keys: none (single-mode SQLite post-cutover)
 Tests: tests/api/test_preflight_route.py
 
 Reads the most recent preflight_transcript.txt written by

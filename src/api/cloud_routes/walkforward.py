@@ -3,6 +3,7 @@
 Called by: frontend/src/pages/WalkforwardResults.jsx.
 Calls: none (direct SQLite reads).
 Owns tables: reads walkforward_results, walkforward_trades.
+Config keys: none (single-mode SQLite post-cutover)
 Tests: tests/api/test_walkforward_routes.py.
 
 Single-mode SQLite (Render resources stopped 2026-05-18; post-cutover).

@@ -3,6 +3,7 @@
 Called by: src.api.app (local runtime)
 Calls: src.config.DB_PATH, src.utils.db.connect_db
 Owns tables: none (reads notifications_sent, notifications_dedup)
+Config keys: none (single-mode SQLite post-cutover)
 Tests: tests/api/test_notifications_health.py
 
 Returns last-24h notification aggregates: success_rate, fail_count,
