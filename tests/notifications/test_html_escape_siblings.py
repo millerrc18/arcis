@@ -212,10 +212,18 @@ def test_sibling_search_no_unescaped_fstrings_in_notify_funcs():
     elsewhere, pre-existing code not in this PR's scope) and are audited via
     the sibling-search receipt in the PR body rather than mechanically here.
     """
-    telegram_path = Path(__file__).parent.parent.parent / "src" / "notifications" / "telegram.py"
-    assert telegram_path.exists(), f"telegram.py not found at {telegram_path}"
+    # T11 (PR-C): notify_regime_alert + notify_streak_alert moved to
+    # telegram_delivery.py when the delivery layer was extracted from
+    # telegram.py. Scan the module where they now live so this guardrail
+    # stays non-vacuous (it must still iterate the notify_* funcs and catch
+    # an unescaped f-string interpolation in their new location).
+    delivery_path = (
+        Path(__file__).parent.parent.parent
+        / "src" / "notifications" / "telegram_delivery.py"
+    )
+    assert delivery_path.exists(), f"telegram_delivery.py not found at {delivery_path}"
 
-    source = telegram_path.read_text(encoding="utf-8")
+    source = delivery_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     # Only check the two functions patched in this PR
