@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 import yfinance as yf
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -50,19 +51,10 @@ def _fetch_vix_value(symbol: str) -> float | None:
         return None
 
 
-def collect_vix_term_structure(db_path: str = DB_PATH) -> dict:
-    """Collect VIX term structure snapshot.
-
-    Returns: {"vix": float, "vix3m": float, "term_structure": str}
-    """
-    now = datetime.now(ET)
-
-    vix = _fetch_vix_value("^VIX")
-    vix9d = _fetch_vix_value("^VIX9D")
-    vix3m = _fetch_vix_value("^VIX3M")
-    vix1y = _fetch_vix_value("^VIX1Y")
-
-    # Compute ratios
+def _term_structure(
+    vix: float | None, vix9d: float | None, vix3m: float | None
+) -> tuple[float | None, float | None, str]:
+    """Derive (term_structure_slope, near_term_ratio, label) from VIX tenors."""
     term_structure_slope = None
     if vix is not None and vix3m is not None and vix3m > 0:
         term_structure_slope = round(vix / vix3m, 4)
@@ -71,16 +63,45 @@ def collect_vix_term_structure(db_path: str = DB_PATH) -> dict:
     if vix9d is not None and vix is not None and vix > 0:
         near_term_ratio = round(vix9d / vix, 4)
 
-    # Classify term structure
-    if term_structure_slope is not None:
-        if term_structure_slope < 1.0:
-            ts_label = "contango (normal)"
-        elif term_structure_slope > 1.0:
-            ts_label = "backwardation (fear)"
-        else:
-            ts_label = "flat"
-    else:
+    if term_structure_slope is None:
         ts_label = "unknown"
+    elif term_structure_slope < 1.0:
+        ts_label = "contango (normal)"
+    elif term_structure_slope > 1.0:
+        ts_label = "backwardation (fear)"
+    else:
+        ts_label = "flat"
+
+    return term_structure_slope, near_term_ratio, ts_label
+
+
+def collect_vix_term_structure(db_path: str = DB_PATH) -> CollectorResult:
+    """Collect VIX term structure snapshot.
+
+    Returns CollectorResult.ok_from_count("vix", <tenors fetched>) once at
+    least one VIX-family tenor is fetched and the snapshot row is written.
+    When every tenor fetch fails (yfinance unreachable), returns a failed
+    result and writes no row.
+    """
+    now = datetime.now(ET)
+
+    vix = _fetch_vix_value("^VIX")
+    vix9d = _fetch_vix_value("^VIX9D")
+    vix3m = _fetch_vix_value("^VIX3M")
+    vix1y = _fetch_vix_value("^VIX1Y")
+
+    tenors_fetched = sum(
+        1 for v in (vix, vix9d, vix3m, vix1y) if v is not None
+    )
+    if tenors_fetched == 0:
+        logger.warning("[VIX] All tenor fetches failed — no snapshot written")
+        return CollectorResult.failed(
+            "vix", errors=["all VIX tenor fetches returned no data"]
+        )
+
+    term_structure_slope, near_term_ratio, ts_label = _term_structure(
+        vix, vix9d, vix3m
+    )
 
     with connect_db(db_path) as conn:
         conn.execute(
@@ -100,13 +121,11 @@ def collect_vix_term_structure(db_path: str = DB_PATH) -> dict:
             ),
         )
 
-    result = {
-        "vix": vix,
-        "vix9d": vix9d,
-        "vix3m": vix3m,
-        "vix1y": vix1y,
-        "term_structure_slope": term_structure_slope,
-        "term_structure": ts_label,
-    }
-    logger.info("[VIX] Term structure: %s", result)
-    return result
+    logger.info(
+        "[VIX] Term structure: vix=%s vix3m=%s slope=%s (%s)",
+        vix,
+        vix3m,
+        term_structure_slope,
+        ts_label,
+    )
+    return CollectorResult.ok_from_count("vix", tenors_fetched)

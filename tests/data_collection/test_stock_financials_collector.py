@@ -80,12 +80,18 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
         result1 = collect_stock_financials("AAPL", config=config, db_path=sqlite_db)
         assert result1 is not None
         assert mock_get.called, "Expected Finnhub API call when plan=fundamental-1"
-        assert result1["ticker"] == "AAPL"
-        assert "as_of_date" in result1
+        from src.data_collection.result import CollectorResult
+
+        assert isinstance(result1, CollectorResult)
+        assert result1.status == "ok"
+        assert result1.primary_count == 1
+        assert result1.collector_name == "stock_financials"
 
         # Second call: same as_of_date -> UPSERT idempotent (no duplicate row).
         result2 = collect_stock_financials("AAPL", config=config, db_path=sqlite_db)
         assert result2 is not None
+        assert isinstance(result2, CollectorResult)
+        assert result2.status == "ok"
 
     with sqlite3.connect(sqlite_db) as verify:
         verify.row_factory = sqlite3.Row

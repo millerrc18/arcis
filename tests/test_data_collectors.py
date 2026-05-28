@@ -510,7 +510,13 @@ class TestGoogleTrendsMarketWide:
             importlib.reload(tc)
             result = tc.collect_google_trends(tickers=["AAPL"], db_path=tmp_db)
 
-        assert result["terms_collected"] == 0
+        from src.data_collection.result import CollectorResult
+
+        assert isinstance(result, CollectorResult)
+        # pytrends not installed is a dependency/fetch failure, not an empty run.
+        assert result.status == "failed"
+        assert result.primary_count == 0
+        assert result.errors
 
     def test_accepts_tickers_param_for_backwards_compat(self, tmp_db):
         """The function signature still accepts tickers but ignores them."""
@@ -523,7 +529,63 @@ class TestGoogleTrendsMarketWide:
             importlib.reload(tc)
             # Should not crash when tickers is passed
             result = tc.collect_google_trends(tickers=["AAPL", "MSFT"], db_path=tmp_db)
-        assert "terms_collected" in result or "error" in result
+        from src.data_collection.result import CollectorResult
+
+        assert isinstance(result, CollectorResult)
+
+
+# ── VIX Term Structure ──────────────────────────────────────────────
+
+class TestVixTermStructure:
+    @pytest.fixture
+    def vix_db(self):
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        from tests.conftest import init_test_db
+        init_test_db(path, ["vix_term_structure"])
+        yield path
+        try:
+            os.unlink(path)
+        except PermissionError:
+            pass
+
+    def test_collect_writes_snapshot_and_returns_ok(self, vix_db):
+        from src.data_collection.vix_collector import collect_vix_term_structure
+        from src.data_collection.result import CollectorResult
+
+        with patch(
+            "src.data_collection.vix_collector._fetch_vix_value",
+            side_effect=[18.0, 20.0, 22.0, 24.0],
+        ):
+            result = collect_vix_term_structure(db_path=vix_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.status == "ok"
+        # All four tenors fetched -> primary_count counts the tenors landed.
+        assert result.primary_count == 4
+        assert result.collector_name == "vix"
+
+        with sqlite3.connect(vix_db) as conn:
+            rows = conn.execute(
+                "SELECT vix, vix3m FROM vix_term_structure"
+            ).fetchall()
+        assert len(rows) == 1
+        assert abs(rows[0][0] - 18.0) < 1e-6
+
+    def test_collect_all_tenors_fail_returns_failed(self, vix_db):
+        from src.data_collection.vix_collector import collect_vix_term_structure
+        from src.data_collection.result import CollectorResult
+
+        with patch(
+            "src.data_collection.vix_collector._fetch_vix_value",
+            return_value=None,
+        ):
+            result = collect_vix_term_structure(db_path=vix_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.status == "failed"
+        assert result.primary_count == 0
+        assert result.errors
 
 
 # ── Collector Failure Handling (Graceful) ───────────────────────────
