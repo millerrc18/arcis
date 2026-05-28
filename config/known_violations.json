@@ -181,7 +181,18 @@
     },
     {
       "file": "src/shadow_trading/executor.py",
-      "lines": 3016
+      "lines": 1231,
+      "rationale": "Phase 5 PR-C T10 split: executor.py reduced from 3016 to 1231 lines by extracting order-lifecycle functions to order_lifecycle.py and reconciliation primitives to reconciliation_engine.py. Still >400L; re-exports the moved public API for backward-compat. Phase-6 sub-target: decompose open_shadow_trade (714L)."
+    },
+    {
+      "file": "src/shadow_trading/order_lifecycle.py",
+      "lines": 1640,
+      "rationale": "Phase 5 PR-C T10 split from executor.py; dominated by check_and_manage_open_trades (771L) + open_live_trade (409L); Phase-6 sub-target: decompose the giant lifecycle functions."
+    },
+    {
+      "file": "src/shadow_trading/reconciliation_engine.py",
+      "lines": 405,
+      "rationale": "Phase 5 PR-C T10 split from executor.py; 399L at split time, crossed 400L after standard docstring header was added (5 required fields). Phase-6 sub-target: decompose _check_close_milestones (139L)."
     },
     {
       "file": "src/shadow_trading/reconcile.py",
@@ -1133,34 +1144,40 @@
       "lines": 144
     },
     {
-      "file": "src/shadow_trading/executor.py",
+      "file": "src/shadow_trading/reconciliation_engine.py",
       "function": "_check_close_milestones",
-      "lines": 134
+      "lines": 139,
+      "rationale": "Phase 5 PR-C T10: moved from executor.py (was 134L) to reconciliation_engine.py; 139L post-move."
     },
     {
-      "file": "src/shadow_trading/executor.py",
+      "file": "src/shadow_trading/reconciliation_engine.py",
       "function": "_check_loss_streak",
-      "lines": 68
+      "lines": 65,
+      "rationale": "Phase 5 PR-C T10: moved from executor.py (was 68L) to reconciliation_engine.py; 65L post-move."
     },
     {
-      "file": "src/shadow_trading/executor.py",
+      "file": "src/shadow_trading/order_lifecycle.py",
       "function": "_retry_exit",
-      "lines": 196
+      "lines": 203,
+      "rationale": "Phase 5 PR-C T10: moved from executor.py (was 196L) to order_lifecycle.py; 203L post-move."
     },
     {
-      "file": "src/shadow_trading/executor.py",
+      "file": "src/shadow_trading/order_lifecycle.py",
       "function": "check_and_manage_open_trades",
-      "lines": 762
+      "lines": 771,
+      "rationale": "Phase 5 PR-C T10: moved from executor.py (was 762L) to order_lifecycle.py; 771L post-move. Phase-6 sub-target: decompose."
     },
     {
-      "file": "src/shadow_trading/executor.py",
+      "file": "src/shadow_trading/order_lifecycle.py",
       "function": "open_live_trade",
-      "lines": 398
+      "lines": 409,
+      "rationale": "Phase 5 PR-C T10: moved from executor.py (was 398L) to order_lifecycle.py; 409L post-move. Phase-6 sub-target: decompose."
     },
     {
       "file": "src/shadow_trading/executor.py",
       "function": "open_shadow_trade",
-      "lines": 707
+      "lines": 714,
+      "rationale": "Phase 5 PR-C T10: stayed in executor.py (was 707L); 714L post-split."
     },
     {
       "file": "src/shadow_trading/executor.py",
