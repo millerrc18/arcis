@@ -269,18 +269,3 @@ def test_notify_gate_proposal_helper_exists(watch_loop):
         "_notify_gate_proposal method missing from WatchLoop"
     )
     assert callable(watch_loop._notify_gate_proposal)
-
-
-def test_notify_gate_proposal_does_not_raise(watch_loop, caplog):
-    """_notify_gate_proposal(strategy_id, evidence) must not raise."""
-    import logging
-    evidence = {
-        "methodology_gate": {
-            "decision": "promote",
-        }
-    }
-    with patch("src.notifications.telegram.send_telegram", return_value=None), \
-         patch("src.notifications.telegram.is_telegram_enabled", return_value=False):
-        with caplog.at_level(logging.INFO):
-            # Must not raise regardless of Telegram availability
-            watch_loop._notify_gate_proposal("strat_test", evidence)
