@@ -819,7 +819,6 @@ def test_shadow_trades_strategy_id_fk_db_enforcement():
     "path_name,patch_target,env_database_url",
     [
         ("sqlite", "get_closed_shadow_trades", None),
-        ("postgres", "_fetch_closed_trades_from_postgres", "postgresql://fake@localhost/x"),
     ],
 )
 def test_fetch_closed_trades_filters_by_strategy_id(
@@ -827,14 +826,10 @@ def test_fetch_closed_trades_filters_by_strategy_id(
 ):
     """_fetch_closed_trades(strategy_id='X') returns only trades for strategy X (T2/#56).
 
-    Parametrized over both dispatch paths of _fetch_closed_trades:
-      - sqlite branch (DATABASE_URL unset): calls get_closed_shadow_trades
-      - postgres branch (DATABASE_URL set): calls _fetch_closed_trades_from_postgres
-    Each variant patches the corresponding function (not the other) so mock-
-    target drift in either branch surfaces as a real-PG call against missing
-    fixtures rather than a silent vacuous pass (the v0.36.60 / #92 follow-up
-    finding; the original test patched only get_closed_shadow_trades and was
-    vacuous whenever DATABASE_URL was set, the operator's runtime env).
+    SQLite-only dispatch (DATABASE_URL unset): calls get_closed_shadow_trades.
+    The postgres variant was removed by PR-B T6 (commit 2abe0fcb) which stripped
+    _fetch_closed_trades_from_postgres; the @patch target no longer exists.
+    Historical dual-branch parametrize documented in CHANGELOG ## [v0.36.61].
     """
     from unittest.mock import patch
     from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
@@ -869,7 +864,6 @@ def test_fetch_closed_trades_filters_by_strategy_id(
     "path_name,patch_target,env_database_url",
     [
         ("sqlite", "get_closed_shadow_trades", None),
-        ("postgres", "_fetch_closed_trades_from_postgres", "postgresql://fake@localhost/x"),
     ],
 )
 def test_fetch_closed_trades_strategy_id_none_returns_all(
@@ -877,8 +871,7 @@ def test_fetch_closed_trades_strategy_id_none_returns_all(
 ):
     """_fetch_closed_trades(strategy_id=None) returns all trades — backward compat (T2/#56).
 
-    Same parametrization as the strategy_id-filter test above; locks both
-    dispatch branches against mock-target drift.
+    SQLite-only dispatch; postgres variant removed by PR-B T6 (commit 2abe0fcb).
     """
     from unittest.mock import patch
     from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
