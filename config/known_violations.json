@@ -37,8 +37,19 @@
       "lines": 723
     },
     {
-      "file": "src/cli/commands.py",
-      "lines": 1444
+      "file": "src/cli/commands_data.py",
+      "lines": 523,
+      "rationale": "Phase 5 PR-C T13 split: cli/commands.py (1531L) split by command domain. commands_data.py holds the data/ingestion/shadow-trading/live-trading/reconcile/risk-halt commands (17 cmd_* fns). 523L; commands.py itself dropped to a ~90L pure re-export facade and is no longer oversized. Still >400L because the data domain is the largest command family (cmd_collect_data + cmd_live_close + cmd_live_history are individually large). Phase-6 sub-target: further split shadow vs live vs collection if the file grows."
+    },
+    {
+      "file": "src/cli/commands_training.py",
+      "lines": 496,
+      "rationale": "Phase 5 PR-C T13 split from cli/commands.py: holds the training/evaluation/model-versioning/council/review commands (30 cmd_* fns). 496L. Phase-6 sub-target: split training vs evaluation vs review if it grows."
+    },
+    {
+      "file": "src/cli/commands_ops.py",
+      "lines": 546,
+      "rationale": "Phase 5 PR-C T13 split from cli/commands.py: holds the system/config/startup/notifications/digest/dashboard commands (14 cmd_* fns) plus the startup helpers (_assert_safe_live_governor_combo, _build_startup_result, _notify_startup_telegram, _startup_decision, _print_startup_check) and the shared _safe_print helper imported by the data + training sub-modules. 546L. Phase-6 sub-target: extract the startup-helper cluster into a sibling if it grows."
     },
     {
       "file": "src/council/agent_data.py",
@@ -338,19 +349,22 @@
       "lines": 92
     },
     {
-      "file": "src/cli/commands.py",
+      "file": "src/cli/commands_data.py",
       "function": "cmd_collect_data",
-      "lines": 71
+      "lines": 71,
+      "rationale": "Phase 5 PR-C T13: moved verbatim from src/cli/commands.py to commands_data.py during the category split. Pre-existing grandfathered length (71L); the 12-collector orchestration loop is unchanged. Re-keyed to its new module."
     },
     {
-      "file": "src/cli/commands.py",
+      "file": "src/cli/commands_ops.py",
       "function": "cmd_config_fix",
-      "lines": 85
+      "lines": 85,
+      "rationale": "Phase 5 PR-C T13: moved verbatim from src/cli/commands.py to commands_ops.py during the category split. Pre-existing grandfathered length (85L); the ruamel/PyYAML merge-missing logic is unchanged. Re-keyed to its new module."
     },
     {
-      "file": "src/cli/commands.py",
+      "file": "src/cli/commands_data.py",
       "function": "cmd_live_close",
-      "lines": 70
+      "lines": 70,
+      "rationale": "Phase 5 PR-C T13: moved verbatim from src/cli/commands.py to commands_data.py during the category split. Pre-existing grandfathered length (70L); the broker exit-order flow is unchanged. Re-keyed to its new module."
     },
     {
       "file": "src/council/agent_data.py",
