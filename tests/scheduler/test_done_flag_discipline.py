@@ -13,10 +13,13 @@ Fix: each block now uses the canonical
 pattern. The helpers _run_daily_validation, _run_daily_build_score, and
 _run_action_reminders were extracted so the inline block stays one-liner.
 
-These tests verify:
-  - On a raise inside the helper, _safe_run returns False, so the done-flag
-    must NOT be set.
-  - On success, _safe_run returns True, so the done-flag IS set.
+These tests verify (post-PR-D T19: _safe_run returns CollectorResult, gated
+on .is_healthy — CollectorResult has no __bool__, so callers MUST branch on
+.is_healthy, not object truthiness):
+  - On a raise inside the helper, _safe_run returns a failed CollectorResult
+    (.is_healthy False), so the done-flag must NOT be set.
+  - On success, _safe_run returns an ok CollectorResult (.is_healthy True),
+    so the done-flag IS set.
 
 Plus an end-to-end check that exercises the full WatchLoop helper +
 _safe_run + done-flag pipeline.
@@ -61,7 +64,7 @@ def test_done_flag_a_not_set_on_validation_failure():
         side_effect=RuntimeError("validator boom"),
     ):
         # This is the production block (post-fix):
-        if wl._safe_run("daily validation", wl._run_daily_validation):
+        if wl._safe_run("daily validation", wl._run_daily_validation).is_healthy:
             wl._daily_validation_done = True
 
     assert wl._daily_validation_done is False, (
@@ -91,7 +94,7 @@ def test_done_flag_a_set_on_validation_success():
         "src.notifications.telegram.is_telegram_enabled",
         return_value=False,
     ):
-        if wl._safe_run("daily validation", wl._run_daily_validation):
+        if wl._safe_run("daily validation", wl._run_daily_validation).is_healthy:
             wl._daily_validation_done = True
 
     assert wl._daily_validation_done is True
@@ -111,7 +114,7 @@ def test_done_flag_b_not_set_on_build_score_failure():
         "src.evaluation.build_score.persist_build_score",
         side_effect=RuntimeError("build_score boom"),
     ):
-        if wl._safe_run("daily build score", wl._run_daily_build_score):
+        if wl._safe_run("daily build score", wl._run_daily_build_score).is_healthy:
             wl._daily_build_score_done = True
 
     assert wl._daily_build_score_done is False, (
@@ -129,7 +132,7 @@ def test_done_flag_b_set_on_build_score_success():
         "src.evaluation.build_score.persist_build_score",
         return_value={"build_score": 87.5},
     ):
-        if wl._safe_run("daily build score", wl._run_daily_build_score):
+        if wl._safe_run("daily build score", wl._run_daily_build_score).is_healthy:
             wl._daily_build_score_done = True
 
     assert wl._daily_build_score_done is True
@@ -154,7 +157,7 @@ def test_done_flag_c_not_set_on_reminders_failure():
         "src.notifications.telegram_commands.check_action_reminders",
         side_effect=RuntimeError("reminders boom"),
     ):
-        if wl._safe_run("action reminders", wl._run_action_reminders):
+        if wl._safe_run("action reminders", wl._run_action_reminders).is_healthy:
             wl._action_reminders_done = True
 
     assert wl._action_reminders_done is False, (
@@ -175,7 +178,7 @@ def test_done_flag_c_set_on_reminders_success():
         "src.notifications.telegram_commands.check_action_reminders",
         return_value=["alert_1"],
     ):
-        if wl._safe_run("action reminders", wl._run_action_reminders):
+        if wl._safe_run("action reminders", wl._run_action_reminders).is_healthy:
             wl._action_reminders_done = True
 
     assert wl._action_reminders_done is True
@@ -191,7 +194,7 @@ def test_done_flag_c_set_when_telegram_disabled():
         "src.notifications.telegram.is_telegram_enabled",
         return_value=False,
     ):
-        if wl._safe_run("action reminders", wl._run_action_reminders):
+        if wl._safe_run("action reminders", wl._run_action_reminders).is_healthy:
             wl._action_reminders_done = True
 
     assert wl._action_reminders_done is True

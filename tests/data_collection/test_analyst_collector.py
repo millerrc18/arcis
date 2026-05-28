@@ -275,8 +275,10 @@ def test_collect_analyst_estimates_uses_engine_aware_upsert(tmp_path, monkeypatc
         from src.data_collection.analyst_collector import collect_analyst_estimates
         result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=db_path)
 
-    assert result["tickers_processed"] == 1
-    assert result["estimates_stored"] == 1
+    from src.data_collection.result import CollectorResult
+    assert isinstance(result, CollectorResult)
+    assert result.primary_count == 1
+    assert result.metadata["estimates_stored"] == 1
 
     # engine_aware_upsert was called once with the right args
     assert mock_upsert.call_count == 1

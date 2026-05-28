@@ -33,6 +33,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import DBIntegrityError, connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
@@ -320,10 +321,14 @@ def _collect_speeches(
 def collect_fed_communications(
     lookback_days: int = 730,
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect all Fed communications since last collection or lookback.
 
-    Returns: {"statements": int, "minutes": int, "beige_book": int, "speeches": int}
+    Returns: CollectorResult('fed', primary_count=total items stored,
+    metadata={'statements': ..., 'minutes': ..., 'beige_book': ...,
+    'speeches': ...}). Per-section fetch failures are swallowed (logged) so the
+    run always completes with a healthy 'ok' status — a network outage yields
+    primary_count 0, not a failed result.
     """
     now = datetime.now(ET)
     collected_at = now.isoformat()
@@ -336,29 +341,30 @@ def collect_fed_communications(
         else:
             since_date = (now - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
-    result = {"statements": 0, "minutes": 0, "beige_book": 0, "speeches": 0}
+    counts = {"statements": 0, "minutes": 0, "beige_book": 0, "speeches": 0}
 
     with connect_db(db_path) as conn:
         try:
-            result["statements"] = _collect_fomc_statements(conn, since_date, collected_at)
+            counts["statements"] = _collect_fomc_statements(conn, since_date, collected_at)
         except Exception as e:
             logger.warning("[FED] FOMC statements failed: %s", e)
 
         try:
-            result["minutes"] = _collect_fomc_minutes(conn, since_date, collected_at)
+            counts["minutes"] = _collect_fomc_minutes(conn, since_date, collected_at)
         except Exception as e:
             logger.warning("[FED] FOMC minutes failed: %s", e)
 
         try:
-            result["beige_book"] = _collect_beige_book(conn, since_date, collected_at)
+            counts["beige_book"] = _collect_beige_book(conn, since_date, collected_at)
         except Exception as e:
             logger.warning("[FED] Beige Book failed: %s", e)
 
         try:
-            result["speeches"] = _collect_speeches(conn, since_date, collected_at)
+            counts["speeches"] = _collect_speeches(conn, since_date, collected_at)
         except Exception as e:
             logger.warning("[FED] Speeches failed: %s", e)
 
-    total = sum(result.values())
-    logger.info("[FED] Collection complete: %d total items %s", total, result)
+    total = sum(counts.values())
+    result = CollectorResult.ok_from_count("fed", total, **counts)
+    logger.info("[FED] Collection complete: %d total items %s", total, counts)
     return result

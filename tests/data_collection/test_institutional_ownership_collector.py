@@ -56,6 +56,7 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
     from src.data_collection.institutional_ownership_collector import (
         collect_institutional_ownership,
     )
+    from src.data_collection.result import CollectorResult
 
     mock_payload = {
         "ownership": [
@@ -90,12 +91,17 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
 
         # First call: API hit + row written.
         result1 = collect_institutional_ownership("AAPL", config=config, db_path=sqlite_db)
-        assert result1 is not None
+        assert isinstance(result1, CollectorResult)
+        assert result1.is_healthy
+        # 2 holders aggregated into the snapshot row.
+        assert result1.primary_count == 2
+        assert result1.metadata["total_shares"] == 180000
         assert mock_get.called, "Expected Finnhub API call when plan=fundamental-1"
 
         # Second call: same as_of_date -> UPSERT idempotent (no duplicate row).
         result2 = collect_institutional_ownership("AAPL", config=config, db_path=sqlite_db)
-        assert result2 is not None
+        assert isinstance(result2, CollectorResult)
+        assert result2.is_healthy
 
     with sqlite3.connect(sqlite_db) as verify:
         verify.row_factory = sqlite3.Row
@@ -123,6 +129,7 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     from src.data_collection.institutional_ownership_collector import (
         collect_institutional_ownership,
     )
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "free"}}
 
@@ -134,7 +141,12 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     ) as mock_get:
         result = collect_institutional_ownership("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None, "plan=free must return None"
+    # Gate-closed -> healthy CollectorResult, count 0, metadata {'gated': 1}
+    # (no API call). Preserves the old "no data" consumer semantics.
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 0
+    assert result.metadata.get("gated") == 1
     mock_get.assert_not_called()
 
 

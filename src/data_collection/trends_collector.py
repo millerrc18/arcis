@@ -31,6 +31,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -54,19 +55,21 @@ def collect_google_trends(
     tickers: list[str] | None = None,
     batch_size: int = 20,
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect Google Trends data for market-wide sentiment terms.
 
     The tickers and batch_size params are accepted for backwards compatibility
     but ignored — we now collect fixed market sentiment terms instead.
 
-    Returns: {"terms_collected": int, "spikes_detected": int}
+    Returns CollectorResult.ok_from_count("trends", terms_collected,
+    spikes_detected=...) on a normal run; a failed result when pytrends
+    is not installed (the collector cannot run at all).
     """
     try:
         from pytrends.request import TrendReq
     except ImportError as exc:
         logger.warning("[TRENDS] pytrends import failed: %s", exc)
-        return {"terms_collected": 0, "spikes_detected": 0, "error": f"pytrends import: {exc}"}
+        return CollectorResult.failed("trends", errors=[f"pytrends import: {exc}"])
 
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
@@ -139,6 +142,12 @@ def collect_google_trends(
         if i + 5 < len(MARKET_SENTIMENT_TERMS):
             time.sleep(10)
 
-    result = {"terms_collected": terms_collected, "spikes_detected": spikes_detected}
-    logger.info("[TRENDS] Collection complete: %s", result)
+    result = CollectorResult.ok_from_count(
+        "trends", terms_collected, spikes_detected=spikes_detected
+    )
+    logger.info(
+        "[TRENDS] Collection complete: terms=%d, spikes=%d",
+        terms_collected,
+        spikes_detected,
+    )
     return result

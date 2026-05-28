@@ -27,6 +27,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -96,25 +97,31 @@ def collect_company_executives(
     ticker: str,
     config: dict | None = None,
     db_path: str = DB_PATH,
-) -> dict | None:
+) -> CollectorResult:
     """Collect company executive roster for one ticker (plan-gated).
 
     On entry: when ``finnhub_plan_supports('company_executive', config)``
-    is False, log INFO and return None — no API call (Decision 30).
+    is False, log INFO and return ``CollectorResult.ok_from_count(
+    'company_executive', 0, gated=1)`` — no API call (Decision 30). Gate-closed
+    is healthy (not an error) and ran zero; the ``gated=1`` metadata records
+    the cause.
 
     Otherwise: call Finnhub /stock/executive and UPSERT one row per executive
     into ``company_executives`` keyed by (ticker, name, position). Executives
     with no ``name`` are skipped (name is a NOT NULL unique-key component).
 
-    Returns ``{'ticker': ticker, 'executives_stored': N}`` on success, or None
-    when plan-gated off / when the API call fails / when the response is empty.
+    Returns: CollectorResult('company_executive', primary_count=executives_stored).
+      - plan-gated off    -> ok, count 0, metadata {'gated': 1}
+      - fetch failed       -> failed (count 0)
+      - empty response     -> ok, count 0
+      - rows written       -> ok, count=executives_stored
     """
     if not finnhub_plan_supports("company_executive", config):
         logger.info(
             "[COMPANY_EXEC] Skipped %s — Finnhub plan does not support "
             "company_executive", ticker,
         )
-        return None
+        return CollectorResult.ok_from_count("company_executive", 0, gated=1)
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -125,10 +132,14 @@ def collect_company_executives(
         )
 
     executives = _fetch_company_executives(ticker, api_key)
+    if executives is None:
+        return CollectorResult.failed(
+            "company_executive",
+            errors=[f"[COMPANY_EXEC] fetch failed for {ticker}"],
+        )
     if not executives:
-        if executives is not None:
-            logger.info("[COMPANY_EXEC] No executives for %s", ticker)
-        return None
+        logger.info("[COMPANY_EXEC] No executives for %s", ticker)
+        return CollectorResult.ok_from_count("company_executive", 0)
 
     stored = 0
     with connect_db(db_path) as conn:
@@ -141,4 +152,4 @@ def collect_company_executives(
         conn.commit()
 
     logger.info("[COMPANY_EXEC] %s: %s executives stored", ticker, stored)
-    return {"ticker": ticker, "executives_stored": stored}
+    return CollectorResult.ok_from_count("company_executive", stored)

@@ -36,9 +36,17 @@ def run_fundamentals_refresh(config: dict, db_path: str = DB_PATH) -> dict:
     # FRED macro refresh
     try:
         from src.data_collection.macro_collector import collect_macro_snapshots
+        from src.data_collection.result import CollectorResult
 
         result = collect_macro_snapshots(db_path=db_path)
-        summary["refreshed"].append(f"FRED ({result.get('series_collected', 0)} series)")
+        # DUAL-MODE (kin #23 / DD-15 r3): macro_collector returns a legacy dict
+        # until its PR-D migration batch, then a CollectorResult. primary_count
+        # carries the same series count the dict exposed as 'series_collected'.
+        if isinstance(result, CollectorResult):
+            series_collected = result.primary_count
+        else:
+            series_collected = result.get("series_collected", 0)
+        summary["refreshed"].append(f"FRED ({series_collected} series)")
         logger.info("[FUNDAMENTALS] FRED macro refreshed")
     except Exception as e:
         logger.warning("[FUNDAMENTALS] FRED refresh failed: %s", e)

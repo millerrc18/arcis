@@ -32,6 +32,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -94,25 +95,25 @@ def collect_price_targets(
     ticker: str,
     config: dict | None = None,
     db_path: str = DB_PATH,
-) -> dict | None:
+) -> CollectorResult:
     """Collect price target consensus snapshot for one ticker (plan-gated).
 
-    On entry: when ``finnhub_plan_supports('price_target', config)``
-    is False, log INFO and return None — no API call (Decision 30).
-
-    Otherwise: call Finnhub /stock/price-target and UPSERT one row
-    into ``price_targets`` keyed by (ticker, as_of_date = today UTC).
-
-    Returns {'ticker': ticker, 'target_mean': <val>} on success, or None
-    when plan-gated off / when the API call fails / when the response has
-    no usable data (targetMean, targetHigh, targetLow all absent/zero).
+    Calls Finnhub /stock/price-target and UPSERTs one row into ``price_targets``
+    keyed by (ticker, as_of_date). Returns CollectorResult('price_target',
+    primary_count=rows_written): gated-off -> ok count 0 metadata{'gated':1}
+    (no API call, Decision 30); fetch fail -> failed; no usable data -> ok
+    count 0; row -> ok count 1. NOTE: price_target is gated OFF on fundamental-1
+    as of v0.36.43 (per-endpoint 403) so the gated branch is the live path even
+    on a paid key (see finnhub_plan._FEATURE_MATRIX). SEMANTIC NARROWING: the
+    target VALUES (mean/high/low/median) are floats and cannot live in the
+    dict[str,int] metadata bucket; they persist to the price_targets table.
     """
     if not finnhub_plan_supports("price_target", config):
         logger.info(
             "[PRICE_TARGET] Skipped %s — Finnhub plan does not support "
             "price_target", ticker,
         )
-        return None
+        return CollectorResult.ok_from_count("price_target", 0, gated=1)
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -124,12 +125,15 @@ def collect_price_targets(
 
     payload = _fetch_price_target(ticker, api_key)
     if payload is None:
-        return None
+        return CollectorResult.failed(
+            "price_target",
+            errors=[f"[PRICE_TARGET] fetch failed for {ticker}"],
+        )
 
     row = _build_row(ticker, payload)
     if row is None:
         logger.info("[PRICE_TARGET] No usable data returned for %s", ticker)
-        return None
+        return CollectorResult.ok_from_count("price_target", 0)
 
     with connect_db(db_path) as conn:
         engine_aware_upsert(conn, "price_targets", row, action="ignore")
@@ -140,4 +144,4 @@ def collect_price_targets(
         ticker, row["target_mean"] or 0.0, row["target_high"] or 0.0,
         row["target_low"] or 0.0, row["as_of_date"],
     )
-    return {"ticker": ticker, "target_mean": row["target_mean"]}
+    return CollectorResult.ok_from_count("price_target", 1)

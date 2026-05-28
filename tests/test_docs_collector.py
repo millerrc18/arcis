@@ -120,7 +120,9 @@ class TestPopulateResearchDocs:
         with patch.object(mod, "__file__", fake_file):
             result = populate_research_docs(db_path=db_path)
 
-        assert result["docs_found"] == 3  # 2 in docs/, 1 in docs/research/
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 3  # 2 in docs/, 1 in docs/research/
 
         with sqlite3.connect(db_path) as conn:
             rows = conn.execute("SELECT * FROM research_docs").fetchall()

@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import DBIntegrityError, connect_db, engine_aware_column_info, engine_aware_upsert
 from src.data_collection.edgar_historical import (  # noqa: F401 — re-exported
     _lookup_primary_document,
@@ -275,12 +276,13 @@ def collect_new_filings(
     tickers: list[str],
     lookback_days: int = 730,
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect new SEC EDGAR filings for the given tickers.
 
     First run: collects last 2 years. Subsequent runs: since last collection.
 
-    Returns: {"tickers_processed": int, "filings_stored": int}
+    Returns: CollectorResult('edgar', primary_count=tickers_processed,
+    metadata={'filings_stored': filings_stored}).
     """
     now = datetime.now(ET)
     collected_at = now.isoformat()
@@ -380,9 +382,8 @@ def collect_new_filings(
             # Rate limit: 5 req/sec (conservative)
             time.sleep(0.2)
 
-    result = {
-        "tickers_processed": tickers_processed,
-        "filings_stored": filings_stored,
-    }
+    result = CollectorResult.ok_from_count(
+        "edgar", tickers_processed, filings_stored=filings_stored
+    )
     logger.info("[EDGAR] Collection complete: %s", result)
     return result

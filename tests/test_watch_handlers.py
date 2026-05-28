@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from src.data_collection.result import CollectorResult
 from src.scheduler import watch_handlers
 from src.scheduler.watch_handlers import OVERNIGHT_HANDLERS
 
@@ -41,7 +42,7 @@ def _make_watch(
     def safe_run(name: str, func):
         safe_run_calls.append(name)
         func()
-        return True
+        return CollectorResult.ok_from_count(name, 0)
 
     w = SimpleNamespace(
         overnight=overnight,
@@ -393,7 +394,7 @@ def test_dispatch_sync_fires_overnight_handlers_at_correct_times(monkeypatch):
 
     def safe_run(name, func):
         fired.append((name, getattr(loop, "_current_tick_now", None)))
-        return True
+        return CollectorResult.ok_from_count(name, 0)
 
     monkeypatch.setattr(loop, "_safe_run", safe_run)
     monkeypatch.setattr(loop, "_is_market_open", lambda now: False)
@@ -454,7 +455,7 @@ def _make_stats_watch() -> SimpleNamespace:
     def safe_run(name: str, func):
         safe_run_calls.append(name)
         func()
-        return True
+        return CollectorResult.ok_from_count(name, 0)
 
     return SimpleNamespace(
         overnight=False,                      # overnight-mode shouldn't matter
@@ -533,7 +534,7 @@ def test_dispatch_sync_handlers_are_idempotent_across_ticks(monkeypatch):
 
     def safe_run(name, func):
         fired.append(name)
-        return True
+        return CollectorResult.ok_from_count(name, 0)
 
     monkeypatch.setattr(loop, "_safe_run", safe_run)
     monkeypatch.setattr(loop, "_is_market_open", lambda now: False)

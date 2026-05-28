@@ -168,10 +168,10 @@ def test_collect_short_interest_dedups_via_engine_aware_upsert(tmp_path):
         f"settlement_date) on SQLite path; got {count} rows after two "
         f"collections"
     )
-    assert result_1["records_stored"] == 1
+    assert result_1.primary_count == 1
     # cursor.rowcount on INSERT OR IGNORE returns 0 for the dedup'd insert
     # on SQLite (no row affected). Same behaviour expected post-migration.
-    assert result_2["records_stored"] == 0
+    assert result_2.primary_count == 0
 
 
 def test_collect_short_interest_routes_through_engine_aware_upsert(tmp_path):

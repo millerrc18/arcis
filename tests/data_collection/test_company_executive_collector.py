@@ -50,6 +50,7 @@ def test_plan_fundamental_1_makes_api_call_and_writes_rows(sqlite_db, monkeypatc
     from src.data_collection.company_executive_collector import (
         collect_company_executives,
     )
+    from src.data_collection.result import CollectorResult
 
     mock_payload = {
         "executive": [
@@ -88,14 +89,15 @@ def test_plan_fundamental_1_makes_api_call_and_writes_rows(sqlite_db, monkeypatc
 
         # First call: API hit + rows written.
         result1 = collect_company_executives("AAPL", config=config, db_path=sqlite_db)
-        assert result1 is not None
+        assert isinstance(result1, CollectorResult)
         assert mock_get.called, "Expected Finnhub API call when plan=fundamental-1"
-        assert result1["ticker"] == "AAPL"
-        assert result1["executives_stored"] == 2
+        assert result1.is_healthy
+        assert result1.primary_count == 2
 
         # Second call: same executives -> UPSERT idempotent (no duplicate rows).
         result2 = collect_company_executives("AAPL", config=config, db_path=sqlite_db)
-        assert result2 is not None
+        assert isinstance(result2, CollectorResult)
+        assert result2.primary_count == 2
 
     with sqlite3.connect(sqlite_db) as verify:
         verify.row_factory = sqlite3.Row
@@ -116,11 +118,12 @@ def test_plan_fundamental_1_makes_api_call_and_writes_rows(sqlite_db, monkeypatc
 
 
 def test_empty_executive_list_returns_none(sqlite_db, monkeypatch):
-    """Empty executive list -> returns None and writes nothing."""
+    """Empty executive list -> healthy CollectorResult, count 0, writes nothing."""
     monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
     from src.data_collection.company_executive_collector import (
         collect_company_executives,
     )
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
 
@@ -137,7 +140,9 @@ def test_empty_executive_list_returns_none(sqlite_db, monkeypatch):
 
         result = collect_company_executives("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 0
 
     with sqlite3.connect(sqlite_db) as verify:
         count = verify.execute(
@@ -152,6 +157,7 @@ def test_executive_missing_name_is_skipped(sqlite_db, monkeypatch):
     from src.data_collection.company_executive_collector import (
         collect_company_executives,
     )
+    from src.data_collection.result import CollectorResult
 
     mock_payload = {
         "executive": [
@@ -180,8 +186,9 @@ def test_executive_missing_name_is_skipped(sqlite_db, monkeypatch):
 
         result = collect_company_executives("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is not None
-    assert result["executives_stored"] == 1
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 1
 
     with sqlite3.connect(sqlite_db) as verify:
         rows = verify.execute(
@@ -203,6 +210,7 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     from src.data_collection.company_executive_collector import (
         collect_company_executives,
     )
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "free"}}
 
@@ -214,7 +222,12 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     ) as mock_get:
         result = collect_company_executives("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None, "plan=free must return None"
+    # Gate-closed -> healthy CollectorResult, count 0, metadata {'gated': 1}
+    # (no API call). Preserves the old "no data" consumer semantics.
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 0
+    assert result.metadata.get("gated") == 1
     mock_get.assert_not_called()
 
 

@@ -32,6 +32,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db, engine_aware_upsert
 from src.data_collection.research_sources import (
     RELEVANCE_KEYWORDS,
@@ -141,8 +142,12 @@ def _store_paper(paper: dict, score: float, reason: str,
 # ── Main Collector ───────────────────────────────────────────────────
 
 
-def collect_research_papers(db_path: str = DB_PATH) -> dict:
-    """Nightly research paper collection. Returns {source: count} dict."""
+def collect_research_papers(db_path: str = DB_PATH) -> CollectorResult:
+    """Nightly research paper collection. Returns a CollectorResult.
+
+    primary_count is papers stored (total_new); per-source new-paper counts and
+    total_crawled go in metadata (all int counts).
+    """
     results = {}
     all_papers = []
 
@@ -185,10 +190,12 @@ def collect_research_papers(db_path: str = DB_PATH) -> dict:
             stored += 1
         time.sleep(0.5)  # Rate limit Ollama calls
 
-    results["total_new"] = stored
-    results["total_crawled"] = len(all_papers)
-
     logger.info("[RESEARCH] Collection complete: %d stored, %d crawled from %d sources",
-                stored, len(all_papers), len(results) - 2)
+                stored, len(all_papers), len(results))
 
-    return results
+    return CollectorResult.ok_from_count(
+        "research_papers",
+        stored,
+        total_crawled=len(all_papers),
+        **results,
+    )

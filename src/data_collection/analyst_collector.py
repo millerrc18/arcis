@@ -32,6 +32,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports, get_finnhub_plan
 from src.utils.db import DBIntegrityError, connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -79,10 +80,13 @@ def collect_analyst_estimates(
     tickers: list[str],
     batch_size: int | None = None,
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect analyst recommendations and price targets.
 
-    Returns: {"tickers_processed": int, "estimates_stored": int}
+    Returns: CollectorResult('analyst', primary_count=tickers_processed,
+    metadata={'estimates_stored': ..., 'errors': ...}). When >50% of tickers
+    fail the run RAISES CollectorPartialFailureError (DD-14) instead of
+    returning; a sub-threshold error count yields status 'partial'.
     """
     if batch_size is None:
         batch_size = _get_nightly_cap(None)
@@ -98,7 +102,9 @@ def collect_analyst_estimates(
             "[ANALYST] Skipped collection — Finnhub plan does not support "
             "recommendation_trends"
         )
-        return {"tickers_processed": 0, "estimates_stored": 0, "errors": 0}
+        return CollectorResult.ok_from_count(
+            "analyst", 0, estimates_stored=0, errors_count=0
+        )
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -111,7 +117,7 @@ def collect_analyst_estimates(
 
     to_collect = _get_tickers_to_collect(tickers, batch_size, db_path)
     if not to_collect:
-        return {"tickers_processed": 0, "estimates_stored": 0}
+        return CollectorResult.ok_from_count("analyst", 0, estimates_stored=0)
 
     tickers_processed = 0
     estimates_stored = 0
@@ -212,10 +218,20 @@ def collect_analyst_estimates(
             errors=errors, total=total,
         )
 
-    result = {
-        "tickers_processed": tickers_processed,
-        "estimates_stored": estimates_stored,
-        "errors": errors,
-    }
+    if errors:
+        result = CollectorResult.partial(
+            "analyst",
+            tickers_processed,
+            errors=[f"[ANALYST] {errors}/{total} tickers failed"],
+            estimates_stored=estimates_stored,
+            errors_count=errors,
+        )
+    else:
+        result = CollectorResult.ok_from_count(
+            "analyst",
+            tickers_processed,
+            estimates_stored=estimates_stored,
+            errors_count=errors,
+        )
     logger.info("[ANALYST] Collection complete: %s", result)
     return result

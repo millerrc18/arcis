@@ -29,6 +29,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -66,17 +67,20 @@ def collect_stock_financials(
     ticker: str,
     config: dict | None = None,
     db_path: str = DB_PATH,
-) -> dict | None:
+) -> CollectorResult | None:
     """Collect fundamental metrics snapshot for one ticker (plan-gated).
 
     On entry: when ``finnhub_plan_supports('stock_financials', config)``
-    is False, log INFO and return None — no API call (Decision 30).
+    is False, log INFO and return None — no API call (Decision 30). The
+    plan-gated NO-OP keeps its None contract so the gate-off skip stays
+    distinguishable from a real run.
 
     Otherwise: call Finnhub /stock/metric?metric=all and UPSERT one
     row into ``stock_financials`` keyed by (ticker, as_of_date).
 
-    Returns {'ticker': ticker, 'as_of_date': as_of_date} on success,
-    or None when plan-gated off / API call fails / metric dict empty.
+    Returns CollectorResult.ok_from_count('stock_financials', 1) on a
+    successful upsert, or None when plan-gated off / API call fails /
+    metric dict empty.
     """
     if not finnhub_plan_supports("stock_financials", config):
         logger.info(
@@ -152,4 +156,4 @@ def collect_stock_financials(
         row["market_cap"],
         as_of_date,
     )
-    return {"ticker": ticker, "as_of_date": as_of_date}
+    return CollectorResult.ok_from_count("stock_financials", 1)

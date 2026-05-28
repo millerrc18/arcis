@@ -38,6 +38,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.utils.db import DBIntegrityError, connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -51,10 +52,11 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 def collect_short_interest(
     tickers: list[str],
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect short interest data for all tickers via Finnhub.
 
-    Returns: {"tickers_processed": int, "records_stored": int}
+    Returns a CollectorResult: primary_count is records_stored; tickers_processed
+    and errors go in metadata.
     """
     # DEPRECATED v0.36.13 — see src/data_collection/short_volume_finra.py.
     # Finnhub plan no longer entitles /stock/short-interest (403). The early-exit
@@ -70,7 +72,9 @@ def collect_short_interest(
             "[SHORT] Skipped collection — Finnhub plan does not support "
             "short_interest"
         )
-        return {"tickers_processed": 0, "records_stored": 0, "errors": 0}
+        return CollectorResult.ok_from_count(
+            "short_interest", 0, tickers_processed=0, errors=0
+        )
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -181,12 +185,16 @@ def collect_short_interest(
     # would otherwise spuriously trip on what is plan/key state, not a
     # system fault.
     if entitlement_gap:
-        result = {
-            "tickers_processed": tickers_processed,
-            "records_stored": records_stored,
-            "errors": 0,
-            "skipped_entitlement": True,
-        }
+        # skipped_entitlement narrowed bool->int(1) for the dict[str,int]
+        # metadata bucket; it remains a structured skip (ok / count 0), not a
+        # failure — the remaining tickers weren't actually attempted.
+        result = CollectorResult.ok_from_count(
+            "short_interest",
+            records_stored,
+            tickers_processed=tickers_processed,
+            errors=0,
+            skipped_entitlement=1,
+        )
         logger.info(
             "[SHORT] Collection skipped — Finnhub plan does not entitle "
             "short-interest endpoint (HTTP 403). %s",
@@ -201,10 +209,19 @@ def collect_short_interest(
             errors=errors, total=total,
         )
 
-    result = {
-        "tickers_processed": tickers_processed,
-        "records_stored": records_stored,
-        "errors": errors,
-    }
+    if errors:
+        result = CollectorResult.partial(
+            "short_interest",
+            records_stored,
+            errors=[f"{errors} ticker(s) failed"],
+            tickers_processed=tickers_processed,
+        )
+    else:
+        result = CollectorResult.ok_from_count(
+            "short_interest",
+            records_stored,
+            tickers_processed=tickers_processed,
+            errors=0,
+        )
     logger.info("[SHORT] Collection complete: %s", result)
     return result

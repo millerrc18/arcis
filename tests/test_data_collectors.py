@@ -143,8 +143,11 @@ class TestEdgarFilingParser:
         with patch("src.data_collection.edgar_collector._load_cik_lookup", return_value={}):
             result = collect_new_filings(["FAKE"], db_path=tmp_db)
 
-        assert result["tickers_processed"] == 0
-        assert result["filings_stored"] == 0
+        # Non-vacuity (DD-15 r3): primary_count==0 asserts the body early-continued
+        # past the no-CIK ticker without incrementing tickers_processed; would fail
+        # if the body stopped skipping unknown CIKs.
+        assert result.primary_count == 0
+        assert result.metadata["filings_stored"] == 0
         _cik_cache.clear()
 
 
@@ -195,8 +198,10 @@ class TestInsiderTransactions:
 
             result = collect_insider_transactions(["AAPL"], db_path=tmp_db)
 
-        assert result["tickers_processed"] == 1
-        assert result["transactions_stored"] == 1
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["transactions_stored"] == 1
 
         with sqlite3.connect(tmp_db) as conn:
             row = conn.execute("SELECT * FROM insider_transactions").fetchone()
@@ -296,8 +301,10 @@ class TestAnalystEstimates:
 
             result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
 
-        assert result["tickers_processed"] == 1
-        assert result["estimates_stored"] == 1
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["estimates_stored"] == 1
 
     def test_collect_skips_price_target_when_plan_does_not_support_it(self, tmp_db):
         from src.data_collection.analyst_collector import collect_analyst_estimates
@@ -323,8 +330,10 @@ class TestAnalystEstimates:
 
             result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
 
-        assert result["tickers_processed"] == 1
-        assert result["estimates_stored"] == 1
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["estimates_stored"] == 1
         assert mock_get.call_count == 1
 
     def test_no_api_key(self, tmp_db):
@@ -334,6 +343,75 @@ class TestAnalystEstimates:
         with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value=None):
             with pytest.raises(CollectorConfigError, match="FINNHUB_API_KEY"):
                 collect_analyst_estimates(["AAPL"], db_path=tmp_db)
+
+
+# ── Options Metrics (CollectorResult migration, PR-D T21) ───────────
+
+class TestOptionsMetrics:
+    """compute_options_metrics returns a CollectorResult (PR-D T21 / Shape C).
+
+    primary_count = tickers_computed; metadata = {'unusual_flags': N}.
+    """
+
+    @pytest.fixture
+    def metrics_db(self):
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        from tests.conftest import init_test_db
+        init_test_db(path, ["options_chains", "options_metrics"])
+        yield path
+        try:
+            os.unlink(path)
+        except PermissionError:
+            pass
+
+    def _insert_chain(self, db_path, ticker, volume, open_interest):
+        """Seed one call + one put for `ticker` in today's options_chains."""
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/New_York"))
+        today = now.strftime("%Y-%m-%d")
+        exp = (now + timedelta(days=30)).strftime("%Y-%m-%d")
+        with sqlite3.connect(db_path) as conn:
+            for opt_type in ("call", "put"):
+                conn.execute(
+                    """INSERT INTO options_chains
+                    (collected_at, ticker, option_type, strike, expiration,
+                     underlying_price, volume, open_interest, implied_volatility)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (now.isoformat(), ticker, opt_type, 100.0, exp,
+                     100.0, volume, open_interest, 0.30),
+                )
+            conn.commit()
+
+    def test_returns_collector_result_with_counts(self, metrics_db):
+        """Non-vacuity: a chain whose volume > 3x OI must surface as
+        primary_count == 1 (one ticker computed) AND unusual_flags == 1.
+        If the body stopped computing metrics, primary_count would be 0; if
+        the unusual-volume detection broke, the metadata count would be 0."""
+        from src.data_collection.options_metrics import compute_options_metrics
+        from src.data_collection.result import CollectorResult
+
+        # volume (4000) > 3 * open_interest (1000) → unusual flag fires.
+        self._insert_chain(metrics_db, "AAPL", volume=4000, open_interest=1000)
+
+        result = compute_options_metrics(["AAPL"], db_path=metrics_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["unusual_flags"] == 1
+
+    def test_no_chain_data_yields_zero_count(self, metrics_db):
+        """Non-vacuity: with no chain rows, the ticker is skipped and
+        primary_count stays 0 — would be 1 if the early-continue broke."""
+        from src.data_collection.options_metrics import compute_options_metrics
+        from src.data_collection.result import CollectorResult
+
+        result = compute_options_metrics(["AAPL"], db_path=metrics_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 0
+        assert result.metadata["unusual_flags"] == 0
 
 
 # ── Fed Communications ──────────────────────────────────────────────
@@ -355,11 +433,13 @@ class TestFedCommunications:
             result = collect_fed_communications(db_path=tmp_db)
 
         # Should not crash — graceful failure
-        assert isinstance(result, dict)
-        assert "statements" in result
-        assert "minutes" in result
-        assert "beige_book" in result
-        assert "speeches" in result
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 0
+        assert result.metadata["statements"] == 0
+        assert result.metadata["minutes"] == 0
+        assert result.metadata["beige_book"] == 0
+        assert result.metadata["speeches"] == 0
 
     def test_parse_href_date_old_8digit_format(self):
         from src.data_collection.fed_collector import _parse_href_date
@@ -430,7 +510,13 @@ class TestGoogleTrendsMarketWide:
             importlib.reload(tc)
             result = tc.collect_google_trends(tickers=["AAPL"], db_path=tmp_db)
 
-        assert result["terms_collected"] == 0
+        from src.data_collection.result import CollectorResult
+
+        assert isinstance(result, CollectorResult)
+        # pytrends not installed is a dependency/fetch failure, not an empty run.
+        assert result.status == "failed"
+        assert result.primary_count == 0
+        assert result.errors
 
     def test_accepts_tickers_param_for_backwards_compat(self, tmp_db):
         """The function signature still accepts tickers but ignores them."""
@@ -443,7 +529,63 @@ class TestGoogleTrendsMarketWide:
             importlib.reload(tc)
             # Should not crash when tickers is passed
             result = tc.collect_google_trends(tickers=["AAPL", "MSFT"], db_path=tmp_db)
-        assert "terms_collected" in result or "error" in result
+        from src.data_collection.result import CollectorResult
+
+        assert isinstance(result, CollectorResult)
+
+
+# ── VIX Term Structure ──────────────────────────────────────────────
+
+class TestVixTermStructure:
+    @pytest.fixture
+    def vix_db(self):
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        from tests.conftest import init_test_db
+        init_test_db(path, ["vix_term_structure"])
+        yield path
+        try:
+            os.unlink(path)
+        except PermissionError:
+            pass
+
+    def test_collect_writes_snapshot_and_returns_ok(self, vix_db):
+        from src.data_collection.vix_collector import collect_vix_term_structure
+        from src.data_collection.result import CollectorResult
+
+        with patch(
+            "src.data_collection.vix_collector._fetch_vix_value",
+            side_effect=[18.0, 20.0, 22.0, 24.0],
+        ):
+            result = collect_vix_term_structure(db_path=vix_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.status == "ok"
+        # All four tenors fetched -> primary_count counts the tenors landed.
+        assert result.primary_count == 4
+        assert result.collector_name == "vix"
+
+        with sqlite3.connect(vix_db) as conn:
+            rows = conn.execute(
+                "SELECT vix, vix3m FROM vix_term_structure"
+            ).fetchall()
+        assert len(rows) == 1
+        assert abs(rows[0][0] - 18.0) < 1e-6
+
+    def test_collect_all_tenors_fail_returns_failed(self, vix_db):
+        from src.data_collection.vix_collector import collect_vix_term_structure
+        from src.data_collection.result import CollectorResult
+
+        with patch(
+            "src.data_collection.vix_collector._fetch_vix_value",
+            return_value=None,
+        ):
+            result = collect_vix_term_structure(db_path=vix_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.status == "failed"
+        assert result.primary_count == 0
+        assert result.errors
 
 
 # ── Collector Failure Handling (Graceful) ───────────────────────────
@@ -453,13 +595,14 @@ class TestCollectorFailureHandling:
 
     def test_edgar_network_failure(self, tmp_db):
         from src.data_collection.edgar_collector import collect_new_filings, _cik_cache
+        from src.data_collection.result import CollectorResult
         _cik_cache.clear()
 
         with patch("src.data_collection.edgar_collector._load_cik_lookup",
                    side_effect=Exception("Network down")):
             result = collect_new_filings(["AAPL"], db_path=tmp_db)
 
-        assert isinstance(result, dict)
+        assert isinstance(result, CollectorResult)
         _cik_cache.clear()
 
     def test_insider_network_failure(self, tmp_db):
@@ -503,7 +646,8 @@ class TestCollectorFailureHandling:
                    side_effect=Exception("Network down")):
             result = collect_fed_communications(db_path=tmp_db)
 
-        assert isinstance(result, dict)
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
 
 
 # ── Training Data Collector: pnl type safety (#195) ───────────────

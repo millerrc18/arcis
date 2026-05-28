@@ -16,9 +16,25 @@ Decision 27: filings_sentiment is a DISTINCT retrieval cadence from
 edgar_filings — keep tables + collectors separate. This collector never
 touches edgar_filings.
 
-Gate: finnhub_plan_supports('filings_sentiment', config). Returns None when
-the plan does not support the feature — no API call is attempted (avoids the
-403-burn on free-tier keys per Decision 30).
+Gate: finnhub_plan_supports('filings_sentiment', config). Returns a healthy
+CollectorResult with primary_count 0 and metadata {'gated': 1} when the plan
+does not support the feature — no API call is attempted (avoids the 403-burn
+on free-tier keys per Decision 30).
+
+PR-D T21b (DD-15 r3 + kin #23): migrated dict/None → CollectorResult. This is
+a PAIRED migration with its only consumer, scheduler/overnight.py::
+_run_plan_gated_collector, whose `collector_fn(...) is not None` mass-failure
+detector would silently break against an always-non-None CollectorResult.
+Per-ticker (Shape F, like press_releases): each call returns one
+CollectorResult; the consumer loop aggregates across the universe.
+
+Gate-closed representation: CollectorResult.ok_from_count('filings_sentiment',
+0, gated=1). Rationale — gate-closed is NOT an error (.is_healthy True) and
+ran zero items (primary_count 0); the metadata {'gated': 1} flags the cause so
+a gate-closed run is distinguishable from a healthy-but-empty run. The "has
+data" predicate the consumer uses (is_healthy AND primary_count > 0) treats
+both gate-closed and empty as "no data this ticker" — exactly the old None
+semantics.
 """
 
 from __future__ import annotations
@@ -30,6 +46,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -110,24 +127,30 @@ def collect_filings_sentiment(
     ticker: str,
     config: dict | None = None,
     db_path: str = DB_PATH,
-) -> list[dict] | None:
+) -> CollectorResult:
     """Collect filings sentiment snapshots for one ticker (plan-gated).
 
     On entry: when ``finnhub_plan_supports('filings_sentiment', config)`` is
-    False, log INFO and return None — no API call (Decision 30).
+    False, log INFO and return ``CollectorResult.ok_from_count(
+    'filings_sentiment', 0, gated=1)`` — no API call (Decision 30). Gate-closed
+    is healthy (not an error) and ran zero; the ``gated=1`` metadata records
+    the cause.
 
     Otherwise: call Finnhub /stock/filings-sentiment and UPSERT one row per
     filing into ``filings_sentiment`` keyed by (ticker, filing_type, filed_at).
 
-    Returns the list of inserted row dicts on success, or None when plan-gated
-    off / when the API call fails / when the response is empty.
+    Returns: CollectorResult('filings_sentiment', primary_count=rows_written).
+      - plan-gated off    -> ok, count 0, metadata {'gated': 1}
+      - fetch failed       -> failed (count 0)
+      - empty response     -> ok, count 0
+      - rows written       -> ok, count=len(rows)
     """
     if not finnhub_plan_supports("filings_sentiment", config):
         logger.info(
             "[FILINGS_SENT] Skipped %s — Finnhub plan does not support "
             "filings_sentiment", ticker,
         )
-        return None
+        return CollectorResult.ok_from_count("filings_sentiment", 0, gated=1)
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -138,10 +161,14 @@ def collect_filings_sentiment(
         )
 
     filings = _fetch_finnhub_filings_sentiment(ticker, api_key)
+    if filings is None:
+        return CollectorResult.failed(
+            "filings_sentiment",
+            errors=[f"[FILINGS_SENT] fetch failed for {ticker}"],
+        )
     if not filings:
-        if filings is not None:
-            logger.info("[FILINGS_SENT] No filings returned for %s", ticker)
-        return None
+        logger.info("[FILINGS_SENT] No filings returned for %s", ticker)
+        return CollectorResult.ok_from_count("filings_sentiment", 0)
 
     rows: list[dict] = []
     with connect_db(db_path) as conn:
@@ -167,4 +194,4 @@ def collect_filings_sentiment(
             "[FILINGS_SENT] %s: %d filing(s) written (types=%s)",
             ticker, len(rows), sorted({r["filing_type"] for r in rows}),
         )
-    return rows or None
+    return CollectorResult.ok_from_count("filings_sentiment", len(rows))

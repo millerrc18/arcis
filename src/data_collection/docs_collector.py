@@ -26,6 +26,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -87,8 +88,11 @@ def _make_id(filename: str) -> str:
     return hashlib.md5(filename.encode()).hexdigest()[:12]
 
 
-def populate_research_docs(db_path: str = DB_PATH) -> dict:
-    """Scan docs/ and docs/research/ for .md files and populate research_docs table."""
+def populate_research_docs(db_path: str = DB_PATH) -> CollectorResult:
+    """Scan docs/ and docs/research/ for .md files and populate research_docs.
+
+    Returns CollectorResult('docs', primary_count=docs_found).
+    """
     project_root = Path(__file__).resolve().parent.parent.parent
     docs_dirs = [
         project_root / "docs",
@@ -143,4 +147,4 @@ def populate_research_docs(db_path: str = DB_PATH) -> dict:
     except Exception as exc:
         logger.error("[DOCS] Failed to populate research_docs: %s", exc)
 
-    return {"docs_found": len(docs_found)}
+    return CollectorResult.ok_from_count("docs", len(docs_found))

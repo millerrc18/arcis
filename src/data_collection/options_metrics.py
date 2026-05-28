@@ -32,6 +32,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -43,10 +44,11 @@ ET = ZoneInfo("America/New_York")
 def compute_options_metrics(
     tickers: list[str],
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Compute derived options metrics from today's chain snapshots.
 
-    Returns: {"tickers_computed": int, "unusual_flags": int}
+    Returns: CollectorResult('options_metrics', primary_count=tickers_computed,
+    metadata={'unusual_flags': unusual_flags}).
     """
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
@@ -164,7 +166,9 @@ def compute_options_metrics(
             except Exception as e:
                 logger.warning("[OPTIONS_METRICS] Error computing %s: %s", ticker, e)
 
-    result = {"tickers_computed": tickers_computed, "unusual_flags": unusual_flags}
+    result = CollectorResult.ok_from_count(
+        "options_metrics", tickers_computed, unusual_flags=unusual_flags
+    )
     logger.info("[OPTIONS_METRICS] Computation complete: %s", result)
     return result
 

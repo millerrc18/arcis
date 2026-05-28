@@ -50,7 +50,7 @@ def _run_plan_gated_collector(
       calls are made.
 
     - If the gate is open, calls `collector_fn(ticker)` for each ticker in the
-      universe, counting both successes (non-None returns) and total attempts.
+      universe, counting both successes ("has data" returns) and total attempts.
 
     - After the loop, if `tickers_attempted >= 10` and `tickers_with_data == 0`,
       raises `CollectorPartialFailureError`. The wrapping try/except in
@@ -63,9 +63,21 @@ def _run_plan_gated_collector(
     a paid plan-gated capability is unambiguous mass failure regardless of expected
     density.
 
+    DUAL-MODE "has data" (PR-D T21b — DD-15 r3 + kin #23): this wrapper is GENERIC
+    and gates collectors that are still mid-migration. dict/None collectors
+    (institutional_ownership, press_releases, company_executives, ...) signal
+    "has data" via a non-None return. The migrated filings_sentiment collector
+    returns a CollectorResult, which is ALWAYS non-None — so the old `is not None`
+    test would count every ticker (including empty + failed) as a success and
+    silently disable the mass-failure detector. For a CollectorResult, "has data"
+    is `is_healthy AND primary_count > 0`: a failed per-ticker run (status
+    'failed') or an empty/gate-closed run (primary_count 0) counts as NO data,
+    preserving the exact pre-migration None semantics so 0/N still raises.
+
     Returns: str ("skipped: plan-gated") or dict ({"tickers_with_data": N,
     "tickers_attempted": M}). Raises CollectorPartialFailureError on mass failure.
     """
+    from src.data_collection.result import CollectorResult
     from src.data_enrichment.finnhub_plan import finnhub_plan_supports
     if not finnhub_plan_supports(capability, config):
         return "skipped: plan-gated"
@@ -74,7 +86,12 @@ def _run_plan_gated_collector(
     tickers_attempted = 0
     for ticker in universe:
         tickers_attempted += 1
-        if collector_fn(ticker) is not None:
+        outcome = collector_fn(ticker)
+        if isinstance(outcome, CollectorResult):
+            has_data = outcome.is_healthy and outcome.primary_count > 0
+        else:
+            has_data = outcome is not None
+        if has_data:
             tickers_with_data += 1
 
     result = {
@@ -103,7 +120,18 @@ def _is_collector_error(result) -> bool:
     structure directly: an explicit `error` key (or a string starting with
     "Error") signals failure; an `errors` count of 0 with at least one
     processed item is success.
+
+    DUAL-MODE (kin #23 / DD-15 r3): PR-D migrates the 22 collectors from dict
+    to CollectorResult one batch at a time, so during the transition this
+    consumer sees BOTH shapes. A CollectorResult is NOT a dict, so without the
+    branch below it would fall through to "not an error" — silently reversing
+    the #623 fix for every migrated collector. A CollectorResult is an error
+    iff it is not healthy (status 'failed').
     """
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return not result.is_healthy
     if isinstance(result, str):
         return result.lower().startswith("error")
     if isinstance(result, dict):
@@ -116,6 +144,33 @@ def _is_collector_error(result) -> bool:
             if not processed:
                 return True
     return False
+
+
+def _research_total_new(result) -> int:
+    """New-paper count from a research result (dual-mode).
+
+    kin #23 / DD-15 r3: collect_research_papers returns a CollectorResult
+    (primary_count = papers stored) post-migration, but an error path still
+    yields a plain dict. Read both shapes during the transition.
+    """
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return result.primary_count
+    if isinstance(result, dict):
+        return result.get("total_new", 0)
+    return 0
+
+
+def _research_total_crawled(result) -> int:
+    """Crawled-paper count from a research result (dual-mode — see above)."""
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return result.metadata.get("total_crawled", 0)
+    if isinstance(result, dict):
+        return result.get("total_crawled", 0)
+    return 0
 
 
 def run_postclose_reconciliation():
@@ -1017,11 +1072,17 @@ def run_data_collection(db_path: str = DB_PATH,
         from src.data_collection.research_collector import collect_research_papers
         research_results = collect_research_papers()
         results["research"] = research_results
-        print(f"[WATCH]   [13/13] Research: {research_results.get('total_new', 0)} new papers "
-              f"(crawled {research_results.get('total_crawled', 0)})")
+        # kin #23 / DD-15 r3: collect_research_papers now returns a
+        # CollectorResult (total_new -> primary_count, total_crawled ->
+        # metadata). Read both shapes during the migration window.
+        research_new = _research_total_new(research_results)
+        research_crawled = _research_total_crawled(research_results)
+        print(f"[WATCH]   [13/13] Research: {research_new} new papers "
+              f"(crawled {research_crawled})")
     except Exception as e:
         logger.warning("[COLLECTORS] Research collection failed: %s", e)
-        results["research"] = {"error": str(e)}
+        research_results = {"error": str(e)}
+        results["research"] = research_results
 
     summary = {k: str(v) for k, v in results.items()}
     print(f"[WATCH] Data collection complete: {summary}")
@@ -1051,9 +1112,13 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         from src.data_collection.retention import run_retention
         retention_result = run_retention()
-        if retention_result:
+        # kin #23 / DD-15 r3: run_retention now returns a CollectorResult,
+        # which is object-truthy for every status — so gate on the pruned
+        # row count, not bare truthiness, to preserve the original "only
+        # stash/log when something was actually pruned" behaviour.
+        if retention_result.primary_count > 0:
             results["retention"] = retention_result
-            logger.info("[WATCH] Retention pruned: %s", retention_result)
+            logger.info("[WATCH] Retention pruned: %s", retention_result.metadata)
     except Exception as e:
         logger.warning("[WATCH] Retention failed: %s", e)
 
@@ -1078,7 +1143,8 @@ def run_data_collection(db_path: str = DB_PATH,
             collector_failures[name] = 0  # Reset on success
 
     # H3. Notify new research papers via Telegram
-    if research_results.get("total_new", 0) > 0:
+    research_new = _research_total_new(research_results)
+    if research_new > 0:
         with connect_db(db_path) as _cn:
             top = _cn.execute(
                 "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
@@ -1087,7 +1153,7 @@ def run_data_collection(db_path: str = DB_PATH,
         top_score = top[1] if top else 0
         safe_send(
             "research_papers",
-            total_new=research_results["total_new"],
+            total_new=research_new,
             top_paper=top_title,
             top_score=top_score,
         )

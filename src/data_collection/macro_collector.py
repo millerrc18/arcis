@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import DBError, connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
@@ -152,10 +153,15 @@ def _get_previous_value(
     return float(row[0]) if row and row[0] is not None else None
 
 
-def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
+def collect_macro_snapshots(db_path: str = DB_PATH) -> CollectorResult:
     """Collect latest values for all tracked FRED series.
 
-    Returns: {"series_collected": int, "notable_changes": list}
+    Returns: CollectorResult('macro', primary_count=series_collected),
+    metadata={'notable_changes': len(notable_changes)}.
+
+    PR-D #72 semantic narrowing (DD-12): pre-migration the dict carried the
+    full notable_changes LIST; CollectorResult.metadata is dict[str, int], so
+    we store the COUNT of >5% moves, not the list of dicts.
     """
     api_key = _get_fred_api_key()
     if not api_key:
@@ -236,6 +242,8 @@ def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
             # Rate limit
             time.sleep(0.2)
 
-    result = {"series_collected": series_collected, "notable_changes": notable_changes}
+    result = CollectorResult.ok_from_count(
+        "macro", series_collected, notable_changes=len(notable_changes)
+    )
     logger.info("[MACRO] Collection complete: %s", result)
     return result
