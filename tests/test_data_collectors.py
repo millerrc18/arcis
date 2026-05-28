@@ -143,8 +143,11 @@ class TestEdgarFilingParser:
         with patch("src.data_collection.edgar_collector._load_cik_lookup", return_value={}):
             result = collect_new_filings(["FAKE"], db_path=tmp_db)
 
-        assert result["tickers_processed"] == 0
-        assert result["filings_stored"] == 0
+        # Non-vacuity (DD-15 r3): primary_count==0 asserts the body early-continued
+        # past the no-CIK ticker without incrementing tickers_processed; would fail
+        # if the body stopped skipping unknown CIKs.
+        assert result.primary_count == 0
+        assert result.metadata["filings_stored"] == 0
         _cik_cache.clear()
 
 
@@ -453,13 +456,14 @@ class TestCollectorFailureHandling:
 
     def test_edgar_network_failure(self, tmp_db):
         from src.data_collection.edgar_collector import collect_new_filings, _cik_cache
+        from src.data_collection.result import CollectorResult
         _cik_cache.clear()
 
         with patch("src.data_collection.edgar_collector._load_cik_lookup",
                    side_effect=Exception("Network down")):
             result = collect_new_filings(["AAPL"], db_path=tmp_db)
 
-        assert isinstance(result, dict)
+        assert isinstance(result, CollectorResult)
         _cik_cache.clear()
 
     def test_insider_network_failure(self, tmp_db):

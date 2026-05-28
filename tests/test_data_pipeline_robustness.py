@@ -94,9 +94,12 @@ class TestNaNPriceRejection:
             from src.data_collection.options_collector import collect_options_chains
             result = collect_options_chains(["TEST"], db_path=tmp_db)
 
-        # Ticker should be skipped, not collected
-        assert result["tickers_collected"] == 0
-        assert result["errors"] == 0
+        # Ticker should be skipped, not collected. Non-vacuity (DD-15 r3):
+        # primary_count==0 + errors==0 asserts the NaN guard early-continued
+        # (a SUCCESSFUL count-0 'ok' run, not a 'failed' run); would fail if the
+        # collector stopped skipping NaN underlying prices.
+        assert result.primary_count == 0
+        assert result.metadata["errors"] == 0
 
     def test_zero_underlying_price_skipped(self, tmp_db):
         """Options collector skips tickers with zero underlying price."""
@@ -114,7 +117,7 @@ class TestNaNPriceRejection:
             from src.data_collection.options_collector import collect_options_chains
             result = collect_options_chains(["TEST"], db_path=tmp_db)
 
-        assert result["tickers_collected"] == 0
+        assert result.primary_count == 0
 
 
 # ── #126: Accession number normalized ────────────────────────────────

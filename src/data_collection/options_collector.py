@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 import yfinance as yf
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db
 from src.universe.sp100 import to_yfinance_ticker
 
@@ -48,10 +49,13 @@ ET = ZoneInfo("America/New_York")
 def collect_options_chains(
     tickers: list[str],
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect EOD options chain snapshots for all tickers.
 
-    Returns: {"tickers_collected": int, "contracts_stored": int, "errors": int}
+    Returns: CollectorResult('options', primary_count=tickers_collected,
+    metadata={'contracts_stored': ..., 'errors': ...}). A run that collected
+    nothing while hitting errors (tickers_collected == 0 and errors > 0) is
+    'failed'; every other run (including a clean count-0 skip) is 'ok'.
     """
     now = datetime.now(ET)
     collected_at = now.isoformat()
@@ -156,11 +160,18 @@ def collect_options_chains(
         # Rate limit: be respectful to yfinance
         time.sleep(0.5)
 
-    result = {
-        "tickers_collected": tickers_collected,
-        "contracts_stored": contracts_stored,
-        "errors": errors,
-    }
+    if tickers_collected == 0 and errors > 0:
+        result = CollectorResult.failed(
+            "options",
+            errors=[f"{errors} ticker(s) errored, none collected"],
+        )
+    else:
+        result = CollectorResult.ok_from_count(
+            "options",
+            tickers_collected,
+            contracts_stored=contracts_stored,
+            errors=errors,
+        )
     logger.info("[OPTIONS] Collection complete: %s", result)
     return result
 
