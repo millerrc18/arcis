@@ -59,9 +59,11 @@ EXPECTED_EVENT_TO_TIER: dict[str, str] = {
 # so the contract is identical on Windows + POSIX.
 BYPASS_ALLOWLIST: dict[tuple[str, str | None], str] = {
     # ── DD-13 CLI carve-outs (operator-invoked immediate send) ──
-    ('src/cli/commands.py', 'cmd_send_test_email'):
+    # Phase 5 PR-C T13: cmd_send_test_email moved to commands_ops.py and
+    # cmd_cto_report to commands_training.py during the category split.
+    ('src/cli/commands_ops.py', 'cmd_send_test_email'):
         'CLI carve-out (DD-13) — `arcis send-test-email` operator command',
-    ('src/cli/commands.py', 'cmd_cto_report'):
+    ('src/cli/commands_training.py', 'cmd_cto_report'):
         'CLI carve-out (DD-13) — `arcis cto-report --email` operator command',
 
     # ── DD-14 escalated-telegram-fail carve-out ──

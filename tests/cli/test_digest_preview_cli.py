@@ -25,8 +25,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+# Phase 5 PR-C T13 split cli/commands.py: the digest commands now live in
+# commands_ops.py (commands.py is a pure re-export facade).
 _COMMANDS_PATH = (
-    pathlib.Path(__file__).resolve().parents[2] / "src" / "cli" / "commands.py"
+    pathlib.Path(__file__).resolve().parents[2] / "src" / "cli" / "commands_ops.py"
 )
 
 
@@ -36,7 +38,7 @@ def _func_source(name: str) -> str:
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
             return ast.get_source_segment(src, node) or ""
-    raise AssertionError(f"function {name!r} not found in cli/commands.py")
+    raise AssertionError(f"function {name!r} not found in cli/commands_ops.py")
 
 
 # ── (a) default preview prints body to stdout ─────────────────────────────
@@ -88,7 +90,7 @@ def test_digest_preview_pending_prints_table():
     fake_conn.__enter__ = MagicMock(return_value=fake_conn)
     fake_conn.__exit__ = MagicMock(return_value=False)
 
-    with patch("src.cli.commands.connect_db", return_value=fake_conn):
+    with patch("src.cli.commands_ops.connect_db", return_value=fake_conn):
         args = SimpleNamespace(tier="preopen", pending=True, dry_run=False)
         buf = io.StringIO()
         with redirect_stdout(buf):

@@ -113,7 +113,7 @@ def test_cmd_run_promotion_gate_post_fix_behavior():
     args.version_name = "cli-test-v1"
     args.n_trials = 1
 
-    with patch("src.cli.commands.DB_PATH", db):
+    with patch("src.cli.commands_training.DB_PATH", db):
         cmd_run_promotion_gate(args)
 
     # Verify status is NOT 'promoted'
@@ -167,7 +167,7 @@ def test_cmd_run_promotion_gate_passes_dates_directions():
     args.version_name = "cli-kwargs-v1"
     args.n_trials = 1
 
-    with patch("src.cli.commands.DB_PATH", db), \
+    with patch("src.cli.commands_training.DB_PATH", db), \
          patch("src.training.trainer.promotion_gate", side_effect=mock_gate):
         cmd_run_promotion_gate(args)
 

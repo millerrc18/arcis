@@ -250,7 +250,9 @@ class TestSystemRoutes:
         db_path = str(tmp_path / "ai_research_desk.sqlite3")
         monkeypatch.setenv("ARCIS_DB_PATH", db_path)
         monkeypatch.setattr("src.config.DB_PATH", db_path)
-        monkeypatch.setattr("src.api.routes.system.DB_PATH", db_path)
+        # T14: data_collection_stats moved to system_status.py, which binds its
+        # own module-level DB_PATH; patch there so the route reads the temp DB.
+        monkeypatch.setattr("src.api.routes.system_status.DB_PATH", db_path)
 
         init_test_db(db_path, [
             "options_chains", "options_metrics", "vix_term_structure",

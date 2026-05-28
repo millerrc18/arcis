@@ -239,7 +239,7 @@ class TestCommandsRoutesThroughCoerce:
             patch("src.shadow_trading.executor._get_current_price_safe", return_value=105.0),
             patch("src.shadow_trading.alpaca_adapter.place_paper_exit", side_effect=ImportError("mocked")),
             patch("src.journal.store.close_shadow_trade") as mock_cst,
-            patch("src.cli.commands.coerce_exit_reason") as mock_coerce,
+            patch("src.cli.commands_data.coerce_exit_reason") as mock_coerce,
         ):
             mock_coerce.return_value = "manual"
             commands.cmd_shadow_close(args)
@@ -272,7 +272,7 @@ class TestCommandsRoutesThroughCoerce:
             patch("src.shadow_trading.executor._is_pending_status", return_value=False),
             patch("src.journal.store.close_shadow_trade") as mock_cst,
             patch("src.journal.store.update_shadow_trade") as mock_ust,
-            patch("src.cli.commands.coerce_exit_reason") as mock_coerce,
+            patch("src.cli.commands_data.coerce_exit_reason") as mock_coerce,
         ):
             mock_coerce.return_value = "manual"
             commands.cmd_live_close(args)

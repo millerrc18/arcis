@@ -60,7 +60,7 @@ def test_resolve_returns_child_pid_when_one_python_child():
     child = _mock_child(pid=99999)
     wrapper = _mock_proc(children=[child])
 
-    with patch("src.training.trainer.psutil.Process", return_value=wrapper):
+    with patch("src.training.trainer_checkpoint.psutil.Process", return_value=wrapper):
         result = _resolve_tracked_pid(popen_pid=12345)
     assert result == 99999, (
         f"Expected child pid 99999 (wrapper's only python child); got {result}. "
@@ -75,7 +75,7 @@ def test_resolve_returns_child_pid_only_when_name_starts_with_python():
     non_python = _mock_child(pid=88888, name="cmd.exe")
     wrapper = _mock_proc(children=[non_python])
 
-    with patch("src.training.trainer.psutil.Process", return_value=wrapper):
+    with patch("src.training.trainer_checkpoint.psutil.Process", return_value=wrapper):
         result = _resolve_tracked_pid(popen_pid=12345, settle_timeout_s=0.5)
     # After settle, the helper finds zero python children, falls back to popen_pid.
     assert result == 12345
@@ -88,7 +88,7 @@ def test_resolve_python3_named_child_recognized():
     child = _mock_child(pid=77777, name="python3.13")
     wrapper = _mock_proc(children=[child])
 
-    with patch("src.training.trainer.psutil.Process", return_value=wrapper):
+    with patch("src.training.trainer_checkpoint.psutil.Process", return_value=wrapper):
         result = _resolve_tracked_pid(popen_pid=12345)
     assert result == 77777
 
@@ -103,7 +103,7 @@ def test_resolve_falls_back_to_popen_pid_when_no_children():
 
     wrapper = _mock_proc(children=[])
 
-    with patch("src.training.trainer.psutil.Process", return_value=wrapper):
+    with patch("src.training.trainer_checkpoint.psutil.Process", return_value=wrapper):
         result = _resolve_tracked_pid(popen_pid=12345, settle_timeout_s=0.5)
     assert result == 12345
 
@@ -115,7 +115,7 @@ def test_resolve_settle_timeout_is_short():
     wrapper = _mock_proc(children=[])
 
     start = time.monotonic()
-    with patch("src.training.trainer.psutil.Process", return_value=wrapper):
+    with patch("src.training.trainer_checkpoint.psutil.Process", return_value=wrapper):
         _resolve_tracked_pid(popen_pid=12345, settle_timeout_s=0.4)
     elapsed = time.monotonic() - start
     assert elapsed < 1.5, (
@@ -137,7 +137,7 @@ def test_resolve_warns_and_falls_back_on_multiple_children(caplog):
     c2 = _mock_child(pid=10002)
     wrapper = _mock_proc(children=[c1, c2])
 
-    with patch("src.training.trainer.psutil.Process", return_value=wrapper):
+    with patch("src.training.trainer_checkpoint.psutil.Process", return_value=wrapper):
         with caplog.at_level("WARNING", logger="src.training.trainer"):
             result = _resolve_tracked_pid(popen_pid=12345)
     assert result == 12345
@@ -170,7 +170,7 @@ def test_resolve_falls_back_gracefully_on_psutil_errors(exc_type):
     else:  # ZombieProcess
         side_effect = exc_type(pid=12345)
 
-    with patch("src.training.trainer.psutil.Process", side_effect=side_effect):
+    with patch("src.training.trainer_checkpoint.psutil.Process", side_effect=side_effect):
         result = _resolve_tracked_pid(popen_pid=12345, settle_timeout_s=0.5)
     assert result == 12345
 

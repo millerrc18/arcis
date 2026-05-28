@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.training import trainer
+from src.training import trainer_checkpoint
 from src.training import training_control
 
 
@@ -63,14 +64,14 @@ _GPU0_3060 = "0, NVIDIA GeForce RTX 3060, GPU-2222\n1, NVIDIA GeForce RTX 3090, 
 
 
 def test_launch_preflight_passes_when_gpu0_is_3090():
-    with patch("src.training.trainer.subprocess.run", _fake_nvidia_smi(_GPU0_3090)):
+    with patch("src.training.trainer_checkpoint.subprocess.run", _fake_nvidia_smi(_GPU0_3090)):
         # Should NOT raise
         trainer._assert_gpu0_identity()
 
 
 def test_launch_preflight_aborts_when_gpu0_is_3060():
     # MAJOR-5 regression lock: index0 is the 12 GB 3060 ⇒ abort the launch loud.
-    with patch("src.training.trainer.subprocess.run", _fake_nvidia_smi(_GPU0_3060)):
+    with patch("src.training.trainer_checkpoint.subprocess.run", _fake_nvidia_smi(_GPU0_3060)):
         with pytest.raises(RuntimeError, match="3090|IDENTITY|MAJOR-5"):
             trainer._assert_gpu0_identity()
 
@@ -98,8 +99,8 @@ def _proc_that_exits_after(n_polls: int, returncode: int = 0):
 
 def test_wait_loop_does_not_return_until_subprocess_exits():
     proc, state = _proc_that_exits_after(n_polls=3, returncode=0)
-    with patch("src.training.trainer.training_stop.is_stop_requested", return_value=False), \
-         patch("src.training.trainer.time.sleep", return_value=None):
+    with patch("src.training.trainer_checkpoint.training_stop.is_stop_requested", return_value=False), \
+         patch("src.training.trainer_checkpoint.time.sleep", return_value=None):
         rc = trainer._wait_for_training_proc(proc, timeout_s=7200, poll_interval=0.01)
     # poll() must have been called until it stopped returning None — proof of no early return
     assert state["calls"] >= 4
@@ -116,9 +117,9 @@ def test_wait_loop_stop_flag_triggers_bounded_stop():
         except StopIteration:
             return True
 
-    with patch("src.training.trainer.training_stop.is_stop_requested", side_effect=_is_stop), \
-         patch("src.training.trainer.training_control.stop_training_bounded") as mock_stop, \
-         patch("src.training.trainer.time.sleep", return_value=None):
+    with patch("src.training.trainer_checkpoint.training_stop.is_stop_requested", side_effect=_is_stop), \
+         patch("src.training.trainer_checkpoint.training_control.stop_training_bounded") as mock_stop, \
+         patch("src.training.trainer_checkpoint.time.sleep", return_value=None):
         trainer._wait_for_training_proc(proc, timeout_s=7200, poll_interval=0.01)
     mock_stop.assert_called_once()
 
@@ -139,10 +140,10 @@ def test_wait_loop_enforces_7200_ceiling():
         except StopIteration:
             return 99_999.0
 
-    with patch("src.training.trainer.training_stop.is_stop_requested", return_value=False), \
-         patch("src.training.trainer.training_control.stop_training_bounded") as mock_stop, \
-         patch("src.training.trainer.time.monotonic", side_effect=_mono), \
-         patch("src.training.trainer.time.sleep", return_value=None):
+    with patch("src.training.trainer_checkpoint.training_stop.is_stop_requested", return_value=False), \
+         patch("src.training.trainer_checkpoint.training_control.stop_training_bounded") as mock_stop, \
+         patch("src.training.trainer_checkpoint.time.monotonic", side_effect=_mono), \
+         patch("src.training.trainer_checkpoint.time.sleep", return_value=None):
         trainer._wait_for_training_proc(proc, timeout_s=7200, poll_interval=0.01)
     mock_stop.assert_called_once()
 
@@ -188,12 +189,15 @@ def test_run_fine_tune_uses_popen_and_writes_pid(tmp_path, monkeypatch):
                         lambda *a, **k: ({"training": 10, "holdout": 3}, 13))
     # stage1 file "exists" so curriculum path is taken; write the file
     (tmp_path / "td").mkdir()
-    monkeypatch.setattr(trainer, "subprocess", subprocess)
-    monkeypatch.setattr(trainer.subprocess, "Popen", _fake_popen)
+    # T12: Popen/nvidia-smi/wait-loop now execute in trainer_checkpoint's
+    # namespace (the launch helpers moved there); patch that module so the
+    # mocks actually bind. run_fine_tune itself still lives in trainer.py.
+    monkeypatch.setattr(trainer_checkpoint, "subprocess", subprocess)
+    monkeypatch.setattr(trainer_checkpoint.subprocess, "Popen", _fake_popen)
     # nvidia-smi preflight passes
-    monkeypatch.setattr(trainer.subprocess, "run", _fake_nvidia_smi(_GPU0_3090))
-    monkeypatch.setattr(trainer.training_stop, "is_stop_requested", lambda: False)
-    monkeypatch.setattr(trainer.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(trainer_checkpoint.subprocess, "run", _fake_nvidia_smi(_GPU0_3090))
+    monkeypatch.setattr(trainer_checkpoint.training_stop, "is_stop_requested", lambda: False)
+    monkeypatch.setattr(trainer_checkpoint.time, "sleep", lambda *a, **k: None)
 
     # Make the script-writing target the tmp dir and force curriculum path.
     from pathlib import Path as _P
@@ -212,14 +216,14 @@ def test_run_fine_tune_uses_popen_and_writes_pid(tmp_path, monkeypatch):
     # Capture the pidfile contents at the moment _launch_and_wait_training's
     # finally-block cleanup removes it (the file is cleared after the wait
     # returns, before _find_gguf runs).
-    real_remove = trainer.os.remove
+    real_remove = trainer_checkpoint.os.remove
 
     def _spy_remove(path):
         if str(path) == str(pid_file) and pid_file.exists():
             captured["pid_contents"] = pid_file.read_text(encoding="utf-8").strip()
         return real_remove(path)
 
-    monkeypatch.setattr(trainer.os, "remove", _spy_remove)
+    monkeypatch.setattr(trainer_checkpoint.os, "remove", _spy_remove)
 
     # Stop the pipeline right after the wait loop returns by making the GGUF
     # lookup raise our sentinel.

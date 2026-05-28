@@ -19,19 +19,28 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-_COMMANDS_PATH = (
-    pathlib.Path(__file__).resolve().parents[2] / "src" / "cli" / "commands.py"
+# Phase 5 PR-C T13 split cli/commands.py into category sub-modules. The
+# command bodies now live in commands_data.py / commands_training.py /
+# commands_ops.py (commands.py is a pure re-export facade). _func_source
+# searches all three so the source-text assertions below follow the moved
+# functions to their new home.
+_CLI_DIR = pathlib.Path(__file__).resolve().parents[2] / "src" / "cli"
+_COMMANDS_PATHS = (
+    _CLI_DIR / "commands_data.py",
+    _CLI_DIR / "commands_training.py",
+    _CLI_DIR / "commands_ops.py",
 )
 
 
 def _func_source(name: str) -> str:
-    """Pull the source text of a top-level function from cli/commands.py."""
-    src = _COMMANDS_PATH.read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-            return ast.get_source_segment(src, node) or ""
-    raise AssertionError(f"function {name!r} not found in cli/commands.py")
+    """Pull the source text of a top-level function from the cli command modules."""
+    for path in _COMMANDS_PATHS:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+                return ast.get_source_segment(src, node) or ""
+    raise AssertionError(f"function {name!r} not found in any cli command sub-module")
 
 
 def test_send_test_email_cli_bypasses_aggregator():
@@ -86,7 +95,7 @@ def test_cmd_send_test_email_invokes_send_email_directly():
     """Functional: when cmd_send_test_email runs, send_email is called once."""
     from src.cli import commands as cli_cmds
 
-    with patch("src.cli.commands.send_email", return_value=True) as mock_send:
+    with patch("src.cli.commands_ops.send_email", return_value=True) as mock_send:
         args = SimpleNamespace()
         cli_cmds.cmd_send_test_email(args)
         mock_send.assert_called_once()
@@ -96,7 +105,7 @@ def test_cmd_cto_report_email_does_not_enqueue():
     """Functional: cmd_cto_report --email calls send_email once; never enqueue."""
     from src.cli import commands as cli_cmds
 
-    with patch("src.cli.commands.send_email", return_value=True) as mock_send, \
+    with patch("src.cli.commands_training.send_email", return_value=True) as mock_send, \
          patch("src.evaluation.cto_report.generate_cto_report",
                return_value={"summary": "test"}), \
          patch("src.evaluation.cto_report.format_cto_report", return_value="formatted"), \

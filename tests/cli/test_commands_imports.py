@@ -12,8 +12,16 @@ import importlib
 import pathlib
 
 
-_COMMANDS_PATH = (
-    pathlib.Path(__file__).resolve().parents[2] / "src" / "cli" / "commands.py"
+# Phase 5 PR-C T13 split cli/commands.py into category sub-modules; the
+# command bodies (and thus any lazy notification imports) now live in
+# commands_data.py / commands_training.py / commands_ops.py. The I10 guard
+# AST-walks all three so a lazy `from src.notifications ...` inside any
+# command body is still caught.
+_CLI_DIR = pathlib.Path(__file__).resolve().parents[2] / "src" / "cli"
+_COMMANDS_PATHS = (
+    _CLI_DIR / "commands_data.py",
+    _CLI_DIR / "commands_training.py",
+    _CLI_DIR / "commands_ops.py",
 )
 
 
@@ -50,15 +58,18 @@ def _notification_import_nodes_inside_functions(tree: ast.AST) -> list[tuple[int
 
 
 def test_no_lazy_notification_imports() -> None:
-    """AST-walk src/cli/commands.py — assert zero src.notifications ImportFrom
-    nodes live inside any FunctionDef."""
-    source = _COMMANDS_PATH.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(_COMMANDS_PATH))
-    lazy_hits = _notification_import_nodes_inside_functions(tree)
+    """AST-walk the cli command sub-modules — assert zero src.notifications
+    ImportFrom nodes live inside any FunctionDef."""
+    lazy_hits: list[tuple[str, int, str]] = []
+    for path in _COMMANDS_PATHS:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for ln, mod in _notification_import_nodes_inside_functions(tree):
+            lazy_hits.append((path.name, ln, mod))
     assert lazy_hits == [], (
         f"Found {len(lazy_hits)} lazy src.notifications import(s) inside function "
-        f"bodies in src/cli/commands.py — relocate to module level:\n"
-        + "\n".join(f"  line {ln}: from {mod} import ..." for ln, mod in lazy_hits)
+        f"bodies in the cli command sub-modules — relocate to module level:\n"
+        + "\n".join(f"  {name} line {ln}: from {mod} import ..." for name, ln, mod in lazy_hits)
     )
 
 

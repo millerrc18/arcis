@@ -36,7 +36,7 @@ import pytest
 _ALLOWLIST: dict[str, str] = {
     # API + CLI + ad-hoc commands — operator-triggered, live market
     "src/api/routes/actions.py": "API endpoint, operator-triggered scan against today's market",
-    "src/cli/commands.py": "CLI scan/universe/export commands — today's market",
+    "src/cli/commands_data.py": "CLI scan/universe/export commands — today's market (Phase 5 PR-C T13 split from commands.py)",
     "src/commands/executor.py": "Command queue executor — today's market",
     # LLM and platform — live universe matches what models / shadow-trade desks see today
     "src/llm/validator.py": "LLM ticker validation — checks tickers in current universe",
