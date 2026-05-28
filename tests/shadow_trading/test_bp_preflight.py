@@ -144,16 +144,30 @@ def test_universe_scanner_skips_llm_on_bp_rejection(monkeypatch):
 
 
 def test_static_preflight_wiring_present_in_scan_entries():
-    """Guardrail: all 3 scan-entry modules must wire the pre-LLM BP check."""
+    """Guardrail: all 3 scan-entry modules must wire the pre-LLM BP check.
+
+    Phase 5 PR-C T15: scan_service's per-candidate scoring loop moved to the
+    sibling src/services/_scan_service_impl.py (KC-12/DA9). The
+    _check_paper_buying_power_allocation gate now lives in _phase_score there,
+    so each entry maps to the set of files that may legitimately host its
+    wiring (the public module and/or its _impl sibling).
+    """
     import pathlib
-    required = [
-        "src/scheduler/universe_scanner.py",
-        "src/services/scan_service.py",
-        "src/services/mr_scan_service.py",
-    ]
+    required = {
+        "src/scheduler/universe_scanner.py": ["src/scheduler/universe_scanner.py"],
+        "src/services/scan_service.py": [
+            "src/services/scan_service.py",
+            "src/services/_scan_service_impl.py",
+        ],
+        "src/services/mr_scan_service.py": ["src/services/mr_scan_service.py"],
+    }
     missing: list[str] = []
-    for path in required:
-        src = pathlib.Path(path).read_text(encoding="utf-8")
-        if "_check_paper_buying_power_allocation" not in src:
-            missing.append(path)
+    for entry, paths in required.items():
+        wired = any(
+            "_check_paper_buying_power_allocation"
+            in pathlib.Path(p).read_text(encoding="utf-8")
+            for p in paths
+        )
+        if not wired:
+            missing.append(entry)
     assert not missing, f"modules missing pre-LLM BP check wiring: {missing}"

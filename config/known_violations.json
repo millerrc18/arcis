@@ -182,9 +182,9 @@
       "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. T11 Wave D D2: grew to 2623 with notifications_digest_queue TableDef (+37L). Drift to 2883 via subsequent table additions (pre-#110 baseline). #110 T0: +19L for provenance_kind ColumnDef on backtest_results (TEXT NOT NULL CHECK three-state enum) + ColumnDef.check field declaration. Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
     },
     {
-      "file": "src/services/scan_service.py",
-      "lines": 440,
-      "rationale": "Sprint 5 Wave A+B base: scan_service.py grew to 440 lines. run_scan function also exceeded tolerance (330\u2192401). Real split of the scan orchestration logic deferred."
+      "file": "src/services/_scan_service_impl.py",
+      "lines": 473,
+      "rationale": "Phase 5 PR-C T15 extraction (KC-12 / DA9): the ~401-line inner body of run_scan was lifted out of scan_service.py (which dropped from 517L to 220L, now under the 400 limit and removed from this list) into this underscore-private sibling, decomposed into three phase helpers (_phase_collect / _phase_score / _phase_persist). 473L = ~420L of faithfully-moved scan logic + the required 5-header module docstring + the 3 per-phase docstrings. run_scan in scan_service.py now orchestrates the three phases in order (50L). The recommendation-persist, trade-opened Telegram, attribution-hook, and email-routing helpers stay in scan_service.py (imported function-locally here) so their call-site / source-inspection regression-locks keep asserting against scan_service.py. The scoring loop (_phase_score) is a single tightly-coupled per-candidate iteration (pre-LLM filters -> attribution -> packet build -> LLM enhance -> recommendation persist -> shadow open -> results) that resists further file-splitting; recorded as the new structural baseline. Phase-6 sub-target: lift the pre-LLM filter cluster into a sibling if the file grows."
     },
     {
       "file": "src/shadow_trading/alpaca_adapter.py",
@@ -1118,10 +1118,16 @@
       "lines": 169
     },
     {
-      "file": "src/services/scan_service.py",
-      "function": "run_scan",
-      "lines": 401,
-      "rationale": "Sprint 5 Wave A+B base: run_scan grew from 330 to 401 lines with PG-aware query rewriting, engine-impedance wrapper calls, and additional scan metrics. Real split deferred."
+      "file": "src/services/_scan_service_impl.py",
+      "function": "_phase_collect",
+      "lines": 131,
+      "rationale": "Phase 5 PR-C T15 extraction (KC-12 / DA9): collect phase lifted verbatim from run_scan — universe build + OHLCV/SPY fetch + feature compute + enrichment (data + post-scan + market-event-risk Telegram) + data-integrity filter + ranking. 131 lines; the enrichment try/except blocks and the strategy-vs-None branching are tightly coupled to the shared feature dict. Splitting further would require threading the partially-built feature dict across sub-helpers. Phase-6 sub-target alongside the _scan_service_impl file split."
+    },
+    {
+      "file": "src/services/_scan_service_impl.py",
+      "function": "_phase_score",
+      "lines": 236,
+      "rationale": "Phase 5 PR-C T15 extraction (KC-12 / DA9): the per-candidate packet-worthy scoring loop lifted verbatim from run_scan (was the dominant block of the ~401-line inner function). 245 lines = one tightly-coupled iteration: pre-LLM portfolio snapshot + per-candidate event/sector pre-filters + attribution phase 1 + packet build + None-skip + BP pre-check + LLM enhance + recommendation persist + attribution phase 2 + email routing + shadow open + result-row assembly + ticker event-risk alert. Splitting the loop body into sub-functions would scatter the per-candidate `continue` control flow and the shared accumulators (packets_emailed, trades_opened, pre-LLM filter counters) across call boundaries. Parallels the grandfathered run_universe_scan (326L) and run_mr_scan (169L) scan loops. Phase-6 sub-target: extract the pre-LLM filter cluster + attribution wrappers once the loop boundary stabilizes."
     },
     {
       "file": "src/services/shadow_service.py",

@@ -92,15 +92,29 @@ def test_scan_service_run_scan_resets_committed_counter(monkeypatch):
 def test_static_reset_call_present_in_production_scan_entries():
     """Static-source guard: each production scan-entry module must
     contain a literal `reset_scan_cycle_committed()` call. Prevents a
-    future refactor from silently dropping the reset."""
+    future refactor from silently dropping the reset.
+
+    Phase 5 PR-C T15: scan_service's collect phase moved to the sibling
+    src/services/_scan_service_impl.py (KC-12/DA9); the reset call now lives
+    in _phase_collect there. Each entry maps to the set of files that may
+    legitimately host its reset wiring (the public module and/or its sibling).
+    """
+    entries = {
+        "src/services/scan_service.py": (
+            "src/services/scan_service.py",
+            "src/services/_scan_service_impl.py",
+        ),
+        "src/scheduler/universe_scanner.py": ("src/scheduler/universe_scanner.py",),
+        "src/services/mr_scan_service.py": ("src/services/mr_scan_service.py",),
+    }
     checked: list[tuple[str, bool]] = []
-    for mod_path in (
-        "src/services/scan_service.py",
-        "src/scheduler/universe_scanner.py",
-        "src/services/mr_scan_service.py",
-    ):
-        src = pathlib.Path(mod_path).read_text(encoding="utf-8")
-        checked.append((mod_path, "reset_scan_cycle_committed()" in src))
+    for entry, paths in entries.items():
+        present = any(
+            "reset_scan_cycle_committed()"
+            in pathlib.Path(p).read_text(encoding="utf-8")
+            for p in paths
+        )
+        checked.append((entry, present))
 
     missing = [p for p, ok in checked if not ok]
     assert not missing, f"scan modules missing reset call: {missing}"

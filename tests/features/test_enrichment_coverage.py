@@ -29,12 +29,19 @@ def test_universe_scanner_calls_attach_post_scan_features():
 
 
 def test_main_scanner_calls_attach_post_scan_features():
-    """Fail if services/scan_service forgets to enrich features."""
+    """Fail if services/scan_service forgets to enrich features.
+
+    Phase 5 PR-C T15: run_scan's collect phase moved to the sibling
+    src/services/_scan_service_impl.py (KC-12/DA9). The attach_post_scan_features
+    call now lives in _phase_collect there. Inspect both modules so the
+    regression-lock follows the wiring to its new home.
+    """
     from src.services import scan_service
-    source = _module_source(scan_service)
+    from src.services import _scan_service_impl
+    source = _module_source(scan_service) + _module_source(_scan_service_impl)
     assert "attach_post_scan_features" in source, (
-        "services/scan_service.py must call attach_post_scan_features — "
-        "see src/features/enrichment.py:8-14 for rationale"
+        "scan_service (or its _scan_service_impl sibling) must call "
+        "attach_post_scan_features — see src/features/enrichment.py:8-14 for rationale"
     )
 
 
