@@ -151,6 +151,42 @@ class TestCollectorErrorClassification:
         assert _is_collector_error({"tickers_processed": 20, "errors": 0}) is False
 
 
+class TestResearchResultDualMode:
+    """kin #23 / DD-15 r3: run_data_collection's research consumer reads
+    total_new/total_crawled off collect_research_papers' return. Post-migration
+    that return is a CollectorResult (total_new -> primary_count, total_crawled
+    -> metadata); pre-migration it was a dict. The _research_total_new /
+    _research_total_crawled helpers must read BOTH shapes so the overnight
+    cycle's research notification + log line don't AttributeError on the
+    CollectorResult (the dataclass has no .get / is not subscriptable).
+    """
+
+    def test_total_new_reads_collectorresult_primary_count(self):
+        """CollectorResult path: total_new comes from primary_count.
+
+        VERIFY-BY-MUTATION: if _research_total_new lacked the CollectorResult
+        branch it would hit the dict branch's .get() on a dataclass and raise
+        AttributeError — this assertion proves the branch is load-bearing.
+        """
+        from src.data_collection.result import CollectorResult
+        from src.scheduler.overnight import _research_total_new
+        res = CollectorResult.ok_from_count("research", 7, total_crawled=42)
+        assert _research_total_new(res) == 7
+
+    def test_total_crawled_reads_collectorresult_metadata(self):
+        from src.data_collection.result import CollectorResult
+        from src.scheduler.overnight import _research_total_crawled
+        res = CollectorResult.ok_from_count("research", 7, total_crawled=42)
+        assert _research_total_crawled(res) == 42
+
+    def test_legacy_dict_path_still_works(self):
+        """Dual-mode: legacy dict return still reads correctly."""
+        from src.scheduler.overnight import _research_total_new, _research_total_crawled
+        legacy = {"total_new": 3, "total_crawled": 19}
+        assert _research_total_new(legacy) == 3
+        assert _research_total_crawled(legacy) == 19
+
+
 # ── #613 — production-side guard against test pollution of activity_log ──
 
 class TestActivityLogTestPollutionGuard:

@@ -146,6 +146,33 @@ def _is_collector_error(result) -> bool:
     return False
 
 
+def _research_total_new(result) -> int:
+    """New-paper count from a research result (dual-mode).
+
+    kin #23 / DD-15 r3: collect_research_papers returns a CollectorResult
+    (primary_count = papers stored) post-migration, but an error path still
+    yields a plain dict. Read both shapes during the transition.
+    """
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return result.primary_count
+    if isinstance(result, dict):
+        return result.get("total_new", 0)
+    return 0
+
+
+def _research_total_crawled(result) -> int:
+    """Crawled-paper count from a research result (dual-mode — see above)."""
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return result.metadata.get("total_crawled", 0)
+    if isinstance(result, dict):
+        return result.get("total_crawled", 0)
+    return 0
+
+
 def run_postclose_reconciliation():
     """Reconcile paper positions against Alpaca and send Telegram summary."""
     from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
@@ -1045,11 +1072,17 @@ def run_data_collection(db_path: str = DB_PATH,
         from src.data_collection.research_collector import collect_research_papers
         research_results = collect_research_papers()
         results["research"] = research_results
-        print(f"[WATCH]   [13/13] Research: {research_results.get('total_new', 0)} new papers "
-              f"(crawled {research_results.get('total_crawled', 0)})")
+        # kin #23 / DD-15 r3: collect_research_papers now returns a
+        # CollectorResult (total_new -> primary_count, total_crawled ->
+        # metadata). Read both shapes during the migration window.
+        research_new = _research_total_new(research_results)
+        research_crawled = _research_total_crawled(research_results)
+        print(f"[WATCH]   [13/13] Research: {research_new} new papers "
+              f"(crawled {research_crawled})")
     except Exception as e:
         logger.warning("[COLLECTORS] Research collection failed: %s", e)
-        results["research"] = {"error": str(e)}
+        research_results = {"error": str(e)}
+        results["research"] = research_results
 
     summary = {k: str(v) for k, v in results.items()}
     print(f"[WATCH] Data collection complete: {summary}")
@@ -1079,9 +1112,13 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         from src.data_collection.retention import run_retention
         retention_result = run_retention()
-        if retention_result:
+        # kin #23 / DD-15 r3: run_retention now returns a CollectorResult,
+        # which is object-truthy for every status — so gate on the pruned
+        # row count, not bare truthiness, to preserve the original "only
+        # stash/log when something was actually pruned" behaviour.
+        if retention_result.primary_count > 0:
             results["retention"] = retention_result
-            logger.info("[WATCH] Retention pruned: %s", retention_result)
+            logger.info("[WATCH] Retention pruned: %s", retention_result.metadata)
     except Exception as e:
         logger.warning("[WATCH] Retention failed: %s", e)
 
@@ -1106,7 +1143,8 @@ def run_data_collection(db_path: str = DB_PATH,
             collector_failures[name] = 0  # Reset on success
 
     # H3. Notify new research papers via Telegram
-    if research_results.get("total_new", 0) > 0:
+    research_new = _research_total_new(research_results)
+    if research_new > 0:
         with connect_db(db_path) as _cn:
             top = _cn.execute(
                 "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
@@ -1115,7 +1153,7 @@ def run_data_collection(db_path: str = DB_PATH,
         top_score = top[1] if top else 0
         safe_send(
             "research_papers",
-            total_new=research_results["total_new"],
+            total_new=research_new,
             top_paper=top_title,
             top_score=top_score,
         )
