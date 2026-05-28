@@ -28,6 +28,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -162,10 +163,19 @@ def _get_20d_avg(conn: sqlite3.Connection, today_str: str) -> float | None:
     return round(sum(values) / len(values), 4)
 
 
-def collect_cboe_ratios(db_path: str = DB_PATH) -> dict:
+def collect_cboe_ratios(db_path: str = DB_PATH) -> CollectorResult:
     """Collect daily CBOE put/call ratios.
 
-    Returns: {"equity_pc_ratio": float, "index_pc_ratio": float, "total_pc_ratio": float}
+    Returns: CollectorResult('cboe', primary_count=1) on a successful run (one
+    ratios row stored). metadata carries the integer ratio-field-presence
+    counts only — the float ratio VALUES (equity/index/total/vs_20d_avg) cannot
+    live in metadata, which the spec types as dict[str, int]; they are persisted
+    to the cboe_ratios table, so the result narrows them to a single
+    ratios_present count (how many of the three tiers' ratios were non-NULL).
+
+    When all three fallback tiers fail this still RAISES
+    CollectorPartialFailureError (DD-14) rather than inserting an all-NULL row;
+    a returned CollectorResult therefore always represents a stored row.
     """
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
@@ -203,11 +213,13 @@ def collect_cboe_ratios(db_path: str = DB_PATH) -> dict:
             ),
         )
 
-    result = {
-        "equity_pc_ratio": data.get("equity_pc_ratio"),
-        "index_pc_ratio": data.get("index_pc_ratio"),
-        "total_pc_ratio": data.get("total_pc_ratio"),
-        "vs_20d_avg": vs_avg,
-    }
+    ratios_present = sum(
+        1
+        for key in ("equity_pc_ratio", "index_pc_ratio", "total_pc_ratio")
+        if data.get(key) is not None
+    )
+    result = CollectorResult.ok_from_count(
+        "cboe", 1, ratios_present=ratios_present
+    )
     logger.info("[CBOE] Ratios collected: %s", result)
     return result

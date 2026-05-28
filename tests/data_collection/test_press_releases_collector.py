@@ -89,14 +89,19 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
         mock_resp.raise_for_status.return_value = None
         mock_get.return_value = mock_resp
 
+        from src.data_collection.result import CollectorResult
+
         # First call: API hit + rows written.
         result1 = collect_press_releases("AAPL", config=config, db_path=sqlite_db)
-        assert result1 is not None
+        assert isinstance(result1, CollectorResult)
+        assert result1.is_healthy
+        assert result1.primary_count == 2  # two releases in the mock payload
         assert mock_get.called, "Expected Finnhub API call when plan=fundamental-1"
 
         # Second call: same (ticker, headline, released_at) -> UPSERT idempotent.
         result2 = collect_press_releases("AAPL", config=config, db_path=sqlite_db)
-        assert result2 is not None
+        assert isinstance(result2, CollectorResult)
+        assert result2.is_healthy
 
     with sqlite3.connect(sqlite_db) as verify:
         verify.row_factory = sqlite3.Row
@@ -137,7 +142,13 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     ) as mock_get:
         result = collect_press_releases("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None, "plan=free must return None"
+    from src.data_collection.result import CollectorResult
+    assert isinstance(result, CollectorResult)
+    # Gate-closed is healthy (not an error), ran zero items, and flags the
+    # cause via metadata {'gated': 1} — same semantics as filings_sentiment.
+    assert result.is_healthy
+    assert result.primary_count == 0
+    assert result.metadata.get("gated") == 1
     mock_get.assert_not_called()
 
 

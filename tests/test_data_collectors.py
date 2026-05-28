@@ -198,8 +198,10 @@ class TestInsiderTransactions:
 
             result = collect_insider_transactions(["AAPL"], db_path=tmp_db)
 
-        assert result["tickers_processed"] == 1
-        assert result["transactions_stored"] == 1
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["transactions_stored"] == 1
 
         with sqlite3.connect(tmp_db) as conn:
             row = conn.execute("SELECT * FROM insider_transactions").fetchone()
@@ -431,11 +433,13 @@ class TestFedCommunications:
             result = collect_fed_communications(db_path=tmp_db)
 
         # Should not crash — graceful failure
-        assert isinstance(result, dict)
-        assert "statements" in result
-        assert "minutes" in result
-        assert "beige_book" in result
-        assert "speeches" in result
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 0
+        assert result.metadata["statements"] == 0
+        assert result.metadata["minutes"] == 0
+        assert result.metadata["beige_book"] == 0
+        assert result.metadata["speeches"] == 0
 
     def test_parse_href_date_old_8digit_format(self):
         from src.data_collection.fed_collector import _parse_href_date
@@ -580,7 +584,8 @@ class TestCollectorFailureHandling:
                    side_effect=Exception("Network down")):
             result = collect_fed_communications(db_path=tmp_db)
 
-        assert isinstance(result, dict)
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
 
 
 # ── Training Data Collector: pnl type safety (#195) ───────────────

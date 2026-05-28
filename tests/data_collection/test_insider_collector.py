@@ -252,7 +252,9 @@ def test_collect_insider_transactions_uses_engine_aware_upsert(sqlite_db):
     assert action_arg == "ignore"
 
     # Row stored in DB.
-    assert result["transactions_stored"] == 1
+    from src.data_collection.result import CollectorResult
+    assert isinstance(result, CollectorResult)
+    assert result.metadata["transactions_stored"] == 1
     with sqlite3.connect(sqlite_db) as verify:
         verify.row_factory = sqlite3.Row
         rows = verify.execute(

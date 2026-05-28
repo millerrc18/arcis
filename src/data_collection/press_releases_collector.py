@@ -16,9 +16,26 @@ Decision 27: press releases are a DISTINCT catalyst category from RECENT
 NEWS — keep tables + renderers separate. This collector never touches
 the news collectors; the data lands in MATERIAL EVENTS, not RECENT NEWS.
 
-Gate: finnhub_plan_supports('press_releases', config). Returns None when
-the plan does not support the feature — no API call is attempted (avoids
-the 403-burn on free-tier keys per Decision 30).
+Gate: finnhub_plan_supports('press_releases', config). Returns a healthy
+CollectorResult with primary_count 0 and metadata {'gated': 1} when the plan
+does not support the feature — no API call is attempted (avoids the 403-burn
+on free-tier keys per Decision 30).
+
+PR-D T22 (DD-15 r3 + kin #23): migrated list[dict]/None → CollectorResult. This
+is a PAIRED migration concern with its only consumer, scheduler/overnight.py::
+_run_plan_gated_collector, whose `collector_fn(...) is not None` mass-failure
+detector would silently break against an always-non-None CollectorResult. That
+consumer was already made dual-mode in T21b (filings_sentiment): for a
+CollectorResult "has data" is `is_healthy AND primary_count > 0`, so no consumer
+edit is needed here. Per-ticker (Shape F, like filings_sentiment): each call
+returns one CollectorResult; the consumer loop aggregates across the universe.
+
+Gate-closed representation mirrors filings_sentiment (T21b): ok_from_count(
+'press_releases', 0, gated=1) — gate-closed is NOT an error (.is_healthy True)
+and ran zero items; the metadata {'gated': 1} flags the cause so a gate-closed
+run is distinguishable from a healthy-but-empty run. Both gate-closed and empty
+resolve to "no data this ticker" under the consumer predicate, preserving the
+old None semantics.
 """
 
 from __future__ import annotations
@@ -30,6 +47,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -85,24 +103,30 @@ def collect_press_releases(
     ticker: str,
     config: dict | None = None,
     db_path: str = DB_PATH,
-) -> list[dict] | None:
+) -> CollectorResult:
     """Collect press releases for one ticker (plan-gated).
 
     On entry: when ``finnhub_plan_supports('press_releases', config)`` is
-    False, log INFO and return None — no API call (Decision 30).
+    False, log INFO and return ``CollectorResult.ok_from_count(
+    'press_releases', 0, gated=1)`` — no API call (Decision 30). Gate-closed
+    is healthy (not an error) and ran zero; the ``gated=1`` metadata records
+    the cause.
 
     Otherwise: call Finnhub /press-releases and UPSERT one row per release
     into ``press_releases`` keyed by (ticker, headline, released_at).
 
-    Returns the list of inserted row dicts on success, or None when
-    plan-gated off / when the API call fails / when the response is empty.
+    Returns: CollectorResult('press_releases', primary_count=rows_written).
+      - plan-gated off    -> ok, count 0, metadata {'gated': 1}
+      - fetch failed       -> failed (count 0)
+      - empty response     -> ok, count 0
+      - rows written       -> ok, count=len(rows)
     """
     if not finnhub_plan_supports("press_releases", config):
         logger.info(
             "[PRESS_REL] Skipped %s — Finnhub plan does not support "
             "press_releases", ticker,
         )
-        return None
+        return CollectorResult.ok_from_count("press_releases", 0, gated=1)
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -113,10 +137,14 @@ def collect_press_releases(
         )
 
     releases = _fetch_finnhub_press_releases(ticker, api_key)
+    if releases is None:
+        return CollectorResult.failed(
+            "press_releases",
+            errors=[f"[PRESS_REL] fetch failed for {ticker}"],
+        )
     if not releases:
-        if releases is not None:
-            logger.info("[PRESS_REL] No releases returned for %s", ticker)
-        return None
+        logger.info("[PRESS_REL] No releases returned for %s", ticker)
+        return CollectorResult.ok_from_count("press_releases", 0)
 
     rows: list[dict] = []
     with connect_db(db_path) as conn:
@@ -131,4 +159,4 @@ def collect_press_releases(
         logger.info(
             "[PRESS_REL] %s: %d release(s) written", ticker, len(rows),
         )
-    return rows or None
+    return CollectorResult.ok_from_count("press_releases", len(rows))

@@ -30,6 +30,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -52,10 +53,13 @@ def _get_last_filing_date(conn: sqlite3.Connection, ticker: str) -> str | None:
 def collect_insider_transactions(
     tickers: list[str],
     db_path: str = DB_PATH,
-) -> dict:
+) -> CollectorResult:
     """Collect insider transactions for all tickers via Finnhub.
 
-    Returns: {"tickers_processed": int, "transactions_stored": int}
+    Returns: CollectorResult('insider', primary_count=tickers_processed,
+    metadata={'transactions_stored': ..., 'errors_count': ...}). When >50% of
+    tickers fail the run RAISES CollectorPartialFailureError (DD-14) instead of
+    returning; a sub-threshold error count yields status 'partial'.
     """
     # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — insider_transactions
     # is in both 'free' and 'fundamental-1' tier matrices, so this is a no-op
@@ -67,7 +71,9 @@ def collect_insider_transactions(
             "[INSIDER] Skipped collection — Finnhub plan does not support "
             "insider_transactions"
         )
-        return {"tickers_processed": 0, "transactions_stored": 0, "errors": 0}
+        return CollectorResult.ok_from_count(
+            "insider", 0, transactions_stored=0, errors_count=0
+        )
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -151,10 +157,20 @@ def collect_insider_transactions(
             errors=errors, total=total,
         )
 
-    result = {
-        "tickers_processed": tickers_processed,
-        "transactions_stored": transactions_stored,
-        "errors": errors,
-    }
+    if errors:
+        result = CollectorResult.partial(
+            "insider",
+            tickers_processed,
+            errors=[f"[INSIDER] {errors}/{total} tickers failed"],
+            transactions_stored=transactions_stored,
+            errors_count=errors,
+        )
+    else:
+        result = CollectorResult.ok_from_count(
+            "insider",
+            tickers_processed,
+            transactions_stored=transactions_stored,
+            errors_count=errors,
+        )
     logger.info("[INSIDER] Collection complete: %s", result)
     return result

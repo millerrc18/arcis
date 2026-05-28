@@ -161,6 +161,87 @@ class TestCboeRegexFallback:
         assert result is not None
         assert result["equity_pc_ratio"] == 0.85
 
+    def test_collect_returns_collector_result_with_stored_row(self):
+        """PR-D T22 (Shape A): collect_cboe_ratios returns a CollectorResult.
+
+        Non-vacuity: with all three tiers' ratios populated, a successful run
+        stores exactly one cboe_ratios row, so primary_count == 1 and the
+        narrowed metadata ratios_present == 3 (three non-NULL ratio fields). If
+        the INSERT path broke, the DB-row count assertion would fail; if the
+        ratio-presence narrowing broke, ratios_present would not be 3.
+        """
+        from unittest.mock import patch
+
+        from src.data_collection.cboe_collector import collect_cboe_ratios
+        from src.data_collection.result import CollectorResult
+
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        from tests.conftest import init_test_db
+        init_test_db(path, ["cboe_ratios"])
+        try:
+            with patch(
+                "src.data_collection.cboe_collector._fetch_cboe_pc_ratio",
+                return_value={
+                    "equity_pc_ratio": 0.85,
+                    "index_pc_ratio": 1.20,
+                    "total_pc_ratio": 0.95,
+                },
+            ):
+                result = collect_cboe_ratios(db_path=path)
+
+            assert isinstance(result, CollectorResult)
+            assert result.is_healthy
+            assert result.primary_count == 1
+            assert result.metadata["ratios_present"] == 3
+
+            with sqlite3.connect(path) as conn:
+                stored = conn.execute(
+                    "SELECT COUNT(*) FROM cboe_ratios"
+                ).fetchone()[0]
+            assert stored == 1
+        finally:
+            try:
+                os.unlink(path)
+            except PermissionError:
+                pass
+
+    def test_collect_raises_when_all_tiers_fail(self):
+        """DD-14 preserved: when every fallback tier returns NULL ratios,
+        collect_cboe_ratios RAISES CollectorPartialFailureError (it must NOT
+        return a CollectorResult or insert an all-NULL row)."""
+        from unittest.mock import patch
+
+        from src.data_collection.cboe_collector import collect_cboe_ratios
+        from src.data_collection.errors import CollectorPartialFailureError
+
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        from tests.conftest import init_test_db
+        init_test_db(path, ["cboe_ratios"])
+        try:
+            with patch(
+                "src.data_collection.cboe_collector._fetch_cboe_pc_ratio",
+                return_value={
+                    "equity_pc_ratio": None,
+                    "index_pc_ratio": None,
+                    "total_pc_ratio": None,
+                },
+            ):
+                with pytest.raises(CollectorPartialFailureError):
+                    collect_cboe_ratios(db_path=path)
+
+            with sqlite3.connect(path) as conn:
+                stored = conn.execute(
+                    "SELECT COUNT(*) FROM cboe_ratios"
+                ).fetchone()[0]
+            assert stored == 0
+        finally:
+            try:
+                os.unlink(path)
+            except PermissionError:
+                pass
+
 
 # ── #129: Short interest uses cursor.rowcount ────────────────────────
 
