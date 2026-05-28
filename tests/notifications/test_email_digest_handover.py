@@ -92,14 +92,20 @@ def _seed_passing_baseline(conn, *, now=None):
 
 
 def _patch_handover_conn(monkeypatch, conn):
-    """Patch handover_check to use the supplied connection."""
-    from src.notifications import email_digest
+    """Patch handover_check to use the supplied connection.
+
+    Phase 5 PR-C T16: handover_check + _open_handover_conn moved to
+    email_digest_handover.py. _open_handover_conn is resolved in that
+    module's namespace, so the setattr MUST target email_digest_handover
+    (patching email_digest.* here would be vacuous post-split).
+    """
+    from src.notifications import email_digest_handover
 
     def _fake_connect(*a, **kw):
         return conn
 
     monkeypatch.setattr(
-        email_digest, "_open_handover_conn", _fake_connect,
+        email_digest_handover, "_open_handover_conn", _fake_connect,
         raising=False,
     )
 
@@ -111,6 +117,7 @@ def test_handover_check_passes_when_all_tripwires_pass(monkeypatch, tmp_path):
     postclose, 1 weekly in past 7d), handover_check returns
     status='PASS' and all tripwires evaluate True."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -124,7 +131,7 @@ def test_handover_check_passes_when_all_tripwires_pass(monkeypatch, tmp_path):
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     result = email_digest.handover_check()
@@ -145,6 +152,7 @@ def test_handover_check_fails_on_abandoned_rows(monkeypatch, tmp_path):
     """DA-MAJ-7: with 10+ abandoned rows in the past window, the
     abandoned-tripwire flips False and status='FAIL'."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -169,7 +177,7 @@ def test_handover_check_fails_on_abandoned_rows(monkeypatch, tmp_path):
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     result = email_digest.handover_check()
@@ -187,6 +195,7 @@ def test_handover_check_fails_when_preopen_under_5_weekdays(
     """DA-MAJ-7: with only 3 preopen dispatches in past 7 days, the
     preopen-tripwire flips False and status='FAIL'."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     now = datetime.now(timezone.utc)
@@ -223,7 +232,7 @@ def test_handover_check_fails_when_preopen_under_5_weekdays(
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     result = email_digest.handover_check()
@@ -246,6 +255,7 @@ def test_compare_window_old_vs_new_rowid_inclusion(monkeypatch, tmp_path):
     None) when compare_window is supplied, AND is None when not.
     """
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -268,7 +278,7 @@ def test_compare_window_old_vs_new_rowid_inclusion(monkeypatch, tmp_path):
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     # WITHOUT compare_window → row_id_inclusion_check is None
@@ -294,6 +304,7 @@ def test_compare_window_detects_missing_row_id(monkeypatch, tmp_path):
     BOTH new postclose AND new preopen → row_id_inclusion_check=False
     AND status='FAIL'."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -314,7 +325,7 @@ def test_compare_window_detects_missing_row_id(monkeypatch, tmp_path):
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     r = email_digest.handover_check(compare_window="7d")
@@ -331,6 +342,7 @@ def test_handover_check_shadow_files_present_when_shadow_mode(
     be set. True if at least one shadow file exists in the directory;
     False if directory is empty."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -344,7 +356,7 @@ def test_handover_check_shadow_files_present_when_shadow_mode(
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     # Case A: empty dir → False
@@ -366,6 +378,7 @@ def test_handover_check_shadow_files_skipped_when_not_shadow_mode(
     (set to True / N/A so it doesn't gate). The check is only meaningful
     in shadow mode."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -379,7 +392,7 @@ def test_handover_check_shadow_files_skipped_when_not_shadow_mode(
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     r = email_digest.handover_check()
@@ -399,6 +412,7 @@ def test_handover_check_details_contains_per_tripwire_strings(
     explaining each tripwire's outcome — used by the CLI to print
     per-tripwire status lines on PASS or FAIL."""
     from src.notifications import email_digest
+    from src.notifications import email_digest_handover
 
     conn = _make_conn()
     _seed_passing_baseline(conn)
@@ -412,7 +426,7 @@ def test_handover_check_details_contains_per_tripwire_strings(
         }
     }
     monkeypatch.setattr(
-        email_digest, "load_config", lambda: fake_cfg, raising=False,
+        email_digest_handover, "load_config", lambda: fake_cfg, raising=False,
     )
 
     r = email_digest.handover_check()
