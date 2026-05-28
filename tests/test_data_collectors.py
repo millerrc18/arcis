@@ -299,8 +299,10 @@ class TestAnalystEstimates:
 
             result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
 
-        assert result["tickers_processed"] == 1
-        assert result["estimates_stored"] == 1
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["estimates_stored"] == 1
 
     def test_collect_skips_price_target_when_plan_does_not_support_it(self, tmp_db):
         from src.data_collection.analyst_collector import collect_analyst_estimates
@@ -326,8 +328,10 @@ class TestAnalystEstimates:
 
             result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
 
-        assert result["tickers_processed"] == 1
-        assert result["estimates_stored"] == 1
+        from src.data_collection.result import CollectorResult
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["estimates_stored"] == 1
         assert mock_get.call_count == 1
 
     def test_no_api_key(self, tmp_db):
@@ -337,6 +341,75 @@ class TestAnalystEstimates:
         with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value=None):
             with pytest.raises(CollectorConfigError, match="FINNHUB_API_KEY"):
                 collect_analyst_estimates(["AAPL"], db_path=tmp_db)
+
+
+# ── Options Metrics (CollectorResult migration, PR-D T21) ───────────
+
+class TestOptionsMetrics:
+    """compute_options_metrics returns a CollectorResult (PR-D T21 / Shape C).
+
+    primary_count = tickers_computed; metadata = {'unusual_flags': N}.
+    """
+
+    @pytest.fixture
+    def metrics_db(self):
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        from tests.conftest import init_test_db
+        init_test_db(path, ["options_chains", "options_metrics"])
+        yield path
+        try:
+            os.unlink(path)
+        except PermissionError:
+            pass
+
+    def _insert_chain(self, db_path, ticker, volume, open_interest):
+        """Seed one call + one put for `ticker` in today's options_chains."""
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/New_York"))
+        today = now.strftime("%Y-%m-%d")
+        exp = (now + timedelta(days=30)).strftime("%Y-%m-%d")
+        with sqlite3.connect(db_path) as conn:
+            for opt_type in ("call", "put"):
+                conn.execute(
+                    """INSERT INTO options_chains
+                    (collected_at, ticker, option_type, strike, expiration,
+                     underlying_price, volume, open_interest, implied_volatility)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (now.isoformat(), ticker, opt_type, 100.0, exp,
+                     100.0, volume, open_interest, 0.30),
+                )
+            conn.commit()
+
+    def test_returns_collector_result_with_counts(self, metrics_db):
+        """Non-vacuity: a chain whose volume > 3x OI must surface as
+        primary_count == 1 (one ticker computed) AND unusual_flags == 1.
+        If the body stopped computing metrics, primary_count would be 0; if
+        the unusual-volume detection broke, the metadata count would be 0."""
+        from src.data_collection.options_metrics import compute_options_metrics
+        from src.data_collection.result import CollectorResult
+
+        # volume (4000) > 3 * open_interest (1000) → unusual flag fires.
+        self._insert_chain(metrics_db, "AAPL", volume=4000, open_interest=1000)
+
+        result = compute_options_metrics(["AAPL"], db_path=metrics_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 1
+        assert result.metadata["unusual_flags"] == 1
+
+    def test_no_chain_data_yields_zero_count(self, metrics_db):
+        """Non-vacuity: with no chain rows, the ticker is skipped and
+        primary_count stays 0 — would be 1 if the early-continue broke."""
+        from src.data_collection.options_metrics import compute_options_metrics
+        from src.data_collection.result import CollectorResult
+
+        result = compute_options_metrics(["AAPL"], db_path=metrics_db)
+
+        assert isinstance(result, CollectorResult)
+        assert result.primary_count == 0
+        assert result.metadata["unusual_flags"] == 0
 
 
 # ── Fed Communications ──────────────────────────────────────────────
