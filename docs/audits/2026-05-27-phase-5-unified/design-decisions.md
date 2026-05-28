@@ -438,4 +438,22 @@
 - Keep 4-file cap + double the task count (REJECTED: 12 tasks in PR-D is operator-cognitive-load heavy)
 - Tests in separate trailing task per batch (REJECTED: introduces a window where collector returns CollectorResult but tests still assert dict shape)
 
+## 46. DD-42 (NEW / OPERATOR SCOPE INJECTION 2026-05-28): PR-E2 suite green-gate uses a JUSTIFIED-SKIP policy
+
+**Decision:** PR-E2 (a second sub-PR in the PR-E wave) enforces a suite green-gate. Every test must PASS, OR carry a documented skip reason in an ALLOWLISTED category. Zero failures; zero xpass (xfail_strict=true). No test may remain skipped merely because "it broke and wasn't the current scope."
+
+**Allowlisted skip categories (exhaustive):**
+1. `platform` — OS/arch-specific (e.g. Windows-only / POSIX-only).
+2. `optional-dep` — requires an uninstalled optional dependency (gated import).
+3. `engine-aware` — PG-vs-SQLite behavioral divergence the test legitimately gates on.
+4. `tracked-upstream-bug (#N)` — a real defect tracked by issue #N (NOT a silent punt).
+
+Every surviving skip carries an allowlisted reason string + (for category 4) a tracking task #N. A CI sentinel (T43, tests/test_suite_integrity.py) FAILS if any test failed, any skip lacks an allowlisted reason, or any xfail xpassed; xfail_strict=true is set globally. The sentinel is proven non-vacuous (verify-by-mutation: RED on injected skip-without-reason / failure / xpass).
+
+**Rationale:** the campaign repeatedly surfaced tests skipped/red "out of scope" (pre-existing api failures kin #20, date-sensitive flakes kin #18, notifications_digest_queue kin #8). The green-gate converts the suite from "mostly green with a tolerated tail" to "provably green or provably justified" — making future regressions detectable rather than buried in a skip/fail backdrop.
+
+**Alternatives considered:**
+- Leave the tail as-is (REJECTED: the tolerated-failure backdrop is exactly what let the PR-B T7 docstring regression reach main misclassified as "pre-existing" — kin #16).
+- Hard zero-skip (REJECTED: platform/optional-dep/engine-aware skips are legitimate; an allowlist preserves them while banning the "broke, deferred" anti-pattern).
+
 ---

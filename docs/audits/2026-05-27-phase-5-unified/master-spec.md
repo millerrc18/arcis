@@ -34,6 +34,7 @@ Phase 5 is consolidation — not a feature sprint. Five long-tail efforts are jo
 | **#65** Structure-debt | W2 / PR-C | Targeted refactor of 8 grandfathered files; prune `config/known_violations.json` post-W1+W2 | Free wins from W1 already booked; remaining 8 are clean splits |
 | **#72** CollectorResult | W3 / PR-D | New `CollectorResult` dataclass; migrate 22 collectors FIRST, then flip `_safe_run` consumer LAST; tests batch-updated; CLAUDE.md §207 contract delta | Independent of W1-W2 surfaces; sized for one big PR |
 | **#102** Test audit | W4 / PR-E | Vacuous-test detection + scoped deletion + boundary-touch additions; floor held at 5,267 / 5,467 | Must come AFTER #72 so test deletions reflect the final collector contract |
+| **#102b** Suite green-gate | W4 / PR-E2 | Justified-skip gate (DD-42): every test passes or carries an allowlisted skip reason; zero failures/xpass; CI sentinel + xfail_strict. T40-T44 | OPERATOR SCOPE INJECTION 2026-05-28; ships AFTER PR-E merges; absorbs #126 |
 | **#99** Docs consolidation | W5 / PR-F | MASTER refresh; README rewrite; `docs/archive/` policy; DIRECTORY regen; CHANGELOG / RELEASES de-overlap; CLAUDE.md delta patches | Must come LAST — needs to document all preceding waves |
 | **Phase-5 close** | W6 / PR-G | Sentinel tests for deletions; `known_violations.json` final prune; kin-task subsumption commits (#125, #126) | Final integration; gates handoff to #95 |
 

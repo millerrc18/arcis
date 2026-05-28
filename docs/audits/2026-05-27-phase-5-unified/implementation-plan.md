@@ -871,6 +871,43 @@ Each inner list is one wave; tasks within a wave dispatch in parallel.
 
 ---
 
+## PR-E2 — suite green-gate (OPERATOR SCOPE INJECTION 2026-05-28)
+
+Second sub-PR in the PR-E wave. Ships AFTER PR-E (audit + boundary-touch + targeted deletion) lands. POLICY = JUSTIFIED-SKIP GATE (per DD-42): every test PASSES, or carries a documented skip reason in an ALLOWLISTED category {platform, optional-dep, engine-aware (PG-vs-SQLite), tracked-upstream-bug (#N)}. Zero failures, zero xpass (xfail_strict=true). No test stays skipped because "it broke and wasn't the current scope." Measured landscape (2026-05-28, pr-d branch): 63 unconditional/in-body skips across 43 files (suspect pool); 24 conditional skipif across 13 files (mostly legit gates); 4 xfails (all tests/simulation/lifecycle). PR-E2 gets standard dual-Opus QA at 100% confidence.
+
+### T40 - PR-E2 green-gate AUDIT
+**Complexity:** medium
+**Depends on:** PR-E merged
+**Description:** Run the FULL suite on GREEN main (ONLY after PR-E lands — never against an incomplete working tree). Capture the true failing/skip/xfail inventory. Classify the 63 unconditional skips into {fix-and-unskip | delete-as-dead-code | justify}, confidence-tier each.
+**Files in scope:** docs/audits/2026-05-28-test-audit/green-gate-audit.md
+**Scope fence:** Audit/list only — no test changes in T40. Run against merged main, not a WIP tree.
+
+### T41 - PR-E2 drive failures green + fix-and-unskip
+**Complexity:** high
+**Depends on:** T40
+**Description:** Drive ALL failing tests green; fix-and-unskip resolvable skips; delete genuinely-dead skipped tests ONLY where the surface is covered elsewhere. Includes the 2 walkforward stale-row failures (#126).
+**Scope fence:** Each deletion traceable to a T40-audit line + a covered-elsewhere proof. Each fix-and-unskip proven non-vacuous.
+
+### T42 - PR-E2 justify + normalize skips/xfails
+**Complexity:** medium
+**Depends on:** T40
+**Description:** Every surviving skip gets an allowlisted reason string + a tracking task #N. Validate each of the 24 skipif conditions is a real gate. Adjudicate the 4 xfails: fix→remove the marker, OR mark strict + attach a tracking task.
+**Scope fence:** Allowlist categories ONLY {platform, optional-dep, engine-aware, tracked-upstream-bug(#N)}; no free-text "broke, out of scope".
+
+### T43 - PR-E2 CI SENTINEL
+**Complexity:** high
+**Depends on:** T41, T42
+**Description:** Add tests/test_suite_integrity.py that FAILS if (a) any test failed, (b) any skip lacks an allowlisted reason, (c) any xfail xpassed. Set xfail_strict=true in pyproject/pytest.ini. Wire into .github/workflows/pg-tests.yml. Sentinel MUST be proven non-vacuous: verify it goes RED when a skip-without-reason, a failure, and an xpass are each introduced in a tmp fixture.
+**Scope fence:** pg-tests.yml edits = sentinel wiring only (no floor lowering per DD-20). Sentinel verify-by-mutation mandatory.
+
+### T44 - PR-E2 CHANGELOG + floor reconciliation
+**Complexity:** low
+**Depends on:** T43
+**Description:** CHANGELOG under <!-- PR-E2 entries --> marker. CLOSE #126 (absorbed here, NOT in PR-G) — coordinate with PR-G's #125/#126 OQ-1 subsumption so #126 isn't double-handled. Note whether #125 lazy-import is needed to unskip tests/training/test_pass_c.py (carries 4 skipif).
+**Scope fence:** Do NOT bump version. CHANGELOG inside <!-- PR-E2 entries --> marker. Reconcile #126 ownership with PR-G T39.
+
+---
+
 
 ## Implementation receipts
 
