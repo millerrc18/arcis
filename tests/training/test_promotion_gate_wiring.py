@@ -174,7 +174,7 @@ def test_cmd_run_promotion_gate_calls_underlying_fn():
     args.version_name = "halcyon-test-v1"
     args.n_trials = 1
 
-    with patch("src.cli.commands.DB_PATH", db), \
+    with patch("src.cli.commands_training.DB_PATH", db), \
          patch("src.training.trainer.promotion_gate", return_value=PROMOTE_RESULT), \
          patch("src.training.trainer._resolve_returns_for_gate", return_value=[0.01] * 50):
         cmd_run_promotion_gate(args)

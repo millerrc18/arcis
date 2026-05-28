@@ -88,8 +88,12 @@ def test_startup_assert_force_bypasses_check():
 
 def test_cmd_startup_calls_safe_combo_check():
     """Source-scan: cmd_startup body must invoke the safety check.
-    Otherwise the helper is dead code."""
-    src = _read("src/cli/commands.py")
+    Otherwise the helper is dead code.
+
+    Phase 5 PR-C T13: cmd_startup moved from commands.py (now a re-export
+    facade) to commands_ops.py; the source-scan follows it there.
+    """
+    src = _read("src/cli/commands_ops.py")
     # Find cmd_startup body and confirm the helper is called
     cmd_startup_idx = src.find("def cmd_startup(")
     assert cmd_startup_idx >= 0
