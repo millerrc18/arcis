@@ -610,7 +610,14 @@ def pg_docker_url():
     falls back to the hardcoded CI URL postgresql://test:test@localhost/halcyon
     so CI's pg-tests.yml continues to work unchanged.
     """
-    already_set = os.environ.get("DATABASE_URL", "")
+    # Respect an already-provisioned Postgres on EITHER env var before spinning
+    # our own docker container. CI's pg-tests job sets a stable TEST_DATABASE_URL
+    # (its 5432 service) but NOT DATABASE_URL (it uses ARCIS_DB_PATH); the old
+    # check only inspected DATABASE_URL, so this fixture overwrote the stable
+    # TEST_DATABASE_URL with a flaky docker-compose PG on 5434 — producing ~130
+    # "connection refused 127.0.0.1:5434" failures across the engine-aware /
+    # [postgres]-parametrized tests. Prefer the provided URL.
+    already_set = os.environ.get("DATABASE_URL", "") or os.environ.get("TEST_DATABASE_URL", "")
     if already_set.startswith("postgres"):
         yield already_set
         return
