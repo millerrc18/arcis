@@ -52,16 +52,21 @@
   - `tests/test_no_database_url_branch.py` — locks DATABASE_URL strip from all
     `cloud_routes/` modules; same verify-by-mutation shape.
 - 9 SQLite-only routing verification tests added during T6/T7 dependent-test
-  expansion:
-  - `tests/api/test_platform_api.py`: `test_platform_no_database_url_branch`,
-    `test_broker_exceptions_no_database_url_branch`
-  - `tests/api/test_commands_api.py`: `test_commands_no_database_url_branch`
-  - `tests/api/test_kpis_compute.py`: `test_kpis_compute_no_database_url_branch`
-  - `tests/api/test_notifications_api.py`: `test_notifications_no_database_url_branch`
-  - `tests/api/test_preflight_api.py`: `test_preflight_no_database_url_branch`
-  - `tests/api/test_walkforward_api.py`: `test_walkforward_no_database_url_branch`
-  - `tests/api/test_cloud_routes_init.py`: `test_cloud_routes_init_no_database_url_branch`,
-    `test_cloud_routes_init_docstring_updated`
+  expansion (each carries verify-by-mutation docstring per memory
+  `feedback_vacuous_test_pattern`):
+  - `tests/api/test_broker_exceptions_route.py::TestPostgresRouting` (T6):
+    `test_recent_uses_sqlite_regardless_of_database_url`,
+    `test_summary_uses_sqlite_regardless_of_database_url`,
+    `test_recent_uses_sqlite_when_database_url_unset`,
+    `test_summary_uses_sqlite_when_database_url_unset`
+  - `tests/api/test_commands_route.py` (T6):
+    `test_expire_stale_calls_helper_unconditionally`
+  - `tests/api/test_kpis.py::TestFetchClosedTradesPostgresRouting` (T6):
+    `test_uses_sqlite_regardless_of_database_url`,
+    `test_get_kpis_uses_sqlite_data`
+  - `tests/api/test_preflight_route.py::TestSQLiteOnlyRouting` (T7):
+    `test_sqlite_is_sole_path_regardless_of_database_url_env`,
+    `test_empty_state_when_no_transcript`
 
 ### Changed
 
