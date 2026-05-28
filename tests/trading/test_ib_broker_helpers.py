@@ -19,14 +19,6 @@ def test_ib_broker_helpers_module_imports():
     assert hasattr(ib_broker_helpers, "handle_ib_error")
 
 
-def test_handle_ib_error_does_not_raise():
-    """handle_ib_error logs but never raises on known codes."""
-    from src.trading.ib_broker_helpers import handle_ib_error
-    handle_ib_error(2104, "Market data farm connection is OK", "AAPL")
-    handle_ib_error(2106, "HMDS data farm connection is OK", "MSFT")
-    handle_ib_error(0, "", "")
-
-
 def test_verify_bracket_integrity_with_no_open_trades():
     """Empty IB trades list → empty issues list."""
     from src.trading.ib_broker_helpers import verify_bracket_integrity

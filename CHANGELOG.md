@@ -223,6 +223,39 @@
 
 <!-- /PR-D entries -->
 
+<!-- PR-E entries -->
+### Removed
+
+- **Phase 5 PR-E — test audit (#102)** — removed 2 empirically-confirmed vacuous
+  tests (each proven by a PASSED-while-broken experiment in
+  `docs/audits/2026-05-28-test-audit/pass-b-empirical.md` §4):
+  - `tests/test_watch_strategy_gate.py::test_notify_gate_proposal_does_not_raise`
+    — H4 "does-not-raise" over a log-only-stub SUT (`_notify_gate_proposal`); a
+    no-op body satisfies the assertion, so it locked no regression. Sibling
+    `test_notify_gate_proposal_helper_exists` retains symbol-presence coverage.
+  - `tests/trading/test_ib_broker_helpers.py::test_handle_ib_error_does_not_raise`
+    — H4 "does-not-raise" over a classify+log stub SUT (`handle_ib_error`).
+    Sibling `test_ib_broker_helpers_module_imports` retains symbol-presence coverage.
+
+### Added
+
+- **6-seam boundary-touch test suite (DD-19, +23 tests)** — boundary-complete
+  coverage of the codebase's external seams per
+  `docs/standards/boundary-touch-tests.md`. Each test drives both sides of the
+  seam with real artifacts (no mocks at the seam) and is proven
+  would-fail-if-impl-deleted:
+  - DB — `tests/api/test_cloud_routes_db_seam.py` (real SQLite; `get_closed_shadow_trades` row shape + quarantine filter)
+  - LLM — `tests/llm/test_ollama_shutdown_boundary.py` (real localhost HTTP server; `OllamaWatchdog._is_healthy` health tuple)
+  - HTTP — `tests/safety/test_safe_op_http_boundary.py` (real `@safe_op` over real HTTP; dry-run short-circuit + error logging)
+  - NSSM — `tests/scheduler/test_healthprobe_nssm_filenames.py` (real `ArcisConfig` path getters; `_service_verdict` matrix)
+  - ripgrep — `tests/tools/test_symbolfind_ripgrep_boundary.py` (real `rg` subprocess + JSON parse)
+  - Broker — `tests/trading/test_broker_adapter_boundary.py` (real dataclass field-shape locks + real `_verify_submitted` guard path)
+- **Two-pass audit receipt** — `docs/audits/2026-05-28-test-audit/` (Pass A heuristic
+  candidates, Pass B empirical DELETION_LIST, README overview). Net test count
+  6,989 → 7,010 (SQLite floor 5,467 held).
+
+<!-- /PR-E entries -->
+
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 
 ### Fixed
