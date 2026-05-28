@@ -232,3 +232,103 @@ def test_is_collector_error_error_key_dict_is_error():
     """`{'error': '...'}` IS classified as error (covers the raise path)."""
     from src.scheduler.overnight import _is_collector_error
     assert _is_collector_error({"error": "boom"}) is True
+
+
+# ── PR-D T21b: dual-mode mass-failure detection for CollectorResult collectors ──
+#
+# filings_sentiment migrated dict/None -> CollectorResult (always non-None). The
+# wrapper's mass-failure detector counted "has data" via `is not None` — which
+# would count EVERY ticker (even failed/empty) for a CollectorResult, silently
+# disabling the 0/N escalation the v0.36.26 fix installed. These tests are the
+# NON-VACUITY guard: a genuinely-failed CollectorResult run must STILL be flagged
+# as mass-failure (kin #23 consumer-aware seam).
+
+
+def test_collector_result_all_failed_still_raises_mass_failure(fake_universe):
+    """NON-VACUITY: every ticker returns a FAILED CollectorResult (non-None) →
+    must STILL raise CollectorPartialFailureError. If the dual-mode 'has data'
+    check regressed to `is not None`, tickers_with_data would be 100 and this
+    would NOT raise — proving the test can fail."""
+    from src.scheduler import overnight as overnight_mod
+    from src.data_collection.errors import CollectorPartialFailureError
+    from src.data_collection.result import CollectorResult
+
+    mock_collect = MagicMock(
+        return_value=CollectorResult.failed("filings_sentiment", errors=["boom"])
+    )
+
+    with patch(
+        "src.data_enrichment.finnhub_plan.finnhub_plan_supports",
+        return_value=True,
+    ):
+        with pytest.raises(CollectorPartialFailureError) as exc_info:
+            overnight_mod._run_plan_gated_collector(
+                name="filings_sentiment",
+                capability="filings_sentiment",
+                collector_fn=mock_collect,
+                universe=fake_universe,
+            )
+
+    assert exc_info.value.errors == 100
+    assert exc_info.value.total == 100
+    assert mock_collect.call_count == 100
+
+
+def test_collector_result_all_healthy_empty_still_raises_mass_failure(fake_universe):
+    """NON-VACUITY: every ticker returns a HEALTHY but ZERO-count CollectorResult
+    (the gate-closed / no-data shape — also always non-None). 0/100 tickers
+    landed actual data → must STILL raise. This pins that 'has data' is
+    `is_healthy AND primary_count > 0`, not just `is_healthy`."""
+    from src.scheduler import overnight as overnight_mod
+    from src.data_collection.errors import CollectorPartialFailureError
+    from src.data_collection.result import CollectorResult
+
+    mock_collect = MagicMock(
+        return_value=CollectorResult.ok_from_count("filings_sentiment", 0)
+    )
+
+    with patch(
+        "src.data_enrichment.finnhub_plan.finnhub_plan_supports",
+        return_value=True,
+    ):
+        with pytest.raises(CollectorPartialFailureError):
+            overnight_mod._run_plan_gated_collector(
+                name="filings_sentiment",
+                capability="filings_sentiment",
+                collector_fn=mock_collect,
+                universe=fake_universe,
+            )
+
+    assert mock_collect.call_count == 100
+
+
+def test_collector_result_with_data_does_not_raise(fake_universe):
+    """Gate open + 30/100 tickers return a healthy CollectorResult with rows
+    → result dict, no raise. The healthy+count>0 results count as data."""
+    from src.scheduler import overnight as overnight_mod
+    from src.data_collection.result import CollectorResult
+
+    call_count = [0]
+
+    def side_effect(ticker, *a, **kw):
+        call_count[0] += 1
+        if call_count[0] <= 30:
+            return CollectorResult.ok_from_count("filings_sentiment", 2)
+        return CollectorResult.ok_from_count("filings_sentiment", 0)
+
+    mock_collect = MagicMock(side_effect=side_effect)
+
+    with patch(
+        "src.data_enrichment.finnhub_plan.finnhub_plan_supports",
+        return_value=True,
+    ):
+        result = overnight_mod._run_plan_gated_collector(
+            name="filings_sentiment",
+            capability="filings_sentiment",
+            collector_fn=mock_collect,
+            universe=fake_universe,
+        )
+
+    assert isinstance(result, dict)
+    assert result["tickers_with_data"] == 30
+    assert result["tickers_attempted"] == 100

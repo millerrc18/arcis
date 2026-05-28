@@ -55,12 +55,14 @@ def test_plan_fundamental_1_is_gated_off_after_v0_36_25(sqlite_db, monkeypatch):
     support, plan-gating it off stops wasted API quota.
 
     This test pins the gated-off behavior: even on the paid plan, the
-    collector returns None without making an API call.
+    collector returns a healthy gated CollectorResult (PR-D T21b: count 0,
+    metadata {'gated': 1}) without making an API call.
     """
     monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
     from src.data_collection.filings_sentiment_collector import (
         collect_filings_sentiment,
     )
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
 
@@ -71,9 +73,15 @@ def test_plan_fundamental_1_is_gated_off_after_v0_36_25(sqlite_db, monkeypatch):
         "src.data_collection.filings_sentiment_collector.requests.get"
     ) as mock_get:
         result = collect_filings_sentiment("AAPL", config=config, db_path=sqlite_db)
-        assert result is None, (
-            "filings_sentiment must return None — it is plan-gated off after "
-            "v0.36.25 because /stock/filings-sentiment returns empty `{}`."
+        assert isinstance(result, CollectorResult), (
+            "filings_sentiment must return a CollectorResult (PR-D T21b)."
+        )
+        assert result.is_healthy, "gate-closed is not an error — must be healthy"
+        assert result.primary_count == 0, "gate-closed run wrote zero rows"
+        assert result.metadata.get("gated") == 1, (
+            "gate-closed must flag metadata {'gated': 1} so it is "
+            "distinguishable from a healthy-but-empty run — it is plan-gated "
+            "off after v0.36.25 because /stock/filings-sentiment returns `{}`."
         )
         assert not mock_get.called, (
             "filings_sentiment must NOT call Finnhub — the plan-gate filter "
@@ -89,13 +97,15 @@ def test_plan_fundamental_1_is_gated_off_after_v0_36_25(sqlite_db, monkeypatch):
 
 
 def test_plan_free_no_api_call(sqlite_db, monkeypatch):
-    """plan=free: gate is closed; collector returns None and never touches
-    requests.get (the Finnhub client). This is the spec-mandated NO-OP
-    that prevents 403s from a free-tier key."""
+    """plan=free: gate is closed; collector returns a healthy gated
+    CollectorResult (PR-D T21b) and never touches requests.get (the Finnhub
+    client). This is the spec-mandated NO-OP that prevents 403s from a
+    free-tier key."""
     monkeypatch.setenv("FINNHUB_PLAN", "free")
     from src.data_collection.filings_sentiment_collector import (
         collect_filings_sentiment,
     )
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "free"}}
 
@@ -107,7 +117,9 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     ) as mock_get:
         result = collect_filings_sentiment("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None, "plan=free must return None"
+    assert isinstance(result, CollectorResult), "plan=free must return a CollectorResult"
+    assert result.is_healthy and result.primary_count == 0
+    assert result.metadata.get("gated") == 1, "plan=free is gate-closed"
     mock_get.assert_not_called()
 
 
@@ -230,3 +242,75 @@ def test_packet_subblock_omits_when_plan_does_not_support():
         "MATERIAL EVENTS section header MUST be absent when no sub-blocks "
         "have plan-support (Decision 30, T22 composition rule)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 6-8: CollectorResult return-shape (PR-D T21b)
+# ---------------------------------------------------------------------------
+
+
+def _open_plan_config():
+    return {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
+
+
+def test_returns_ok_collector_result_with_rows_written(sqlite_db, monkeypatch):
+    """Gate open + filings returned -> ok CollectorResult, count == rows."""
+    monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
+    from src.data_collection import filings_sentiment_collector as mod
+    from src.data_collection.result import CollectorResult
+
+    filings = [
+        {"type": "10-K", "filedDate": "2024-11-01", "sentiment": {"score": 0.5}},
+        {"type": "8-K", "filedDate": "2024-11-02", "sentiment": {"score": -0.3}},
+    ]
+    with patch.object(mod, "finnhub_plan_supports", return_value=True), \
+         patch.object(mod, "_get_finnhub_key", return_value="test-key"), \
+         patch.object(mod, "_fetch_finnhub_filings_sentiment", return_value=filings):
+        result = mod.collect_filings_sentiment(
+            "AAPL", config=_open_plan_config(), db_path=sqlite_db
+        )
+
+    assert isinstance(result, CollectorResult)
+    assert result.status == "ok"
+    assert result.primary_count == 2
+    assert result.is_healthy
+
+
+def test_returns_ok_zero_when_response_empty(sqlite_db, monkeypatch):
+    """Gate open + empty list -> ok CollectorResult, count 0 (NOT failed)."""
+    monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
+    from src.data_collection import filings_sentiment_collector as mod
+    from src.data_collection.result import CollectorResult
+
+    with patch.object(mod, "finnhub_plan_supports", return_value=True), \
+         patch.object(mod, "_get_finnhub_key", return_value="test-key"), \
+         patch.object(mod, "_fetch_finnhub_filings_sentiment", return_value=[]):
+        result = mod.collect_filings_sentiment(
+            "AAPL", config=_open_plan_config(), db_path=sqlite_db
+        )
+
+    assert isinstance(result, CollectorResult)
+    assert result.status == "ok"
+    assert result.primary_count == 0
+    assert result.is_healthy
+    assert result.metadata.get("gated") is None, (
+        "empty-response is NOT gated — only the plan-gate path sets gated=1"
+    )
+
+
+def test_returns_failed_when_fetch_fails(sqlite_db, monkeypatch):
+    """Gate open + fetch returns None (API failure) -> failed CollectorResult."""
+    monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
+    from src.data_collection import filings_sentiment_collector as mod
+    from src.data_collection.result import CollectorResult
+
+    with patch.object(mod, "finnhub_plan_supports", return_value=True), \
+         patch.object(mod, "_get_finnhub_key", return_value="test-key"), \
+         patch.object(mod, "_fetch_finnhub_filings_sentiment", return_value=None):
+        result = mod.collect_filings_sentiment(
+            "AAPL", config=_open_plan_config(), db_path=sqlite_db
+        )
+
+    assert isinstance(result, CollectorResult)
+    assert result.status == "failed"
+    assert not result.is_healthy

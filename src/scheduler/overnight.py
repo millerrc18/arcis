@@ -50,7 +50,7 @@ def _run_plan_gated_collector(
       calls are made.
 
     - If the gate is open, calls `collector_fn(ticker)` for each ticker in the
-      universe, counting both successes (non-None returns) and total attempts.
+      universe, counting both successes ("has data" returns) and total attempts.
 
     - After the loop, if `tickers_attempted >= 10` and `tickers_with_data == 0`,
       raises `CollectorPartialFailureError`. The wrapping try/except in
@@ -63,9 +63,21 @@ def _run_plan_gated_collector(
     a paid plan-gated capability is unambiguous mass failure regardless of expected
     density.
 
+    DUAL-MODE "has data" (PR-D T21b — DD-15 r3 + kin #23): this wrapper is GENERIC
+    and gates collectors that are still mid-migration. dict/None collectors
+    (institutional_ownership, press_releases, company_executives, ...) signal
+    "has data" via a non-None return. The migrated filings_sentiment collector
+    returns a CollectorResult, which is ALWAYS non-None — so the old `is not None`
+    test would count every ticker (including empty + failed) as a success and
+    silently disable the mass-failure detector. For a CollectorResult, "has data"
+    is `is_healthy AND primary_count > 0`: a failed per-ticker run (status
+    'failed') or an empty/gate-closed run (primary_count 0) counts as NO data,
+    preserving the exact pre-migration None semantics so 0/N still raises.
+
     Returns: str ("skipped: plan-gated") or dict ({"tickers_with_data": N,
     "tickers_attempted": M}). Raises CollectorPartialFailureError on mass failure.
     """
+    from src.data_collection.result import CollectorResult
     from src.data_enrichment.finnhub_plan import finnhub_plan_supports
     if not finnhub_plan_supports(capability, config):
         return "skipped: plan-gated"
@@ -74,7 +86,12 @@ def _run_plan_gated_collector(
     tickers_attempted = 0
     for ticker in universe:
         tickers_attempted += 1
-        if collector_fn(ticker) is not None:
+        outcome = collector_fn(ticker)
+        if isinstance(outcome, CollectorResult):
+            has_data = outcome.is_healthy and outcome.primary_count > 0
+        else:
+            has_data = outcome is not None
+        if has_data:
             tickers_with_data += 1
 
     result = {
