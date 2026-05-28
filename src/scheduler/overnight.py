@@ -103,7 +103,18 @@ def _is_collector_error(result) -> bool:
     structure directly: an explicit `error` key (or a string starting with
     "Error") signals failure; an `errors` count of 0 with at least one
     processed item is success.
+
+    DUAL-MODE (kin #23 / DD-15 r3): PR-D migrates the 22 collectors from dict
+    to CollectorResult one batch at a time, so during the transition this
+    consumer sees BOTH shapes. A CollectorResult is NOT a dict, so without the
+    branch below it would fall through to "not an error" — silently reversing
+    the #623 fix for every migrated collector. A CollectorResult is an error
+    iff it is not healthy (status 'failed').
     """
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return not result.is_healthy
     if isinstance(result, str):
         return result.lower().startswith("error")
     if isinstance(result, dict):

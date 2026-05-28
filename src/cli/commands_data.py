@@ -18,6 +18,22 @@ from src.cli.commands_ops import _safe_print
 logger = logging.getLogger(__name__)
 
 
+def _collector_result_is_failed(result) -> bool:
+    """Classify a manual-collect pipeline result as failed (dual-mode).
+
+    kin #23 / DD-15 r3: PR-D migrates collectors dict -> CollectorResult one
+    batch at a time, so this consumer sees BOTH shapes during the transition.
+    A legacy dict is failed when it carries an ``error`` key; a CollectorResult
+    is failed iff it is not healthy (status 'failed'). Without the dataclass
+    branch a CollectorResult.failed() is silently counted as a success.
+    """
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return not result.is_healthy
+    return isinstance(result, dict) and "error" in result
+
+
 def cmd_ingest(args):
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
     from src.universe.sp100 import get_sp100_universe
@@ -460,7 +476,7 @@ def cmd_collect_data(args):
     results["fed"] = _run("[11/12] Fed communications...", collect_fed_communications)
     results["analyst"] = _run("[12/12] Analyst estimates (batch)...", collect_analyst_estimates, universe, batch_size=20)
 
-    failed_collectors = [name for name, result in results.items() if isinstance(result, dict) and "error" in result]
+    failed_collectors = [name for name, result in results.items() if _collector_result_is_failed(result)]
     print(f"\nData collection complete. Collectors: {len(results)}, failures: {len(failed_collectors)}")
     if failed_collectors:
         print(f"Failed collectors: {', '.join(failed_collectors)}")

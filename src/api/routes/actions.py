@@ -32,6 +32,24 @@ from src.api.local_auth import verify_local_token
 from src.api.websocket import broadcast_sync
 
 logger = logging.getLogger(__name__)
+
+
+def _collector_result_is_failed(result) -> bool:
+    """Classify a collect-data pipeline result as failed (dual-mode).
+
+    kin #23 / DD-15 r3: PR-D migrates collectors dict -> CollectorResult one
+    batch at a time, so this consumer sees BOTH shapes during the transition.
+    A legacy dict is failed when it carries an ``error`` key; a CollectorResult
+    is failed iff it is not healthy (status 'failed'). Without the dataclass
+    branch a CollectorResult.failed() is silently counted as a success.
+    """
+    from src.data_collection.result import CollectorResult
+
+    if isinstance(result, CollectorResult):
+        return not result.is_healthy
+    return isinstance(result, dict) and "error" in result
+
+
 # #576 — All 7 POST endpoints below require verify_local_token. The dep is a
 # no-op when ARCIS_LOCAL_API_TOKEN env var is unset (preserves the pre-#576
 # localhost-only mode); enforces a constant-time bearer token comparison
@@ -259,7 +277,7 @@ def _run_collect_data():
         _execute_collector(results, "fed", collect_fed_communications)
         _execute_collector(results, "analyst", collect_analyst_estimates, universe, batch_size=20)
 
-        failed_collectors = [name for name, result in results.items() if isinstance(result, dict) and "error" in result]
+        failed_collectors = [name for name, result in results.items() if _collector_result_is_failed(result)]
 
         try:
             broadcast_sync("action_complete", {

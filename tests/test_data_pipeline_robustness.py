@@ -217,3 +217,62 @@ class TestEdgarNlpColumns:
             cols = {c[1] for c in conn.execute("PRAGMA table_info(edgar_filings)").fetchall()}
         assert "sentiment_polarity" in cols
         assert "cautionary_phrases" in cols
+
+
+# ── kin #23 / DD-15 r3: dual-mode collect-pipeline failure detection ──
+#
+# The manual collect-data pipelines (CLI cmd_collect_data + dashboard route
+# _run_collect_data) tally failed_collectors. Pre-PR-D the test was
+# `isinstance(result, dict) and "error" in result`; a CollectorResult.failed()
+# is NOT a dict, so a migrated collector that genuinely failed would be counted
+# as a success — the same silent-reversal class as the #623 overnight guard.
+# Both consumers now route through _collector_result_is_failed (dual-mode).
+
+class TestCollectPipelineDualModeFailureDetection:
+    """VERIFY-BY-MUTATION (feedback_vacuous_test_pattern): drop the
+    ``isinstance(result, CollectorResult)`` branch from either helper and the
+    failed-CollectorResult assertions flip to False (a failed collector stops
+    being counted) — proving these tests exercise the dual-mode branch, not
+    just the legacy dict path."""
+
+    def test_cli_helper_flags_failed_collectorresult(self):
+        from src.cli.commands_data import _collector_result_is_failed
+        from src.data_collection.result import CollectorResult
+        assert _collector_result_is_failed(
+            CollectorResult.failed("macro", errors=["FRED 500"])
+        ) is True
+
+    def test_cli_helper_passes_healthy_collectorresult(self):
+        from src.cli.commands_data import _collector_result_is_failed
+        from src.data_collection.result import CollectorResult
+        assert _collector_result_is_failed(
+            CollectorResult.ok_from_count("macro", 31)
+        ) is False
+        assert _collector_result_is_failed(
+            CollectorResult.partial("trends", 18, errors=["429"])
+        ) is False
+
+    def test_cli_helper_legacy_dict_path(self):
+        from src.cli.commands_data import _collector_result_is_failed
+        assert _collector_result_is_failed({"error": "boom"}) is True
+        assert _collector_result_is_failed({"series_collected": 31}) is False
+        assert _collector_result_is_failed("skipped (not settlement date)") is False
+
+    def test_route_helper_flags_failed_collectorresult(self):
+        from src.api.routes.actions import _collector_result_is_failed
+        from src.data_collection.result import CollectorResult
+        assert _collector_result_is_failed(
+            CollectorResult.failed("macro", errors=["FRED 500"])
+        ) is True
+
+    def test_route_helper_passes_healthy_collectorresult(self):
+        from src.api.routes.actions import _collector_result_is_failed
+        from src.data_collection.result import CollectorResult
+        assert _collector_result_is_failed(
+            CollectorResult.ok_from_count("macro", 31)
+        ) is False
+
+    def test_route_helper_legacy_dict_path(self):
+        from src.api.routes.actions import _collector_result_is_failed
+        assert _collector_result_is_failed({"error": "boom"}) is True
+        assert _collector_result_is_failed({"status": "skipped"}) is False

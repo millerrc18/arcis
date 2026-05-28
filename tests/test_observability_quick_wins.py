@@ -110,6 +110,46 @@ class TestCollectorErrorClassification:
         from src.scheduler.overnight import _is_collector_error
         assert _is_collector_error({"tickers_processed": 15, "errors": 5}) is False
 
+    # ── kin #23 / DD-15 r3 — dual-mode: CollectorResult-aware ──
+    # PR-D migrates collectors dict -> CollectorResult one batch at a time.
+    # A CollectorResult is NOT a dict, so the dict-only classifier fell through
+    # to "not an error", SILENTLY REVERSING the #623 fix for every migrated
+    # collector (a genuinely FAILED collector stopped being flagged).
+
+    def test_failed_collectorresult_is_error(self):
+        """#623-REVERSAL GUARD: a CollectorResult.failed() MUST be flagged.
+
+        VERIFY-BY-MUTATION (per feedback_vacuous_test_pattern): delete the
+        ``isinstance(result, CollectorResult)`` branch in _is_collector_error
+        and this assertion flips to False — a failed collector silently stops
+        being an error, exactly the kin #23 regression. Proven non-vacuous by
+        running this test against the pre-edit (dict-only) classifier: it FAILS.
+        """
+        from src.data_collection.result import CollectorResult
+        from src.scheduler.overnight import _is_collector_error
+        failed = CollectorResult.failed("macro", errors=["FRED 500"])
+        assert _is_collector_error(failed) is True
+
+    def test_healthy_collectorresult_is_not_error(self):
+        """An 'ok' CollectorResult is healthy and must NOT be flagged."""
+        from src.data_collection.result import CollectorResult
+        from src.scheduler.overnight import _is_collector_error
+        ok = CollectorResult.ok_from_count("macro", 31)
+        assert _is_collector_error(ok) is False
+
+    def test_partial_collectorresult_is_not_error(self):
+        """A 'partial' CollectorResult is above-threshold usable (is_healthy)."""
+        from src.data_collection.result import CollectorResult
+        from src.scheduler.overnight import _is_collector_error
+        partial = CollectorResult.partial("trends", 18, errors=["2 tickers 429"])
+        assert _is_collector_error(partial) is False
+
+    def test_legacy_dict_path_still_works_alongside_collectorresult(self):
+        """Dual-mode: legacy dict classification is unchanged by the new branch."""
+        from src.scheduler.overnight import _is_collector_error
+        assert _is_collector_error({"error": "API key missing"}) is True
+        assert _is_collector_error({"tickers_processed": 20, "errors": 0}) is False
+
 
 # ── #613 — production-side guard against test pollution of activity_log ──
 
