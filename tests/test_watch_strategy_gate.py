@@ -120,7 +120,7 @@ def test_watch_loop_fires_at_16_35_ET_via_safe_run(watch_loop):
                     db_path=None, notify=watch_loop._notify_gate_proposal
                 ),
             )
-            assert result is True
+            assert result.is_healthy is True  # PR-D T19: _safe_run returns CollectorResult
             gate_mock.assert_called_once()
 
 

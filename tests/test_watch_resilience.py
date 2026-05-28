@@ -55,7 +55,7 @@ class TestSafeRunBackoff:
             result = watch_loop._safe_run("test_task", success_fn)
 
         success_fn.assert_called_once()
-        assert result is True
+        assert result.is_healthy is True  # PR-D T19: _safe_run returns CollectorResult
         assert watch_loop._consecutive_errors == 0
         assert watch_loop._backoff.get("test_task", 0) == 0
 
@@ -66,7 +66,7 @@ class TestSafeRunBackoff:
 
         with patch("time.sleep"):
             result = watch_loop._safe_run(task_name, failing_fn)
-            assert result is False
+            assert result.is_healthy is False  # PR-D T19: failed CollectorResult
             assert watch_loop._backoff[task_name] == 10
 
             watch_loop._safe_run(task_name, failing_fn)

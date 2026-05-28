@@ -50,7 +50,7 @@ def maybe_morning_training_stop(watch: "WatchLoop", now: datetime) -> None:
         return
     if (now.weekday() < 5 and now.hour == 5 and now.minute >= 15
             and not watch._morning_training_stop_done):
-        if watch._safe_run("morning training stop", watch._run_morning_training_stop):
+        if watch._safe_run("morning training stop", watch._run_morning_training_stop).is_healthy:
             watch._morning_training_stop_done = True
 
 
@@ -60,7 +60,7 @@ def maybe_post_close_capture(watch: "WatchLoop", now: datetime) -> None:
         return
     if (now.weekday() < 5 and now.hour == 17 and now.minute >= 30
             and not watch._post_close_done):
-        if watch._safe_run("post-close capture", watch._run_post_close_capture):
+        if watch._safe_run("post-close capture", watch._run_post_close_capture).is_healthy:
             watch._post_close_done = True
 
 
@@ -71,7 +71,7 @@ def maybe_overnight_training_collection(watch: "WatchLoop", now: datetime) -> No
     if (now.weekday() < 5 and now.hour == 18 and watch.training_enabled
             and not watch._overnight_training_collection_done):
         if watch._safe_run("overnight training collection",
-                           watch._run_overnight_training_collection):
+                           watch._run_overnight_training_collection).is_healthy:
             watch._overnight_training_collection_done = True
 
 
@@ -90,7 +90,7 @@ def maybe_evening_training_launch(watch: "WatchLoop", now: datetime) -> None:
     if not _is_overnight_window(watch, now):
         return
     if _in_evening_training_window(now) and not watch._evening_training_done:
-        if watch._safe_run("evening training launch", watch._run_evening_training_launch):
+        if watch._safe_run("evening training launch", watch._run_evening_training_launch).is_healthy:
             watch._evening_training_done = True
 
 
@@ -100,7 +100,7 @@ def maybe_stress_test(watch: "WatchLoop", now: datetime) -> None:
         return
     if (now.weekday() < 5 and now.hour == 19 and not watch._stress_test_done
             and watch._model_version_changed()):
-        if watch._safe_run("stress test (model change)", watch._run_stress_test):
+        if watch._safe_run("stress test (model change)", watch._run_stress_test).is_healthy:
             watch._stress_test_done = True
 
 
@@ -110,7 +110,7 @@ def maybe_data_collection(watch: "WatchLoop", now: datetime) -> None:
         return
     if (now.hour == 21 and now.minute >= 30
             and not watch._data_collection_done):
-        if watch._safe_run("data collection", watch._run_data_collection):
+        if watch._safe_run("data collection", watch._run_data_collection).is_healthy:
             watch._data_collection_done = True
 
 
@@ -119,7 +119,7 @@ def maybe_news_ingestion(watch: "WatchLoop", now: datetime) -> None:
     if not _is_overnight_window(watch, now):
         return
     if now.hour == 22 and not watch._news_ingestion_done:
-        if watch._safe_run("news ingestion", watch._run_news_ingestion):
+        if watch._safe_run("news ingestion", watch._run_news_ingestion).is_healthy:
             watch._news_ingestion_done = True
 
 
@@ -128,7 +128,7 @@ def maybe_enrichment_precache(watch: "WatchLoop", now: datetime) -> None:
     if not _is_overnight_window(watch, now):
         return
     if now.hour == 23 and not watch._enrichment_precache_done:
-        if watch._safe_run("enrichment precache", watch._run_enrichment_precache):
+        if watch._safe_run("enrichment precache", watch._run_enrichment_precache).is_healthy:
             watch._enrichment_precache_done = True
 
 
@@ -139,7 +139,7 @@ def maybe_1min_bar_collection(watch: "WatchLoop", now: datetime) -> None:
     if (now.hour == 23 and now.minute >= 30
             and not watch._1min_bar_collection_done):
         if watch._safe_run("1-minute bar collection",
-                           watch._run_1min_bar_collection):
+                           watch._run_1min_bar_collection).is_healthy:
             watch._1min_bar_collection_done = True
 
 
@@ -149,10 +149,10 @@ def maybe_pre_market_refresh(watch: "WatchLoop", now: datetime) -> None:
         return
     if not (now.weekday() < 5 and now.hour == 6 and not watch._pre_market_done):
         return
-    if watch._safe_run("pre-market refresh", watch._run_pre_market_refresh):
+    if watch._safe_run("pre-market refresh", watch._run_pre_market_refresh).is_healthy:
         watch._pre_market_done = True
         if not watch._premarket_brief_done:
-            if watch._safe_run("pre-market brief", watch._send_premarket_brief):
+            if watch._safe_run("pre-market brief", watch._send_premarket_brief).is_healthy:
                 watch._premarket_brief_done = True
 
 
@@ -163,7 +163,7 @@ def maybe_premarket_rolling_features(watch: "WatchLoop", now: datetime) -> None:
     if (now.weekday() < 5 and now.hour == 6 and now.minute >= 2
             and not watch._premarket_features_done):
         if watch._safe_run("rolling features",
-                           watch._run_premarket_rolling_features):
+                           watch._run_premarket_rolling_features).is_healthy:
             watch._premarket_features_done = True
 
 
@@ -174,7 +174,7 @@ def maybe_premarket_training(watch: "WatchLoop", now: datetime) -> None:
     if (now.weekday() < 5 and now.hour == 7
             and not watch._premarket_training_done):
         if watch._safe_run("premarket training gen",
-                           watch._run_premarket_training):
+                           watch._run_premarket_training).is_healthy:
             watch._premarket_training_done = True
 
 
@@ -185,7 +185,7 @@ def maybe_premarket_news_scoring(watch: "WatchLoop", now: datetime) -> None:
     if (now.weekday() < 5 and now.hour == 8 and now.minute >= 2
             and not watch._premarket_news_done):
         if watch._safe_run("premarket news scoring",
-                           watch._run_premarket_news_scoring):
+                           watch._run_premarket_news_scoring).is_healthy:
             watch._premarket_news_done = True
 
 
@@ -196,7 +196,7 @@ def maybe_premarket_candidates(watch: "WatchLoop", now: datetime) -> None:
     if not (now.weekday() < 5 and now.hour == 9 and now.minute < 25
             and not watch._premarket_candidates_done):
         return
-    if watch._safe_run("premarket candidates", watch._run_premarket_candidates):
+    if watch._safe_run("premarket candidates", watch._run_premarket_candidates).is_healthy:
         watch._premarket_candidates_done = True
         if (watch._premarket_features_done and watch._premarket_training_done
                 and watch._premarket_news_done):
@@ -242,7 +242,7 @@ def maybe_stats_pulse(watch: "WatchLoop", now: datetime) -> None:
         if not fires:
             continue
         if watch._safe_run(f"stats pulse ({label})",
-                           lambda lbl=label: _send_stats_pulse(lbl)):
+                           lambda lbl=label: _send_stats_pulse(lbl)).is_healthy:
             setattr(watch, flag, True)
         return  # one pulse per tick
 
@@ -299,7 +299,7 @@ def maybe_market_open_training_stop(watch: "WatchLoop", now: datetime) -> None:
     """
     if (now.hour, now.minute) >= (9, 25) and not watch._market_open_stop_done:
         if watch._safe_run("market-open training stop",
-                           watch._run_market_open_training_stop):
+                           watch._run_market_open_training_stop).is_healthy:
             watch._market_open_stop_done = True
 
 

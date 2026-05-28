@@ -1,6 +1,6 @@
 """Normalized collector outcome — the CollectorResult frozen dataclass.
 
-Called by: data_collection.* (collectors), scheduler.watch (_safe_run — flips in T19)
+Called by: data_collection.* (collectors), scheduler.watch (_safe_run gating)
 Calls: none
 Owns tables: none
 Config keys: none
@@ -12,8 +12,8 @@ DD-12/DD-13/DD-14/DD-15.
 
 Pre-Phase-5 the 22 collectors returned 8 distinct dict shapes that _safe_run
 (watch.py) discarded after a bare truthiness check. CollectorResult normalizes
-those outputs into one frozen value object so _safe_run can route status to
-_capability_health once T19 flips the consumer.
+those outputs into one frozen value object so _safe_run returns a typed result
+and gating callers branch on .is_healthy (T19 flip).
 
 DD-12: this is a SEPARATE module from errors.py — result is data, not an
 exception. CollectorPartialFailureError stays in errors.py and continues to
@@ -62,9 +62,9 @@ class CollectorResult:
     def is_healthy(self) -> bool:
         """True when the run is usable: 'ok' or (above-threshold) 'partial'.
 
-        'failed' is the only unhealthy status. _safe_run branches on this
-        (not on object truthiness — see module docstring / DD-15 r3) to set
-        _capability_health.
+        'failed' is the only unhealthy status. _safe_run's gating callers
+        branch on this (not on object truthiness — CollectorResult has no
+        __bool__; see module docstring / DD-15 r3) to set their done-flags.
         """
         return self.status in ("ok", "partial")
 

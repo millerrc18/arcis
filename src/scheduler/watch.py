@@ -1912,7 +1912,7 @@ class WatchLoop(HandlerRegistryMixin):
                 if (hour == 9 and now.minute >= 25 and now.minute < 30
                         and not self._ollama_warmup_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("Ollama warm-up", self._run_ollama_warmup):
+                    if self._safe_run("Ollama warm-up", self._run_ollama_warmup).is_healthy:
                         self._ollama_warmup_done = True
 
                 if (hour == 9 and now.minute < 5 and now.weekday() < 5
@@ -1921,13 +1921,13 @@ class WatchLoop(HandlerRegistryMixin):
                     if self._safe_run(
                         "pre-market bracket check",
                         lambda: self._run_bracket_health_check("premarket"),
-                    ):
+                    ).is_healthy:
                         self._premarket_bracket_check_done = True
 
                 # 0.5. Daily AI Council (8:30 AM — after watchlist, before first scan)
                 if (hour == 8 and now.minute >= 30 and not self._council_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("daily council", self._run_daily_council):
+                    if self._safe_run("daily council", self._run_daily_council).is_healthy:
                         self._council_done = True
 
                 # 0.7. Tier 4: Fundamentals refresh (daily at 7:30 AM)
@@ -1937,7 +1937,7 @@ class WatchLoop(HandlerRegistryMixin):
                         from src.scheduler.fundamentals_refresh import run_fundamentals_refresh
                         # Fix for #257: only set done-flag on success
                         if self._safe_run("fundamentals refresh",
-                                          lambda: run_fundamentals_refresh(self.config)):
+                                          lambda: run_fundamentals_refresh(self.config)).is_healthy:
                             self._fundamentals_done = True
                     except Exception as e:
                         logger.warning("[WATCH] Fundamentals refresh failed: %s", e)
@@ -1945,7 +1945,7 @@ class WatchLoop(HandlerRegistryMixin):
                 # 1. Morning watchlist
                 if hour == self.morning_hour and not self._morning_done:
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("morning watchlist", self._run_morning_watchlist):
+                    if self._safe_run("morning watchlist", self._run_morning_watchlist).is_healthy:
                         self._morning_done = True
 
                 # 1.5. Tier 1: Position monitor (every 15 min during market hours)
@@ -2000,7 +2000,7 @@ class WatchLoop(HandlerRegistryMixin):
                 # 3. EOD recap
                 elif hour == self.eod_hour and not self._eod_done:
                     # Fix for #257: only set done-flags on success
-                    if self._safe_run("EOD recap", self._run_eod_recap):
+                    if self._safe_run("EOD recap", self._run_eod_recap).is_healthy:
                         self._eod_done = True
                     # Check for risk tier transition (Strategy Decision #26)
                     try:
@@ -2024,11 +2024,11 @@ class WatchLoop(HandlerRegistryMixin):
                         logger.debug("[RISK] Tier transition check skipped: %s", e)
                     # H2. Daily metric snapshot (every trading day, not just Saturday)
                     if not self._daily_metric_snapshot_done:
-                        if self._safe_run("daily metric snapshot", self._save_daily_metric_snapshot):
+                        if self._safe_run("daily metric snapshot", self._save_daily_metric_snapshot).is_healthy:
                             self._daily_metric_snapshot_done = True
                     # 1C. EOD P&L report via Telegram
                     if not self._eod_report_done:
-                        if self._safe_run("EOD Telegram report", self._send_eod_report):
+                        if self._safe_run("EOD Telegram report", self._send_eod_report).is_healthy:
                             self._eod_report_done = True
                         # ── Telegram: notify_daily_summary (after eod report) ──
                         with connect_db(DB_PATH) as _conn:
@@ -2063,7 +2063,7 @@ class WatchLoop(HandlerRegistryMixin):
                 elif (hour == 16 and now.minute >= 15 and now.minute < 30
                       and not self._daily_audit_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("daily audit", self._run_daily_audit):
+                    if self._safe_run("daily audit", self._run_daily_audit).is_healthy:
                         self._daily_audit_done = True
                     # Send daily scoring summary via Telegram
                     if self._daily_scored > 0:
@@ -2081,7 +2081,7 @@ class WatchLoop(HandlerRegistryMixin):
                 # block and the CLAUDE.md "_safe_run returns bool" rule).
                 elif (hour == 16 and now.minute >= 30 and now.minute < 45
                       and not self._daily_validation_done):
-                    if self._safe_run("daily validation", self._run_daily_validation):
+                    if self._safe_run("daily validation", self._run_daily_validation).is_healthy:
                         self._daily_validation_done = True
 
                 # 4c. Daily build score snapshot (4:45 PM ET)
@@ -2090,7 +2090,7 @@ class WatchLoop(HandlerRegistryMixin):
                 # is wired in.
                 if (hour == 16 and now.minute >= 45
                         and not self._daily_build_score_done):
-                    if self._safe_run("daily build score", self._run_daily_build_score):
+                    if self._safe_run("daily build score", self._run_daily_build_score).is_healthy:
                         self._daily_build_score_done = True
 
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
@@ -2099,7 +2099,7 @@ class WatchLoop(HandlerRegistryMixin):
                     if self._safe_run(
                         "post-close bracket check",
                         lambda: self._run_bracket_health_check("postclose"),
-                    ):
+                    ).is_healthy:
                         self._postclose_bracket_check_done = True
 
                 # 4b. Post-close paper reconciliation (4:30–4:35 PM ET)
@@ -2109,7 +2109,7 @@ class WatchLoop(HandlerRegistryMixin):
                     if self._safe_run(
                         "post-close reconciliation",
                         self._run_postclose_reconciliation,
-                    ):
+                    ).is_healthy:
                         self._postclose_reconcile_done = True
 
                 # 4b2. Daily methodology gate sweep (16:35 ET — after post-close
@@ -2134,7 +2134,7 @@ class WatchLoop(HandlerRegistryMixin):
                             db_path=DB_PATH,
                             notify=self._notify_gate_proposal,
                         ),
-                    ):
+                    ).is_healthy:
                         self._strategy_gate_done = True
 
                 # 4c. Attribution outcome resolution (after market close)
@@ -2147,7 +2147,7 @@ class WatchLoop(HandlerRegistryMixin):
                     if self._safe_run(
                         "attribution outcome resolution",
                         run_attribution_resolution_and_notify,
-                    ):
+                    ).is_healthy:
                         self._attribution_resolution_done = True
 
                 # 5. Training data collection (after market close)
@@ -2155,59 +2155,59 @@ class WatchLoop(HandlerRegistryMixin):
                       and (hour > 16 or now.minute >= 30)
                       and not self._training_collection_done):
                     # Fix for #257: only set done-flags on success
-                    if self._safe_run("training collection", self._run_training_collection):
+                    if self._safe_run("training collection", self._run_training_collection).is_healthy:
                         self._training_collection_done = True
                     # 1D. Data asset report after training collection
                     if not self._data_asset_report_done:
-                        if self._safe_run("data asset report", self._send_data_asset_report):
+                        if self._safe_run("data asset report", self._send_data_asset_report).is_healthy:
                             self._data_asset_report_done = True
 
                 # 5. Overnight training trigger (5:00 PM ET)
                 elif (self.training_enabled and hour == 17
                       and not self._training_run_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("training check", self._run_training_check):
+                    if self._safe_run("training check", self._run_training_check).is_healthy:
                         self._training_run_done = True
 
                 # 5b. Model regression check (5:05 PM ET, after market close)
                 if (hour == 17 and now.minute >= 5 and now.minute < 15
                         and not self._model_regression_done):
                     if self._safe_run("model regression check",
-                                      self._run_model_regression_check):
+                                      self._run_model_regression_check).is_healthy:
                         self._model_regression_done = True
 
                 # 6. Saturday training report (9 AM ET)
                 elif (self.training_enabled and now.weekday() == 5
                       and hour == 9 and not self._saturday_reports_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("Saturday reports", self._run_saturday_reports):
+                    if self._safe_run("Saturday reports", self._run_saturday_reports).is_healthy:
                         self._saturday_reports_done = True
 
                 # H1. Research synthesis (Sunday 6 PM ET)
                 elif (now.weekday() == 6 and hour == 18
                       and not self._research_synthesis_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("research synthesis", self._run_research_synthesis):
+                    if self._safe_run("research synthesis", self._run_research_synthesis).is_healthy:
                         self._research_synthesis_done = True
 
                 # 1H. Weekly digest (Sunday 8 PM ET)
                 elif (now.weekday() == 6 and hour == 20
                       and not self._weekly_digest_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("weekly digest", self._send_weekly_digest):
+                    if self._safe_run("weekly digest", self._send_weekly_digest).is_healthy:
                         self._weekly_digest_done = True
 
                 # Weekly stress test (Sunday 9 PM ET)
                 elif (now.weekday() == 6 and hour == 21
                       and not self._stress_test_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("weekly stress test", self._run_stress_test):
+                    if self._safe_run("weekly stress test", self._run_stress_test).is_healthy:
                         self._stress_test_done = True
 
                 # Weekly simulation engine (Sunday 9:30 PM ET, after stress test)
                 elif (now.weekday() == 6 and hour == 21 and now.minute >= 30
                       and not self._simulation_done):
-                    if self._safe_run("weekly simulation", self._run_simulation_engine):
+                    if self._safe_run("weekly simulation", self._run_simulation_engine).is_healthy:
                         self._simulation_done = True
 
                 # #115 T8 — Email weekly tier (Sunday 18:00 ET, 5-min window).
@@ -2225,14 +2225,14 @@ class WatchLoop(HandlerRegistryMixin):
                 # only set on success and per-task backoff applies (matches
                 # the discipline of every other done-flag block).
                 if hour == 20 and not self._action_reminders_done:
-                    if self._safe_run("action reminders", self._run_action_reminders):
+                    if self._safe_run("action reminders", self._run_action_reminders).is_healthy:
                         self._action_reminders_done = True
 
                 # 1L. Earnings proximity warning (8:00 AM weekdays)
                 if (hour == 8 and now.minute < 5 and now.weekday() < 5
                         and not self._earnings_warning_done):
                     # Fix for #257: only set done-flag on success
-                    if self._safe_run("earnings proximity", self._check_earnings_proximity):
+                    if self._safe_run("earnings proximity", self._check_earnings_proximity).is_healthy:
                         self._earnings_warning_done = True
 
                 # Overnight schedule: 14 handlers in src/scheduler/watch_handlers.py
@@ -2439,29 +2439,38 @@ class WatchLoop(HandlerRegistryMixin):
             bound.__name__ = handler.__name__
             self.on("on_tick")(bound)
 
-    def _safe_run(self, name: str, func) -> bool:
+    def _safe_run(self, name: str, func) -> "CollectorResult":
         """Run a function with per-task exponential backoff error recovery.
 
-        Returns True on success, False on exception.
+        Returns a CollectorResult (post-T19 flip; DD-15 r3): an ``ok`` result
+        when ``func`` completes without raising (if ``func`` itself returns a
+        CollectorResult, that result is returned verbatim), or a ``failed``
+        result carrying the exception text. Gating callers branch on
+        ``.is_healthy`` — never on bare object truthiness, since a
+        CollectorResult is object-truthy for EVERY status (DD-15 r3 / §207).
 
         Fix for #147: Exponential backoff (10s -> 30s -> 60s cap).
         Fix for #231: Backoff is keyed per task name. A failing EDGAR collector
         only delays the next EDGAR attempt, not scans or reconciliation.
-        Fix for #226: Callers must check return value before setting done-flags.
-        Pattern: `if self._safe_run(...): self._done = True`
+        Fix for #226: Callers must check .is_healthy before setting done-flags.
+        Pattern: `if self._safe_run(...).is_healthy: self._done = True`
         """
         import traceback
+
+        from src.data_collection.result import CollectorResult
         try:
             # Per-task backoff: wait before retrying a previously-failed task
             task_backoff = self._backoff.get(name, 0)
             if task_backoff > 0:
                 print(f"[WATCH] Backoff: waiting {task_backoff}s before {name}...")
                 time.sleep(task_backoff)
-            func()
+            outcome = func()
             # Success — reset backoff for this task only (not all tasks)
             self._consecutive_errors = 0
             self._backoff.pop(name, None)
-            return True
+            if isinstance(outcome, CollectorResult):
+                return outcome
+            return CollectorResult.ok_from_count(name, 0)
         except Exception as e:
             self._consecutive_errors += 1
             self._error_timestamps.append(time.time())
@@ -2486,7 +2495,7 @@ class WatchLoop(HandlerRegistryMixin):
                     pass
             elif recent <= 5:
                 self._hourly_alert_sent = False
-            return False
+            return CollectorResult.failed(name, errors=[str(e)])
 
     def _run_bracket_health_check(self, context: str) -> None:
         """Run bracket health monitoring for the requested scheduler context."""
