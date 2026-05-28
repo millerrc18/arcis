@@ -42,6 +42,82 @@
 
 <!-- /PR-A entries -->
 
+<!-- PR-B entries -->
+### Added
+
+- 2 regression-lock sentinels at `tests/` root (T8 commit `7d708598`):
+  - `tests/test_cloud_app_removed.py` — locks `src/api/cloud_app.py` deletion;
+    follows canonical `tests/test_render_sync_removed.py` shape with
+    verify-by-mutation evidence (sabotage cycle documented in T8 commit body).
+  - `tests/test_no_database_url_branch.py` — locks DATABASE_URL strip from all
+    `cloud_routes/` modules; same verify-by-mutation shape.
+- 9 SQLite-only routing verification tests added during T6/T7 dependent-test
+  expansion (each carries verify-by-mutation docstring per memory
+  `feedback_vacuous_test_pattern`):
+  - `tests/api/test_broker_exceptions_route.py::TestPostgresRouting` (T6):
+    `test_recent_uses_sqlite_regardless_of_database_url`,
+    `test_summary_uses_sqlite_regardless_of_database_url`,
+    `test_recent_uses_sqlite_when_database_url_unset`,
+    `test_summary_uses_sqlite_when_database_url_unset`
+  - `tests/api/test_commands_route.py` (T6):
+    `test_expire_stale_calls_helper_unconditionally`
+  - `tests/api/test_kpis.py::TestFetchClosedTradesPostgresRouting` (T6):
+    `test_uses_sqlite_regardless_of_database_url`,
+    `test_get_kpis_uses_sqlite_data`
+  - `tests/api/test_preflight_route.py::TestSQLiteOnlyRouting` (T7):
+    `test_sqlite_is_sole_path_regardless_of_database_url_env`,
+    `test_empty_state_when_no_transcript`
+
+### Changed
+
+- `src/api/cloud_routes/` modules now SQLite-only (no `DATABASE_URL` gating).
+  7 modules + `__init__.py` updated across two batches:
+  - T6 batch 1 (commit `2abe0fcb`): `platform.py`, `broker_exceptions.py`,
+    `commands.py`, `kpis_compute.py`
+  - T7 batch 2 (commit `bdde5cf9`): `notifications.py`, `preflight.py`,
+    `walkforward.py` + `__init__.py` docstring updated to reflect single-mode
+    SQLite routing
+- 7 tier-2 test files redirected from `src.api.cloud_app` to `src.api.app`
+  (T4c commit `fa95d4a7`): `tests/test_version.py` (2 dedicated cloud_app
+  test fns dropped), `tests/test_security.py`,
+  `tests/platform/test_platform_api.py`,
+  `tests/test_dashboard_gate_kpi_route.py`,
+  `tests/test_phase_d_auth_and_safety.py`,
+  `tests/test_safety_oneliners.py`,
+  `tests/test_tier_1c_orphan_routes.py`
+- `scripts/render_architecture_doc.py` line 120 `route_files` list — dropped
+  `cloud_app.py` entry (T4c commit `fa95d4a7`)
+
+### Removed
+
+- `src/api/cloud_app.py` — standalone Render FastAPI entry point (T4 commit
+  `b7984155`)
+- `render.yaml` — Render deployment manifest (T4 commit `b7984155`)
+- `requirements-cloud.txt` — Render-specific dependency list (T4 commit
+  `b7984155`)
+- `scripts/render_init_db.py` — Render DB-init helper (T4 commit `b7984155`)
+- 4 dedicated cloud_app test files (T4b commit `c2f7c4de`, 1924 lines removed):
+  `tests/test_cloud_app.py` (1186L), `tests/test_cloud_auth.py` (77L),
+  `tests/test_cloud_requirements_imports.py` (624L),
+  `tests/test_capability_registry_imports.py` (37L)
+- `scripts/check_cloud_deploy_imports.py` — cloud_app import-graph validator
+  (T4b commit `c2f7c4de`, 309L)
+- `test_cloud_app_imports_covered_by_requirements_cloud` function from
+  `tests/test_repo_structure.py` (T4b commit `c2f7c4de`; ~50L)
+- 2 tier-2 test files with heavy cloud_app-internal patches (T4d commit
+  `b7c2d1ff`; kin #10 + #11 filed for rewrites):
+  `tests/api/test_status.py` (400L), `tests/test_shadow_desk_filter.py` (294L)
+
+### Skipped (deferred — kin #13)
+
+- T5: deletion of `scripts/render_to_local_migrate.py` deferred to a dedicated
+  follow-up PR. Script houses load-bearing `apply_ownership_reconciliation`
+  function (the 2026-05-14 restart-loop incident fix; see memory
+  `feedback_drop_schema_grant_pattern`). Proper migration requires moving the
+  function to `scripts/_shared_migration_utils.py` first; kin task #13 tracks
+  the dedicated PR.
+<!-- /PR-B entries -->
+
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 
 ### Fixed

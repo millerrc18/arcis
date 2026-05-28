@@ -86,15 +86,15 @@ class TestGovernorRejectsZeroEquity:
 
 class TestBearerTokenConstantTime:
     def test_verify_auth_uses_compare_digest(self):
-        from src.api import cloud_app
-        src = inspect.getsource(cloud_app.verify_auth)
+        from src.api import app
+        src = inspect.getsource(app.verify_auth)
         assert "compare_digest" in src, (
             "#440 — verify_auth must use hmac.compare_digest, not `==`"
         )
 
     def test_verify_auth_no_short_circuiting_string_compare(self):
-        from src.api import cloud_app
-        src = inspect.getsource(cloud_app.verify_auth)
+        from src.api import app
+        src = inspect.getsource(app.verify_auth)
         # Must not contain bare `token == _API_SECRET_HASH` (the prior pattern).
         # Allow it inside compare_digest() — but the pattern with `==` is the bug.
         # We accept presence of `==` for boolean composition, but token == _API_SECRET should be gone.

@@ -40,24 +40,25 @@ def client(runtime_stub):
     return TestClient(app)
 
 
-def test_expire_stale_no_database_url(client, monkeypatch):
-    """When DATABASE_URL is empty, return permissive {expired: 0, note: ...}."""
-    monkeypatch.setenv("DATABASE_URL", "")
-    resp = client.post("/api/commands/expire-stale")
+def test_expire_stale_calls_helper_unconditionally(client, monkeypatch):
+    """Route always calls expire_stale_commands regardless of DATABASE_URL
+    (Render PG decommissioned 2026-05-18; DATABASE_URL guard removed)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch("src.commands.maintenance.expire_stale_commands", return_value=5) as mock_helper:
+        resp = client.post("/api/commands/expire-stale")
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["expired"] == 0
-    assert "DATABASE_URL not configured" in body["note"]
+    assert resp.json() == {"expired": 5}
+    mock_helper.assert_called_once_with()
 
 
 def test_expire_stale_calls_helper_when_database_url_set(client, monkeypatch):
-    """When DATABASE_URL is set, route calls expire_stale_commands and returns count."""
+    """Even with DATABASE_URL set, route calls expire_stale_commands (no PG branch)."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://test")
     with patch("src.commands.maintenance.expire_stale_commands", return_value=7) as mock_helper:
         resp = client.post("/api/commands/expire-stale")
     assert resp.status_code == 200
     assert resp.json() == {"expired": 7}
-    mock_helper.assert_called_once_with("postgresql://test")
+    mock_helper.assert_called_once_with()
 
 
 def test_expire_stale_helper_failure_returns_500(client, runtime_stub, monkeypatch):
