@@ -204,7 +204,7 @@ Violations may NOT be silently shipped. PR #717 merged with a 573-line file with
 - **Surface mass failures** — if >50% of items in a batch fail, raise `CollectorPartialFailureError`. Individual item glitches are expected; mass failures must be visible.
 - **Stats queries must reference real columns** — `test_stats_queries_reference_valid_columns` in `test_schema.py` validates all `/data-collection-stats` queries against the schema registry. It will fail if you reference a column that doesn't exist.
 - **Overnight schedule runs 7 days/week** — data collection, news ingestion, and enrichment run daily (including weekends). Only VRAM handoff and pre-market tasks are weekday-gated.
-- **`_safe_run` returns bool** — done-flags must be conditional: `if self._safe_run(...): self._done = True`. Never set a done-flag unconditionally after `_safe_run`. For inline try/except blocks, set the done-flag inside the `try`, never after the `except`.
+- **`_safe_run` returns `CollectorResult`** (post-T19 flip; DD-15 r3) — done-flags must branch on `.is_healthy`: `result = self._safe_run(...); if result.is_healthy: self._done = True`. Never set a done-flag unconditionally after `_safe_run`. For inline try/except blocks, set the done-flag inside the `try`, never after the `except`. `CollectorResult` is always object-truthy regardless of status — health is expressed via `.is_healthy`, never via bare `if result:`.
 - **Backoff is per-task** — the `_backoff` dict in `WatchLoop` keys by task name. A failure in one task never delays an unrelated task.
 
 ## Database Access Rules

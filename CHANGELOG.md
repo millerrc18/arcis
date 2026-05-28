@@ -182,6 +182,47 @@
   `1bdfb931`) — NOT deferred; kin #22 is therefore closed.
 <!-- /PR-C entries -->
 
+<!-- PR-D entries -->
+### Changed
+
+- **Phase 5 PR-D — CollectorResult Big Bang (#72)** — 21 data-collection collectors
+  migrated from 8 heterogeneous dict shapes to the unified `CollectorResult` frozen
+  dataclass (`src/data_collection/result.py`, DD-12/DD-13/DD-14/DD-15 r3). Migrated
+  collectors (T18 + T20–T25):
+  `macro`, `edgar` (collector), `options`, `options_metrics`, `analyst`,
+  `filings_sentiment`, `insider`, `fed`, `press_releases`, `cboe`,
+  `company_executive`, `docs`, `institutional_ownership`, `price_target`,
+  `research`, `retention`, `short_interest`, `short_volume_finra`,
+  `stock_financials`, `trends`, `vix`.
+  (`edgar_historical` was NOT migrated — it is a doc-resolution helper, not a
+  collector, per kin #24.)
+
+- **CollectorResult contract** (`src/data_collection/result.py`):
+  - Frozen dataclass with fields `collector_name`, `status` (`"ok" | "partial" |
+    "failed"`), `primary_count`, `errors`, `metadata`.
+  - Three classmethods: `ok_from_count(name, count, **metadata)`,
+    `partial(name, count, errors, **metadata)`, `failed(name, errors)`.
+  - `.is_healthy` property — `True` for `"ok"` or `"partial"`; `False` for
+    `"failed"`. Health is expressed via `.is_healthy`, never via object truthiness
+    (DD-15 r3: `CollectorResult` is always object-truthy, including when status is
+    `"failed"`, to preserve `if result:` compat during the migration window).
+  - `aggregate_results(name, results)` merges per-ticker results (Shape F /
+    `press_releases`).
+
+- **Consumers made dual-mode during migration window** — the following call sites
+  accept both the old dict shape and `CollectorResult` until T19 flips `_safe_run`:
+  `overnight._is_collector_error`, `_run_plan_gated_collector`,
+  `fundamentals_refresh`, `research`/`retention` seams,
+  `cli`/`api` `_collector_result_is_failed`.
+
+- **T19 (NEXT, not this PR)** — `_safe_run` in `src/scheduler/watch.py` will be
+  flipped to return `CollectorResult` directly, routing status to
+  `_capability_health` (`ok` → `ok`, `partial` → `degraded`, `failed` → `down`).
+  After T19 lands, `CLAUDE.md §207` "done-flag" pattern is:
+  `result = self._safe_run(...); if result.is_healthy: self._done = True`.
+
+<!-- /PR-D entries -->
+
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 
 ### Fixed
