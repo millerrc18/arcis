@@ -121,7 +121,7 @@
 <!-- PR-C entries -->
 ### Changed
 
-- **Structure-debt refactor (#65)** — 6 oversized modules split, all behavior-preserving
+- **Structure-debt refactor (#65)** — 7 oversized modules split, all behavior-preserving
   (public APIs re-exported at original import paths):
   - `src/shadow_trading/executor.py` 3093→1231L — extracted `order_lifecycle.py` (1640L,
     check_and_manage_open_trades + open_live_trade + _retry_exit) + `reconciliation_engine.py`
@@ -147,6 +147,14 @@
     (735L, render_digest orchestrator + 3 per-tier HTML builders + data collectors) +
     `email_digest_handover.py` (223L, handover-logic helpers); render_digest + preview_tier
     re-exported from email_digest.py [T16 commit `4627601c`; DD-08c / DA11]
+  - `src/notifications/telegram.py` 1662→821L — extracted `telegram_delivery.py` (1128L,
+    notify_* alert builders + 4 payload dataclasses + 14 email-tier stubs). Transport core +
+    policy dispatcher + config validator stay in telegram.py so the session-autouse conftest
+    null-router (telegram._send_single) is preserved with ZERO conftest change; moved notify_*
+    use the late-binding `_tg.send_telegram`/`_tg._html_escape` seam. XSS source-AST-scan
+    (tests/notifications/test_html_escape_siblings.py) relocated to telegram_delivery.py and
+    proven non-vacuous (iterates the moved notify_* + catches an injected unescaped f-string).
+    [T11 commit `1bdfb931`; DD-08c; operator Option-A test-retarget authorized — see kin #17]
 
 ### Added
 
@@ -162,16 +170,16 @@
   — all dropped below the 400L threshold post-split; entries pruned from
   `config/known_violations.json` by their respective tasks (T13–T16)
 
-### Deferred
+### Deferred (Phase-6 sub-targets)
 
-- T11 (`src/notifications/telegram.py` 1662L delivery split) deferred to dedicated PR-C2
-  (kin #22) — requires XSS-AST-scan relocation + null-router conftest surgery; telegram.py
-  remains grandfathered; `telegram_delivery.py` WIP registered in known_violations.json
-  (T17). Operator Option-A (tests/-edit) authorization carries forward.
-- Phase-6 sub-targets noted in known_violations: order_lifecycle.py (1640L — decompose
-  check_and_manage_open_trades 771L + open_live_trade 409L), email_digest_render.py (735L
-  — optional 4th collect module if file grows), executor.py / telegram.py / governor.py /
-  trainer.py remain grandfathered.
+- Files still >400L post-split, grandfathered in known_violations.json with sub-target
+  notes: `order_lifecycle.py` (1640L — decompose check_and_manage_open_trades 771L +
+  open_live_trade 409L), `email_digest_render.py` (735L — optional 4th collect module if
+  it grows), `telegram_delivery.py` (1128L — split notify_* by category if it grows), and
+  `executor.py` (1231L) / `telegram.py` (821L) / `governor.py` (931L) / `trainer.py`
+  (1339L) whose residual bulk is large single functions (e.g. governor check_trade 267L)
+  that need their own decomposition tasks. T11 (telegram split) LANDED in this PR (commit
+  `1bdfb931`) — NOT deferred; kin #22 is therefore closed.
 <!-- /PR-C entries -->
 
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
