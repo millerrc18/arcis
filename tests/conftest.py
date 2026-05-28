@@ -61,6 +61,17 @@ def _is_prod_pg_url(url: str) -> bool:
     return bool(url) and any(sig in url for sig in _PROD_SIGNATURES)
 
 
+# Env snapshot captured pre-collection (end of pytest_configure) and restored in
+# pytest_collection_finish. Guards against import-time os.environ scrubs poisoning
+# the whole session at collection: src/simulation/lifecycle/bootstrap.py:90 runs a
+# module-level _scrub_environment() that rewrites os.environ (TEST_DATABASE_URL ->
+# sim 127.0.0.1:5434, ARCIS_PG_CUTOVER_ENABLED=1, pops ARCIS_DB_PATH). pytest
+# collection imports that module (full_gate <- test_entrypoints), so without this
+# ~130 engine-aware / [postgres] tests connect to a 5434 PG the standard pg-tests
+# CI job does not provision and fail with connection-refused.
+_PRECOLLECT_ENV: dict = {}
+
+
 def pytest_configure(config):
     """P0 GUARD: refuse pytest if DATABASE_URL or TEST_DATABASE_URL points at prod PG.
 
@@ -171,6 +182,32 @@ def pytest_configure(config):
             + "=" * 70 + "\n",
             returncode=2,
         )
+
+    # Snapshot the intended test env BEFORE collection imports run. Collection
+    # imports modules whose top-level code may scrub os.environ (the lifecycle
+    # bootstrap — see _PRECOLLECT_ENV note above); pytest_collection_finish
+    # restores this so tests run against the CI/operator DB env, not the scrub.
+    _PRECOLLECT_ENV.clear()
+    _PRECOLLECT_ENV.update(os.environ)
+
+
+def pytest_collection_finish(session):
+    """Restore the pre-collection env, undoing any import-time os.environ scrub
+    that ran while pytest imported test modules during collection. Without this
+    the lifecycle bootstrap's module-level scrub (bootstrap.py:90) leaks
+    TEST_DATABASE_URL=...:5434 / ARCIS_PG_CUTOVER_ENABLED / popped ARCIS_DB_PATH
+    into every test in the session. Module-level code runs once per import, so a
+    single post-collection restore is sufficient (no re-pollution)."""
+    if not _PRECOLLECT_ENV:
+        return
+    for key in list(os.environ.keys()):
+        if key not in _PRECOLLECT_ENV:
+            del os.environ[key]
+    for key, value in _PRECOLLECT_ENV.items():
+        if os.environ.get(key) != value:
+            os.environ[key] = value
+
+
 import shutil
 import sqlite3
 import subprocess
