@@ -118,6 +118,62 @@
   the dedicated PR.
 <!-- /PR-B entries -->
 
+<!-- PR-C entries -->
+### Changed
+
+- **Structure-debt refactor (#65)** — 6 oversized modules split, all behavior-preserving
+  (public APIs re-exported at original import paths):
+  - `src/shadow_trading/executor.py` 3093→1231L — extracted `order_lifecycle.py` (1640L,
+    check_and_manage_open_trades + open_live_trade + _retry_exit) + `reconciliation_engine.py`
+    (405L, reconciliation primitives) [T10 commit `cbc3149c`; DD-37 §3]
+  - `src/training/trainer.py` 1463→1339L — extracted `trainer_checkpoint.py` (235L, 6
+    GPU0-launch / checkpoint-stop / PID-tracking helpers: _training_subprocess_env,
+    _assert_gpu0_identity, _wait_for_training_proc, _write_training_pid,
+    _resolve_tracked_pid, _launch_and_wait_training) [T12 commit `55b60eb8`; DD-37 §3]
+  - `src/cli/commands.py` 1531→90L (pure re-export facade) — split by command domain into
+    `commands_data.py` (523L, 17 data/shadow-trading/live-trading cmd_* fns) +
+    `commands_training.py` (496L, 30 training/evaluation/model/council cmd_* fns) +
+    `commands_ops.py` (546L, 14 system/config/startup/notifications cmd_* fns + 5 startup
+    helpers) [T13 commit `3e23c885`, T13-fix commit `2665e8bc`; DD-40 corrected — false
+    decorator/audit_log premise removed per kin #19]
+  - `src/risk/governor.py` 949→931L — extracted `governor_audit.py` (83L,
+    audit_entry_suppression_reason + _AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS);
+    `src/api/routes/system.py` 723→370L — extracted `system_status.py` (455L, 13
+    read-only dashboard-data endpoints) [T14 commit `d419a74d`; DD-37 §3]
+  - `src/services/scan_service.py` 517→220L — extracted `_scan_service_impl.py` (473L,
+    3 phase helpers: _phase_collect / _phase_score / _phase_persist per DA9) [T15 commit
+    `75912347`; DD-37 §3]
+  - `src/notifications/email_digest.py` 1236→354L — extracted `email_digest_render.py`
+    (735L, render_digest orchestrator + 3 per-tier HTML builders + data collectors) +
+    `email_digest_handover.py` (223L, handover-logic helpers); render_digest + preview_tier
+    re-exported from email_digest.py [T16 commit `4627601c`; DD-08c / DA11]
+
+### Added
+
+- `tests/cli/test_cli_split_integrity.py` — re-export import-identity sentinel (verifies
+  `src.cli.commands.cmd_X IS src.cli.commands_<cat>.cmd_X` for all 61 exported commands)
+  + `--help` dispatch smoke per sub-module (subprocess exit-0 + command present); non-
+  vacuous verify-by-mutation documented in commit body [T13 commit `3e23c885`; DD-37]
+
+### Removed (known_violations.json entries, files now under 400L)
+
+- `scan_service.py` (517→220L), `src/api/routes/system.py` (723→370L),
+  `src/cli/commands.py` (1531→90L), `src/notifications/email_digest.py` (1236→354L)
+  — all dropped below the 400L threshold post-split; entries pruned from
+  `config/known_violations.json` by their respective tasks (T13–T16)
+
+### Deferred
+
+- T11 (`src/notifications/telegram.py` 1662L delivery split) deferred to dedicated PR-C2
+  (kin #22) — requires XSS-AST-scan relocation + null-router conftest surgery; telegram.py
+  remains grandfathered; `telegram_delivery.py` WIP registered in known_violations.json
+  (T17). Operator Option-A (tests/-edit) authorization carries forward.
+- Phase-6 sub-targets noted in known_violations: order_lifecycle.py (1640L — decompose
+  check_and_manage_open_trades 771L + open_live_trade 409L), email_digest_render.py (735L
+  — optional 4th collect module if file grows), executor.py / telegram.py / governor.py /
+  trainer.py remain grandfathered.
+<!-- /PR-C entries -->
+
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 
 ### Fixed
