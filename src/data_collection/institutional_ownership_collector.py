@@ -35,6 +35,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
+from src.data_collection.result import CollectorResult
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -104,24 +105,23 @@ def collect_institutional_ownership(
     ticker: str,
     config: dict | None = None,
     db_path: str = DB_PATH,
-) -> dict | None:
+) -> CollectorResult:
     """Collect institutional ownership snapshot for one ticker (plan-gated).
 
-    On entry: when ``finnhub_plan_supports('institutional_ownership', config)``
-    is False, log INFO and return None — no API call (Decision 30).
-
-    Otherwise: call Finnhub /stock/institutional-ownership and UPSERT one
-    aggregate row into ``institutional_holdings`` keyed by (ticker, as_of_date).
-
-    Returns the inserted row dict on success, or None when plan-gated off /
-    when the API call fails / when the response is empty.
+    UPSERTs one aggregate row into ``institutional_holdings``. Returns
+    CollectorResult('institutional_ownership', primary_count=num_holders,
+    metadata={'total_shares','num_holders'}): gated-off -> ok count 0
+    metadata{'gated':1} (no API call, Decision 30); fetch fail -> failed;
+    empty -> ok count 0; row -> ok count=num_holders. SEMANTIC NARROWING:
+    ``top_5_holders_pct`` is a float and cannot live in the dict[str,int]
+    metadata bucket; it still persists to institutional_holdings.
     """
     if not finnhub_plan_supports("institutional_ownership", config):
         logger.info(
             "[INST_OWNERSHIP] Skipped %s — Finnhub plan does not support "
             "institutional_ownership", ticker,
         )
-        return None
+        return CollectorResult.ok_from_count("institutional_ownership", 0, gated=1)
 
     api_key = _get_finnhub_key()
     if not api_key:
@@ -132,10 +132,14 @@ def collect_institutional_ownership(
         )
 
     holders = _fetch_finnhub_ownership(ticker, api_key)
+    if holders is None:
+        return CollectorResult.failed(
+            "institutional_ownership",
+            errors=[f"[INST_OWNERSHIP] fetch failed for {ticker}"],
+        )
     if not holders:
-        if holders is not None:
-            logger.info("[INST_OWNERSHIP] No holders returned for %s", ticker)
-        return None
+        logger.info("[INST_OWNERSHIP] No holders returned for %s", ticker)
+        return CollectorResult.ok_from_count("institutional_ownership", 0)
 
     row = _aggregate_holders(holders, ticker)
     with connect_db(db_path) as conn:
@@ -153,4 +157,8 @@ def collect_institutional_ownership(
         "[INST_OWNERSHIP] %s: %s holders, %s total shares, as_of=%s",
         ticker, row["num_holders"], row["total_shares"], row["as_of_date"],
     )
-    return row
+    num_holders = row["num_holders"] or 0
+    return CollectorResult.ok_from_count(
+        "institutional_ownership", num_holders,
+        total_shares=row["total_shares"] or 0, num_holders=num_holders,
+    )

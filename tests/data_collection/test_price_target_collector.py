@@ -45,11 +45,21 @@ def sqlite_db():
 # ---------------------------------------------------------------------------
 
 
-def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch):
-    """plan=fundamental-1: gate is open, API is called, row lands in
-    price_targets, and a repeat call upserts (no duplicate rows)."""
+def test_gate_open_makes_api_call_and_writes_row(sqlite_db, monkeypatch):
+    """gate OPEN (capability entitled): API is called, row lands in
+    price_targets, and a repeat call upserts (no duplicate rows).
+
+    PR-D T23 reconciliation: price_target was removed from the fundamental-1
+    feature matrix in v0.36.43 (per-endpoint 403 — see finnhub_plan), so a
+    real ``plan=fundamental-1`` gate is CLOSED. To exercise the API-open body
+    we patch ``finnhub_plan_supports`` True (simulating a future entitling
+    plan). On success the collector returns a healthy CollectorResult with
+    primary_count 1 (one row written); the float target VALUES persist to the
+    price_targets table (semantic narrowing — they cannot live in dict[str,int]
+    metadata)."""
     monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
     from src.data_collection.price_target_collector import collect_price_targets
+    from src.data_collection.result import CollectorResult
 
     mock_payload = {
         "targetHigh": 210,
@@ -63,6 +73,9 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
     config = {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
 
     with patch(
+        "src.data_collection.price_target_collector.finnhub_plan_supports",
+        return_value=True,
+    ), patch(
         "src.data_collection.price_target_collector._get_finnhub_key",
         return_value="test-key",
     ), patch(
@@ -75,14 +88,15 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
 
         # First call: API hit + row written.
         result1 = collect_price_targets("AAPL", config=config, db_path=sqlite_db)
-        assert result1 is not None
-        assert mock_get.called, "Expected Finnhub API call when plan=fundamental-1"
-        assert result1["ticker"] == "AAPL"
-        assert result1["target_mean"] == 185
+        assert isinstance(result1, CollectorResult)
+        assert result1.is_healthy
+        assert mock_get.called, "Expected Finnhub API call when gate is open"
+        assert result1.primary_count == 1
 
         # Second call: same as_of_date -> UPSERT idempotent (no duplicate row).
         result2 = collect_price_targets("AAPL", config=config, db_path=sqlite_db)
-        assert result2 is not None
+        assert isinstance(result2, CollectorResult)
+        assert result2.is_healthy
 
     with sqlite3.connect(sqlite_db) as verify:
         verify.row_factory = sqlite3.Row
@@ -97,6 +111,38 @@ def test_plan_fundamental_1_makes_api_call_and_writes_row(sqlite_db, monkeypatch
     assert rows[0]["target_high"] == 210
 
 
+def test_plan_fundamental_1_gated_off_no_api_call(sqlite_db, monkeypatch):
+    """plan=fundamental-1: price_target is gated OFF as of v0.36.43 (the live
+    feature matrix removed it after a per-endpoint 403). The collector returns
+    a healthy CollectorResult with count 0 + metadata {'gated': 1} and makes
+    NO API call — no row is written."""
+    monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
+    from src.data_collection.price_target_collector import collect_price_targets
+    from src.data_collection.result import CollectorResult
+
+    config = {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
+
+    with patch(
+        "src.data_collection.price_target_collector._get_finnhub_key",
+        return_value="test-key",
+    ), patch(
+        "src.data_collection.price_target_collector.requests.get"
+    ) as mock_get:
+        result = collect_price_targets("AAPL", config=config, db_path=sqlite_db)
+
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 0
+    assert result.metadata.get("gated") == 1
+    mock_get.assert_not_called()
+
+    with sqlite3.connect(sqlite_db) as verify:
+        count = verify.execute(
+            "SELECT COUNT(*) FROM price_targets WHERE ticker = ?", ("AAPL",)
+        ).fetchone()[0]
+    assert count == 0, "No row should be written when price_target is gated off"
+
+
 # ---------------------------------------------------------------------------
 # Test 2: plan=free -> no API call + collector returns None
 # ---------------------------------------------------------------------------
@@ -107,6 +153,7 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     requests.get (the Finnhub client)."""
     monkeypatch.setenv("FINNHUB_PLAN", "free")
     from src.data_collection.price_target_collector import collect_price_targets
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "free"}}
 
@@ -118,7 +165,12 @@ def test_plan_free_no_api_call(sqlite_db, monkeypatch):
     ) as mock_get:
         result = collect_price_targets("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None, "plan=free must return None"
+    # Gate-closed -> healthy CollectorResult, count 0, metadata {'gated': 1}
+    # (no API call). Preserves the old "no data" consumer semantics.
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 0
+    assert result.metadata.get("gated") == 1
     mock_get.assert_not_called()
 
 
@@ -165,15 +217,22 @@ def test_schema_price_targets_table_columns_and_index():
 # ---------------------------------------------------------------------------
 
 
-def test_empty_payload_returns_none_no_row_written(sqlite_db, monkeypatch):
-    """Empty {} payload from Finnhub (uncovered ticker) -> returns None,
-    no row is written to price_targets."""
+def test_empty_payload_returns_healthy_count_zero_no_row_written(sqlite_db, monkeypatch):
+    """Empty {} payload from Finnhub (uncovered ticker, gate open) -> healthy
+    CollectorResult with count 0, no row written to price_targets.
+
+    Gate is patched open so the empty-payload body branch (not the live
+    gated-off path) is exercised."""
     monkeypatch.setenv("FINNHUB_PLAN", "fundamental-1")
     from src.data_collection.price_target_collector import collect_price_targets
+    from src.data_collection.result import CollectorResult
 
     config = {"data_enrichment": {"finnhub_plan": "fundamental-1"}}
 
     with patch(
+        "src.data_collection.price_target_collector.finnhub_plan_supports",
+        return_value=True,
+    ), patch(
         "src.data_collection.price_target_collector._get_finnhub_key",
         return_value="test-key",
     ), patch(
@@ -186,7 +245,9 @@ def test_empty_payload_returns_none_no_row_written(sqlite_db, monkeypatch):
 
         result = collect_price_targets("AAPL", config=config, db_path=sqlite_db)
 
-    assert result is None, "Empty payload must return None"
+    assert isinstance(result, CollectorResult)
+    assert result.is_healthy
+    assert result.primary_count == 0
 
     with sqlite3.connect(sqlite_db) as verify:
         count = verify.execute(
