@@ -44,21 +44,21 @@ def _pg_5434_up() -> bool:
 # ── smoke: SQLite, no Docker, integrity NON-authoritative ──────────────────
 
 
-@pytest.mark.skip(reason="integration(authoritative-coverage:lifecycle-full-gate): runs the full organic-runner lifecycle scenario against the 5434 PG, exceeds the 60s per-PR pg-tests window; run_full_gate()/run_smoke() are authoritatively covered by the lifecycle-full-gate CI job")
+@pytest.mark.skip(reason="tracked-upstream-bug (#1192): run_smoke drives the full organic-runner lifecycle (scan->recommend->log) and fails in the per-PR suite because the lifecycle bootstrap's import-time env-scrub leaves connect_db with a None db_path (connect_db(None) TypeError) — a test-isolation defect, not a product bug. The authoritative PG tier (run_full_gate) is covered nightly by lifecycle-full-gate; the smoke tier needs the env-scrub isolation fix. See #1192.")
 def test_run_smoke_runs_on_sqlite_no_docker():
     result = run_smoke()
     assert result.verdict in (Verdict.STABLE, Verdict.DEGRADED, Verdict.UNSTABLE)
     assert result.tier == "smoke"
 
 
-@pytest.mark.skip(reason="integration(authoritative-coverage:lifecycle-full-gate): runs the full organic-runner lifecycle scenario against the 5434 PG, exceeds the 60s per-PR pg-tests window; run_full_gate()/run_smoke() are authoritatively covered by the lifecycle-full-gate CI job")
+@pytest.mark.skip(reason="tracked-upstream-bug (#1192): run_smoke drives the full organic-runner lifecycle (scan->recommend->log) and fails in the per-PR suite because the lifecycle bootstrap's import-time env-scrub leaves connect_db with a None db_path (connect_db(None) TypeError) — a test-isolation defect, not a product bug. The authoritative PG tier (run_full_gate) is covered nightly by lifecycle-full-gate; the smoke tier needs the env-scrub isolation fix. See #1192.")
 def test_run_smoke_report_labels_integrity_non_authoritative():
     result = run_smoke()
     assert "non-authoritative" in result.report.lower()
     assert "SQLite" in result.report
 
 
-@pytest.mark.skip(reason="integration(authoritative-coverage:lifecycle-full-gate): runs the full organic-runner lifecycle scenario against the 5434 PG, exceeds the 60s per-PR pg-tests window; run_full_gate()/run_smoke() are authoritatively covered by the lifecycle-full-gate CI job")
+@pytest.mark.skip(reason="tracked-upstream-bug (#1192): run_smoke drives the full organic-runner lifecycle (scan->recommend->log) and fails in the per-PR suite because the lifecycle bootstrap's import-time env-scrub leaves connect_db with a None db_path (connect_db(None) TypeError) — a test-isolation defect, not a product bug. The authoritative PG tier (run_full_gate) is covered nightly by lifecycle-full-gate; the smoke tier needs the env-scrub isolation fix. See #1192.")
 def test_run_smoke_returns_invariant_results():
     result = run_smoke()
     # The smoke run drives the oracle, so it produces invariant results.
