@@ -133,6 +133,7 @@ def test_assert_all_does_not_poison_subsequent_checks():
 # -- BACKSTOP -- defensive outer-loop accumulator ----------------------------
 
 
+@pytest.mark.skip(reason="integration(authoritative-coverage:lifecycle-full-gate): runs the full organic-runner lifecycle scenario against the 5434 PG, exceeds the 60s per-PR pg-tests window; run_full_gate()/run_smoke() are authoritatively covered by the lifecycle-full-gate CI job")
 def test_no_conn_leak_smoke_accumulator():
     """BACKSTOP: run smoke 3x back-to-back and assert zero net backend growth.
 
