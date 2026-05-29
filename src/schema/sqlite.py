@@ -215,47 +215,55 @@ def ensure_columns(db_path: str) -> list[str]:
                 logger.debug("[SCHEMA] Skipping %s: %s", table.name, e)
                 continue
             for col in table.columns:
-                if col.name not in existing:
-                    migration_default = col.default
-                    if migration_default is None and not col.nullable:
-                        # SQLite refuses `ALTER TABLE ADD COLUMN ... NOT NULL`
-                        # without a DEFAULT on a populated table ("Cannot add a
-                        # NOT NULL column with default value NULL"). Synthesize a
-                        # type-appropriate migration default so legacy rows get a
-                        # value and the NOT NULL constraint is preserved (matches
-                        # the fresh-create schema). Without this the ALTER silently
-                        # fails and the column is missing on migrated DBs.
-                        _t = (col.type or "").upper()
-                        migration_default = (
-                            0 if any(k in _t for k in ("INT", "REAL", "FLOAT", "NUM", "DOUBLE", "BOOL"))
-                            else ""
-                        )
-                    default_clause = (
-                        f" DEFAULT {_format_default(migration_default)}"
-                        if migration_default is not None else ""
+                if col.name in existing:
+                    continue
+                migration_default = _migration_default(col)
+                default_clause = (
+                    f" DEFAULT {_format_default(migration_default)}"
+                    if migration_default is not None else ""
+                )
+                notnull_clause = " NOT NULL" if not col.nullable else ""
+                check_clause = f" CHECK ({col.check})" if getattr(col, "check", None) else ""  # #110 (T0)
+                try:
+                    conn.execute(
+                        f"ALTER TABLE {table.name} ADD COLUMN "
+                        f"{col.name} {col.type}{notnull_clause}{default_clause}{check_clause}"
                     )
-                    notnull_clause = " NOT NULL" if not col.nullable else ""
-                    check_clause = f" CHECK ({col.check})" if getattr(col, "check", None) else ""  # #110 (T0)
-                    try:
-                        conn.execute(
-                            f"ALTER TABLE {table.name} ADD COLUMN "
-                            f"{col.name} {col.type}{notnull_clause}{default_clause}{check_clause}"
+                    added.append(f"{table.name}.{col.name}")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column" in str(e).lower():
+                        pass  # Expected race condition
+                    else:
+                        logger.warning(
+                            "[SCHEMA] Failed to add %s.%s: %s",
+                            table.name, col.name, e,
                         )
-                        added.append(f"{table.name}.{col.name}")
-                    except sqlite3.OperationalError as e:
-                        if "duplicate column" in str(e).lower():
-                            pass  # Expected race condition
-                        else:
-                            logger.warning(
-                                "[SCHEMA] Failed to add %s.%s: %s",
-                                table.name, col.name, e,
-                            )
         conn.commit()
     if added:
         logger.info("[SCHEMA] Added %d columns: %s", len(added), added)
+    _retry_deferred_indexes(db_path)
+    return added
 
-    # Retry indexes that were deferred during create_all_tables
-    # (they failed because columns were missing — now added above)
+
+def _migration_default(col):
+    """DEFAULT to use when ALTER-ADDing a column onto a populated SQLite table.
+
+    SQLite refuses `ADD COLUMN ... NOT NULL` without a DEFAULT ("Cannot add a
+    NOT NULL column with default value NULL"). For a NOT NULL column lacking a
+    registry default, synthesize a type-appropriate value so legacy rows get one
+    and the NOT NULL constraint is preserved (matches the fresh-create schema).
+    Returns the registry default unchanged when the column is nullable or already
+    has a default.
+    """
+    if col.default is not None or col.nullable:
+        return col.default
+    _t = (col.type or "").upper()
+    return 0 if any(k in _t for k in ("INT", "REAL", "FLOAT", "NUM", "DOUBLE", "BOOL")) else ""
+
+
+def _retry_deferred_indexes(db_path: str) -> None:
+    """Re-create indexes deferred during create_all_tables — they failed when
+    their columns were still missing, which ensure_columns has now added."""
     for table in TABLES.values():
         for idx in table.indexes:
             unique = "UNIQUE " if idx.unique else ""
@@ -270,5 +278,3 @@ def ensure_columns(db_path: str) -> list[str]:
                 conn_retry.close()
             except sqlite3.OperationalError:
                 pass  # Column still missing or index already exists
-
-    return added
