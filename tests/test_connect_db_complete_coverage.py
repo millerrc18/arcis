@@ -33,15 +33,17 @@ _ALLOWLIST: list[tuple[str, int, str]] = [
     ("src/features/engine_helpers.py", 61, "comment text referencing old sqlite3.connect pattern — not a live call"),
     # scripts/archive_bootcamp_2026_04_24.py: uses URI mode (mode=ro, mode=rw) which
     # connect_db does not support. Read-only and URI-format connections are intentional.
-    ("scripts/archive_bootcamp_2026_04_24.py", 187, "URI mode=ro — connect_db does not support uri=True"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 224, "URI mode=ro — connect_db does not support uri=True"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 354, "URI mode=ro — connect_db does not support uri=True"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 395, "archive script: migrates legacy DB, short-lived one-off tool"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 529, "creates empty stub DB for test fixture — intentional init"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 548, "URI mode=ro — connect_db does not support uri=True"),
-    # scripts/archive_bootcamp_2026_04_24.py line 508: comment text inside a docstring
+    # Line numbers re-pinned after PR-E2 #102b wave 5d-4 trimmed sync_state from
+    # VERIFIED_TABLES (-1) and removed the registry-count tripwire (-6 more).
+    ("scripts/archive_bootcamp_2026_04_24.py", 186, "URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 223, "URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 353, "URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 394, "archive script: migrates legacy DB, short-lived one-off tool"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 528, "creates empty stub DB for test fixture — intentional init"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 541, "URI mode=ro — connect_db does not support uri=True"),
+    # scripts/archive_bootcamp_2026_04_24.py line 507: comment text inside a docstring
     # that mentions sqlite3.connect as part of documentation — not a live call.
-    ("scripts/archive_bootcamp_2026_04_24.py", 508, "comment/docstring text mentioning sqlite3.connect — not a live call"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 507, "comment/docstring text mentioning sqlite3.connect — not a live call"),
     # scripts/recover_from_postgres.py: line 207 is a string literal inside print()
     # showing the operator how to verify manual recovery — not a live call site.
     ("scripts/recover_from_postgres.py", 207, "string literal in print() — operator help text, not a live call"),
