@@ -340,8 +340,10 @@ class TestOwnershipReconciliationEphemeral:
 
 @pytest.mark.skipif(
     os.environ.get("ARCIS_LIVE_OWNERSHIP_CHECK") != "1",
-    reason="Live-PG policy check; set ARCIS_LIVE_OWNERSHIP_CHECK=1 to run "
-    "(also requires ARCIS_ALLOW_PROD_PG_IN_TESTS=1 to bypass conftest P0 guard).",
+    reason="engine-aware: live-PG ownership policy check (Postgres-only concept; "
+    "SQLite has no table ownership). Opt-in only — set ARCIS_LIVE_OWNERSHIP_CHECK=1 "
+    "to run (also requires ARCIS_ALLOW_PROD_PG_IN_TESTS=1 to bypass the conftest P0 "
+    "guard); never runs in the standard CI/SQLite suite.",
 )
 class TestLiveOwnershipPolicy:
     """On-demand policy assertion against the operator's runtime PG.

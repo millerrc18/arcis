@@ -216,7 +216,24 @@ def ensure_columns(db_path: str) -> list[str]:
                 continue
             for col in table.columns:
                 if col.name not in existing:
-                    default_clause = f" DEFAULT {_format_default(col.default)}" if col.default else ""
+                    migration_default = col.default
+                    if migration_default is None and not col.nullable:
+                        # SQLite refuses `ALTER TABLE ADD COLUMN ... NOT NULL`
+                        # without a DEFAULT on a populated table ("Cannot add a
+                        # NOT NULL column with default value NULL"). Synthesize a
+                        # type-appropriate migration default so legacy rows get a
+                        # value and the NOT NULL constraint is preserved (matches
+                        # the fresh-create schema). Without this the ALTER silently
+                        # fails and the column is missing on migrated DBs.
+                        _t = (col.type or "").upper()
+                        migration_default = (
+                            0 if any(k in _t for k in ("INT", "REAL", "FLOAT", "NUM", "DOUBLE", "BOOL"))
+                            else ""
+                        )
+                    default_clause = (
+                        f" DEFAULT {_format_default(migration_default)}"
+                        if migration_default is not None else ""
+                    )
                     notnull_clause = " NOT NULL" if not col.nullable else ""
                     check_clause = f" CHECK ({col.check})" if getattr(col, "check", None) else ""  # #110 (T0)
                     try:

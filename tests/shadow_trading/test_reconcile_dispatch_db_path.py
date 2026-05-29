@@ -90,7 +90,9 @@ def test_get_strategies_by_status_resolves_none_to_config():
         def close(self):
             pass
 
-    def fake_connect(path):
+    def fake_connect(path, *args, **kwargs):
+        # *args/**kwargs: get_strategies_by_status now routes through
+        # connect_db(), which calls sqlite3.connect(path, timeout=...).
         captured["path"] = path
         return FakeConn()
 
@@ -125,7 +127,7 @@ def test_get_strategies_by_status_preserves_explicit_path(tmp_path):
 
     with patch.object(
         promotion.sqlite3, "connect",
-        side_effect=lambda p: (captured.__setitem__("path", p), FakeConn())[1],
+        side_effect=lambda p, *a, **k: (captured.__setitem__("path", p), FakeConn())[1],
     ):
         result = promotion.get_strategies_by_status(
             ["shadow_trading"], db_path=explicit,
