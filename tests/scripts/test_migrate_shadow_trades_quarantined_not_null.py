@@ -53,6 +53,14 @@ def _create_pre_migration_schema(db_path: str) -> None:
     conn.execute(
         "CREATE TABLE recommendations (recommendation_id TEXT PRIMARY KEY)"
     )
+    # Minimal strategy_registry parent — the rebuilt (registry-schema)
+    # shadow_trades carries FOREIGN KEY (strategy_id) REFERENCES
+    # strategy_registry(strategy_id), so the FK target must exist or the
+    # post-rebuild INSERT fails on "no such table" before reaching the
+    # quarantined NOT NULL check under test.
+    conn.execute(
+        "CREATE TABLE strategy_registry (strategy_id TEXT PRIMARY KEY)"
+    )
     # Pre-migration shadow_trades — derived from the registry but with
     # quarantined nullable (DEFAULT 0 only).
     pre_columns = []
