@@ -24,7 +24,10 @@ class TestDailyAudit:
     def test_generates_assessment(self, mock_cto, mock_claude, db_path):
         from src.evaluation.auditor import run_daily_audit
 
-        mock_cto.return_value = {"trade_summary": {"trades_closed": 5}}
+        # trades_closed >= _LLM_AUDIT_MIN_SAMPLE (10) so the LLM-narrative branch
+        # runs — below it, the v0.36.27 small-sample guard short-circuits to
+        # green/unknown without consulting the mocked LLM response.
+        mock_cto.return_value = {"trade_summary": {"trades_closed": 12}}
         mock_claude.return_value = json.dumps({
             "overall_assessment": "green",
             "summary": "All systems normal.",
@@ -42,7 +45,10 @@ class TestDailyAudit:
     def test_stores_in_database(self, mock_cto, mock_claude, db_path):
         from src.evaluation.auditor import run_daily_audit
 
-        mock_cto.return_value = {}
+        # trades_closed >= _LLM_AUDIT_MIN_SAMPLE (10) so the LLM branch runs and
+        # the mocked 'yellow' assessment flows through (else the small-sample
+        # guard forces 'green').
+        mock_cto.return_value = {"trade_summary": {"trades_closed": 12}}
         mock_claude.return_value = json.dumps({
             "overall_assessment": "yellow",
             "summary": "Minor concern.",
