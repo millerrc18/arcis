@@ -12,6 +12,7 @@ Fix: parse each value via ``float()`` with skip-on-error.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date as _date, timedelta as _timedelta
 
 import pytest
 
@@ -28,7 +29,10 @@ def _seed_macro_snapshots(db_path: str, values: list[str | None]) -> None:
     """
     with sqlite3.connect(db_path) as conn:
         for i, v in enumerate(values):
-            collected_date = f"2026-01-{(i % 28) + 1:02d}"
+            # Sequential daily dates — macro_snapshots has a UNIQUE
+            # (series_id, collected_date) constraint, so each row must carry a
+            # distinct date (the prior `i % 28` wrapped after 28 rows).
+            collected_date = (_date(2026, 1, 1) + _timedelta(days=i)).isoformat()
             collected_at = f"{collected_date}T12:00:00Z"
             conn.execute(
                 "INSERT INTO macro_snapshots "

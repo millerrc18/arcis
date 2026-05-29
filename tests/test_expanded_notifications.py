@@ -521,10 +521,9 @@ class TestPositionEarningsWarning:
 class TestMilestoneDetection:
     """Test milestone detection logic in executor."""
 
-    @patch("src.notifications.telegram.is_telegram_enabled", return_value=True)
-    @patch("src.notifications.telegram.notify_milestone")
-    def test_first_paper_trade(self, mock_notify, mock_enabled, tmp_path):
-        """First paper trade should trigger milestone."""
+    @patch("src.shadow_trading.reconciliation_engine.safe_send")
+    def test_first_paper_trade(self, mock_safe_send, tmp_path):
+        """First paper trade should dispatch a milestone alert."""
         db_path = str(tmp_path / "test.db")
         _create_test_db(db_path)
 
@@ -538,13 +537,15 @@ class TestMilestoneDetection:
         from src.shadow_trading.executor import _check_open_milestones
         _check_open_milestones(db_path, source="paper")
 
-        mock_notify.assert_called_once()
-        assert "First paper trade" in mock_notify.call_args.kwargs["milestone"]
+        # Mock at the dispatch boundary (safe_send) — delivery routing
+        # (immediate vs digest) is safe_send's concern, tested separately.
+        mock_safe_send.assert_called_once()
+        assert mock_safe_send.call_args[0][0] == "milestone"
+        assert "First paper trade" in mock_safe_send.call_args.kwargs["milestone"]
 
-    @patch("src.notifications.telegram.is_telegram_enabled", return_value=True)
-    @patch("src.notifications.telegram.notify_milestone")
-    def test_tenth_close_milestone(self, mock_notify, mock_enabled, tmp_path):
-        """10th closed trade should trigger milestone."""
+    @patch("src.shadow_trading.reconciliation_engine.safe_send")
+    def test_tenth_close_milestone(self, mock_safe_send, tmp_path):
+        """10th closed trade should dispatch a milestone alert."""
         db_path = str(tmp_path / "test.db")
         _create_test_db(db_path)
 
@@ -563,9 +564,11 @@ class TestMilestoneDetection:
         from src.shadow_trading.executor import _check_close_milestones
         _check_close_milestones(db_path)
 
-        # Should be called for 10th trade milestone
-        calls = mock_notify.call_args_list
-        milestone_names = [c.kwargs["milestone"] for c in calls]
+        # Should dispatch the 10th-trade milestone via safe_send
+        milestone_names = [
+            c.kwargs["milestone"] for c in mock_safe_send.call_args_list
+            if "milestone" in c.kwargs
+        ]
         assert any("10th" in m for m in milestone_names)
 
 
@@ -575,10 +578,9 @@ class TestMilestoneDetection:
 class TestLossStreakDetection:
     """Test loss streak detection logic."""
 
-    @patch("src.notifications.telegram.is_telegram_enabled", return_value=True)
-    @patch("src.notifications.telegram.notify_streak_alert")
-    def test_three_consecutive_losses(self, mock_notify, mock_enabled, tmp_path):
-        """3 consecutive losses should trigger streak alert."""
+    @patch("src.shadow_trading.reconciliation_engine.safe_send")
+    def test_three_consecutive_losses(self, mock_safe_send, tmp_path):
+        """3 consecutive losses should dispatch a streak alert."""
         db_path = str(tmp_path / "test.db")
         _create_test_db(db_path)
 
@@ -600,8 +602,9 @@ class TestLossStreakDetection:
         from src.shadow_trading.executor import _check_loss_streak
         _check_loss_streak(db_path)
 
-        mock_notify.assert_called_once()
-        assert mock_notify.call_args[1]["streak_length"] == 3
+        mock_safe_send.assert_called_once()
+        assert mock_safe_send.call_args[0][0] == "streak_alert"
+        assert mock_safe_send.call_args.kwargs["streak_length"] == 3
 
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=True)
     @patch("src.notifications.telegram.notify_streak_alert")
