@@ -66,9 +66,25 @@ def test_migrate_skips_tables_with_sync_to_postgres_false(monkeypatch, tmp_path)
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
     mod = _import_migrate(monkeypatch)
 
-    # Build a list of the non-sync table names from the registry (count varies by schema version).
-    from src.schema.registry import TABLES
-    skip_tables = {t.name for t in TABLES.values() if not t.sync_to_postgres}
+    # Inject a synthetic sync_to_postgres=False table so the skip LOGIC is
+    # exercised regardless of the live registry's current flags. Post the
+    # one-database cutover (#1055) every real table syncs, so deriving
+    # skip_tables from the live registry yields an empty set and the assertion
+    # below would be vacuous. dataclasses.replace clones a real table def and
+    # flips the flag; we patch the migrate module's module-level TABLES binding.
+    import dataclasses
+    from src.schema.registry import TABLES as _REAL_TABLES
+    _sync_sample = next(t for t in _REAL_TABLES.values() if t.sync_to_postgres)
+    _synthetic = dataclasses.replace(
+        _sync_sample, name="_nonsync_probe", sync_to_postgres=False
+    )
+    patched_tables = dict(_REAL_TABLES)
+    patched_tables["_nonsync_probe"] = _synthetic
+    monkeypatch.setattr(mod, "TABLES", patched_tables)
+    skip_tables = {t.name for t in patched_tables.values() if not t.sync_to_postgres}
+    assert "_nonsync_probe" in skip_tables, (
+        "non-vacuity guard: synthetic non-sync table must be in skip_tables"
+    )
 
     sqlite_path = str(tmp_path / "test.sqlite3")
     sqlite3.connect(sqlite_path).close()
