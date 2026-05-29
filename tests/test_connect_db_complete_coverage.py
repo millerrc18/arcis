@@ -27,7 +27,7 @@ _ALLOWLIST: list[tuple[str, int, str]] = [
     # Line 51: definition of _sqlite_only_connect.
     # Line 247: retry-index path opens a short-lived raw conn for index CREATE IF NOT EXISTS.
     ("src/schema/sqlite.py", 51, "schema/_sqlite_only_connect definition — SQLite-only entry point bypasses PG shim by design"),
-    ("src/schema/sqlite.py", 272, "schema bootstrap retry-index path — short-lived raw conn for index CREATE IF NOT EXISTS"),
+    ("src/schema/sqlite.py", 278, "schema bootstrap retry-index path — short-lived raw conn for index CREATE IF NOT EXISTS"),
     # src/features/engine_helpers.py:61 is a comment explaining why connect_db is used
     # (referencing the old raw sqlite3.connect pattern for historical context).
     ("src/features/engine_helpers.py", 61, "comment text referencing old sqlite3.connect pattern — not a live call"),
