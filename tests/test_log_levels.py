@@ -16,13 +16,15 @@ SRC_ROOT = Path(__file__).resolve().parent.parent / "src"
 
 
 @pytest.mark.parametrize("file_rel,line_marker,expected_level", [
-    # alpaca_adapter.py — [CANCEL] failures are routine (broker often
-    # rejects cancels because order already filled/cancelled by bracket OCO)
-    ("shadow_trading/alpaca_adapter.py", "[CANCEL] Could not cancel order", "debug"),
-    ("shadow_trading/alpaca_adapter.py", "[CANCEL] Failed to cancel order", "debug"),
-    ("shadow_trading/alpaca_adapter.py", "[CANCEL] Could not cancel all orders", "debug"),
+    # alpaca_adapter_paper.py — [CANCEL] failures are routine (broker often
+    # rejects cancels because order already filled/cancelled by bracket OCO).
+    # Cancel functions were extracted from alpaca_adapter.py to
+    # alpaca_adapter_paper.py; this test tracks the actual implementation file.
+    ("shadow_trading/alpaca_adapter_paper.py", "[CANCEL] Could not cancel order", "debug"),
+    ("shadow_trading/alpaca_adapter_paper.py", "[CANCEL] Failed to cancel order", "debug"),
+    ("shadow_trading/alpaca_adapter_paper.py", "[CANCEL] Could not cancel all orders", "debug"),
     # 4th site discovered during PR-5 implementation — same shape, same fix.
-    ("shadow_trading/alpaca_adapter.py", "[CANCEL] Could not list orders", "debug"),
+    ("shadow_trading/alpaca_adapter_paper.py", "[CANCEL] Could not list orders", "debug"),
 ])
 def test_log_call_uses_expected_level(file_rel, line_marker, expected_level):
     """Verify the source line containing line_marker uses logger.<expected_level>."""
