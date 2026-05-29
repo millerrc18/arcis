@@ -21,6 +21,7 @@ from src.platform.capability_registry import (
     STATES,
     SYSTEMS,
     clear_registries_for_tests,
+    ensure_bootstrapped,
     register_action,
     register_decision,
     register_state,
@@ -28,6 +29,23 @@ from src.platform.capability_registry import (
 )
 from src.platform.capability_registry.bootstrap import reset_for_tests
 from src.api.cloud_routes.system_index import create_router
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _populate_registry_for_snapshots():
+    """Populate the real capability registry ONCE before this module's tests.
+
+    Each per-test route fixture snapshots ACTIONS/STATES/SYSTEMS/DECISIONS, clears
+    them for synthetic-entry isolation, then RESTORES the snapshot on teardown.
+    If this module runs before any capability bootstrap (collection order), those
+    snapshots would capture an EMPTY registry and teardown would restore empty —
+    leaving list_systems()==set() and breaking every downstream registry-coverage
+    test in the session (registration is import-time-only, so it can't be repaired
+    later). Bootstrapping here first guarantees the snapshots capture the full
+    registry, so each restore is complete and nothing leaks.
+    """
+    ensure_bootstrapped()
+    yield
 
 
 BASE_META = dict(
