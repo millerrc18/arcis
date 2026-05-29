@@ -52,7 +52,7 @@ _ALLOWLIST: dict[str, str] = {
     # Live trading services
     "src/services/mr_scan_service.py": "Mean-reversion scan — today's market",
     "src/services/recap_service.py": "EOD recap — today's market",
-    "src/services/scan_service.py": "Pullback scan — today's market",
+    "src/services/_scan_service_impl.py": "Pullback scan impl — today's market (Phase 5 PR-C split from scan_service.py)",
     "src/services/watchlist_service.py": "Watchlist build — today's market",
     # Training synthetic generator — survivorship bias undefined for fabricated outcomes
     "src/training/bootstrap.py": "Synthetic outcome generator — fake outcomes, no real market correlation",

@@ -32,10 +32,17 @@ def _make_sqlite_db(columns: list[str], rows: list[tuple], table_name: str = "re
     return conn
 
 
+_SCRIPTS_DIR = str(_REPO_ROOT / "scripts")
+
+
 def _import_migrate(monkeypatch, database_url: str = "postgresql://user:pw@localhost/db"):
     """Import (or reload) the migrate script with environment set."""
     monkeypatch.setenv("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
     monkeypatch.setenv("DATABASE_URL", database_url)
+    # scripts/ must be on sys.path so `from _shared_migration_utils import …`
+    # resolves when the script module is executed via importlib.
+    if _SCRIPTS_DIR not in sys.path:
+        sys.path.insert(0, _SCRIPTS_DIR)
     # Ensure a clean import on each call.
     if "scripts.sqlite_to_pg_migrate" in sys.modules:
         del sys.modules["scripts.sqlite_to_pg_migrate"]
@@ -59,10 +66,25 @@ def test_migrate_skips_tables_with_sync_to_postgres_false(monkeypatch, tmp_path)
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
     mod = _import_migrate(monkeypatch)
 
-    # Build a list of the 9 non-sync table names.
-    from src.schema.registry import TABLES
-    skip_tables = {t.name for t in TABLES.values() if not t.sync_to_postgres}
-    assert len(skip_tables) == 9, f"Expected 9 non-sync tables, got {len(skip_tables)}"
+    # Inject a synthetic sync_to_postgres=False table so the skip LOGIC is
+    # exercised regardless of the live registry's current flags. Post the
+    # one-database cutover (#1055) every real table syncs, so deriving
+    # skip_tables from the live registry yields an empty set and the assertion
+    # below would be vacuous. dataclasses.replace clones a real table def and
+    # flips the flag; we patch the migrate module's module-level TABLES binding.
+    import dataclasses
+    from src.schema.registry import TABLES as _REAL_TABLES
+    _sync_sample = next(t for t in _REAL_TABLES.values() if t.sync_to_postgres)
+    _synthetic = dataclasses.replace(
+        _sync_sample, name="_nonsync_probe", sync_to_postgres=False
+    )
+    patched_tables = dict(_REAL_TABLES)
+    patched_tables["_nonsync_probe"] = _synthetic
+    monkeypatch.setattr(mod, "TABLES", patched_tables)
+    skip_tables = {t.name for t in patched_tables.values() if not t.sync_to_postgres}
+    assert "_nonsync_probe" in skip_tables, (
+        "non-vacuity guard: synthetic non-sync table must be in skip_tables"
+    )
 
     sqlite_path = str(tmp_path / "test.sqlite3")
     sqlite3.connect(sqlite_path).close()
@@ -102,6 +124,7 @@ def test_migrate_skips_tables_with_sync_to_postgres_false(monkeypatch, tmp_path)
                 table_filter=None,
                 dry_run=False,
                 vacuum_after=False,
+                auto_yes=True,
             )
 
     for skip_tbl in skip_tables:
@@ -156,6 +179,7 @@ def test_migrate_handles_null_primary_keys(monkeypatch, tmp_path):
                 table_filter=["recommendations"],
                 dry_run=False,
                 vacuum_after=False,
+                auto_yes=True,
             )
 
     # execute_values should have been called; check that the NULL-pk row was excluded.
@@ -207,6 +231,7 @@ def test_migrate_chunks_at_1000_rows(monkeypatch, tmp_path):
                 table_filter=["recommendations"],
                 dry_run=False,
                 vacuum_after=False,
+                auto_yes=True,
             )
 
     assert ev_mock.call_count == 3, (
@@ -379,6 +404,7 @@ def test_migrate_filters_rows_with_any_null_pk_column(monkeypatch, tmp_path):
                 table_filter=["minute_bars"],
                 dry_run=False,
                 vacuum_after=False,
+                auto_yes=True,
             )
 
     assert ev_mock.call_count == 1, f"Expected 1 execute_values call (1 valid row), got {ev_mock.call_count}"

@@ -1,0 +1,11 @@
+# Shell scripts MUST use LF line endings. bash fails with
+# "syntax error near unexpected token" on CRLF (it reads `then\r` as a
+# non-keyword, orphaning the following `elif`/`fi`). On Windows,
+# core.autocrlf=true would otherwise check these out CRLF and break both the
+# pre-push git hook and tests/test_pre_push_hook.py (PR-E2 #102b finding).
+#
+# Scoped to shell scripts only (not `* text=auto`) so this introduces no
+# repo-wide renormalization — eol attributes apply to future checkouts, not
+# retroactively.
+*.sh        text eol=lf
+scripts/hooks/** text eol=lf

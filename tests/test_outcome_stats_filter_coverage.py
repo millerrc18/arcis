@@ -94,57 +94,54 @@ ALLOWLIST: list[tuple[str, int, str]] = [
     # SUM(pnl_dollars) to derive current equity (starting_capital + total_pnl).
     # Equity accounting must reflect ALL bookkeeping closures including synthetic stale ones
     # — skipping them would silently undercount drawdown. Task #482 owns the fix decision.
-    ("src/risk/governor.py", 355, "#482: equity curve includes all terminal rows by design"),
+    ("src/risk/governor.py", 394, "#482: equity curve includes all terminal rows by design"),
 
     # risk/governor.py — check_trade() intraday loss-limit guard:
     # SUM(pnl_dollars) filtered to today's trades for intraday realized-loss limit.
     # The loss limit is a risk guard, not an outcome stat. Needs all today's realized P&L
     # including synthetic closures to avoid false negatives in the risk governor.
     # Task #482 owns the fix decision.
-    ("src/risk/governor.py", 837, "#482: intraday loss-limit guard needs all today's realized P&L"),
+    ("src/risk/governor.py", 906, "#482: intraday loss-limit guard needs all today's realized P&L"),
 
     # scheduler/reports.py — send_weekly_digest() win-rate + expectancy query:
     # Uses terminal_in_clause() and AVG(pnl_dollars). Missing filter — task #482 scope.
-    ("src/scheduler/reports.py", 690, "#482: weekly digest win-rate/expectancy — filter missing, tracked in #482"),
+    ("src/scheduler/reports.py", 670, "#482: weekly digest win-rate/expectancy — filter missing, tracked in #482"),
 
     # scheduler/reports.py — send_weekly_digest() paper P&L sum:
     # SUM(pnl_dollars) for this week's paper trades. Missing filter — task #482 scope.
-    ("src/scheduler/reports.py", 712, "#482: weekly digest paper pnl sum — filter missing, tracked in #482"),
+    ("src/scheduler/reports.py", 692, "#482: weekly digest paper pnl sum — filter missing, tracked in #482"),
 
     # scheduler/reports.py — send_weekly_digest() live P&L sum:
     # SUM(pnl_dollars) for this week's live trades. Missing filter — task #482 scope.
-    ("src/scheduler/reports.py", 718, "#482: weekly digest live pnl sum — filter missing, tracked in #482"),
+    ("src/scheduler/reports.py", 699, "#482: weekly digest live pnl sum — filter missing, tracked in #482"),
 
     # scheduler/watch.py — _get_live_stats() today-pnl banner display:
     # SUM(pnl_dollars) for today's closed P&L in the console banner.
     # Intraday display intentionally shows all closed P&L including synthetic closures
     # so the operator sees the full accounting picture. Task #482 owns the fix decision.
-    ("src/scheduler/watch.py", 563, "#482: watch banner today-pnl display — all closures intentional"),
+    ("src/scheduler/watch.py", 776, "#482: watch banner today-pnl display — all closures intentional"),
 
     # scheduler/watch.py — telegram daily summary notification:
-    # SUM(pnl_dollars) for today_pnl sent to Telegram. Same rationale as watch.py:563.
-    ("src/scheduler/watch.py", 1555, "#482: telegram daily summary pnl — all closures intentional"),
+    # SUM(pnl_dollars) for today_pnl sent to Telegram. Same rationale as watch.py:776.
+    ("src/scheduler/watch.py", 2049, "#482: telegram daily summary pnl — all closures intentional"),
 
     # shadow_trading/executor.py — drawdown-adjusted risk — outer SUM:
     # SUM(pnl_dollars) to compute current equity for drawdown percentage.
     # Drawdown accounting MUST include all closures (including synthetic stale ones) to avoid
     # silently understating drawdown depth. Financial accounting context, not outcome reporting.
-    ("src/shadow_trading/executor.py", 730, "drawdown calc includes all closures by design — understating DD is worse"),
+    ("src/shadow_trading/executor.py", 698, "drawdown calc includes all closures by design — understating DD is worse"),
 
     # shadow_trading/executor.py — drawdown window function inner FROM:
     # Second FROM shadow_trades in the same drawdown block (the MAX(running_pnl) window query).
-    # Same rationale as executor.py:730.
-    ("src/shadow_trading/executor.py", 738, "drawdown window-func inner FROM — same drawdown block as line 730"),
+    # Same rationale as executor.py:698.
+    ("src/shadow_trading/executor.py", 706, "drawdown window-func inner FROM — same drawdown block as line 698"),
 
-    # shadow_trading/executor.py — intraday circuit-breaker loss-limit check:
-    # SUM(pnl_dollars) for today's realized losses on live trades. Same rationale as governor.py:837.
-    ("src/shadow_trading/executor.py", 2522, "loss-limit guard needs all today's realized P&L — false negatives unsafe"),
-
-    # shadow_trading/executor.py — _check_close_milestones() expectancy notification:
+    # shadow_trading/reconciliation_engine.py — _check_close_milestones() expectancy notification:
     # AVG(pnl_dollars) computed for 1/10/25/50-trade milestone Telegram notifications.
     # Missing filter — task #482 scope. These milestone messages are informational;
     # they report to the operator after a milestone trade count is reached.
-    ("src/shadow_trading/executor.py", 2836, "#482: milestone notification expectancy — filter missing, tracked in #482"),
+    # Previously in executor.py (line 2836) before refactor into reconciliation_engine.py.
+    ("src/shadow_trading/reconciliation_engine.py", 161, "#482: milestone notification expectancy — filter missing, tracked in #482"),
 ]
 
 # Build O(1) lookup: (posix_rel_path, line_no)

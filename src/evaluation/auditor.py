@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import connect_db, DBError
 from src.training.versioning import init_training_tables
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
@@ -831,7 +831,7 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
                         )
                     except Exception:
                         pass  # best-effort; do not propagate
-                except sqlite3.Error as db_err:
+                except DBError as db_err:
                     # DB-class failure (e.g., missing queue table on a partial
                     # schema, transient lock). NOT firehose fallback — the
                     # aggregator is intact; this is a local DB issue. Step 2

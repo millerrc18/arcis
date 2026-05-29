@@ -516,7 +516,11 @@ def _seed_walkforward_row(
     import sqlite3 as _sqlite3
     import uuid
     if created_at is None:
-        created_at = "2026-04-15T00:00:00+00:00"
+        # Now-relative so the seeded run never crosses the 30-day staleness
+        # boundary as wall-clock advances. Staleness-rejection tests pass an
+        # explicit old date instead.
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        created_at = (_dt.now(_tz.utc) - _td(days=1)).isoformat()
     conn = _sqlite3.connect(db)
     try:
         conn.execute(
@@ -543,10 +547,10 @@ def test_production_gate_passes_with_walkforward_pass(temp_db, monkeypatch):
     _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
     _seed_backtest_trades(temp_db, "s1")
     _seed_trials(temp_db, n=25)
-    # code_git_sha='sha' matches _seed_backtest_row default; created_at is recent
+    # code_git_sha='sha' matches _seed_backtest_row default; created_at defaults
+    # to a now-relative recent timestamp (no absolute-date rot).
     _seed_walkforward_row(
-        temp_db, "s1", outcome_state="PASS",
-        code_git_sha="sha", created_at="2026-05-10T00:00:00+00:00",
+        temp_db, "s1", outcome_state="PASS", code_git_sha="sha",
     )
     with patch(
         "src.platform.promotion._evaluate_strategy_methodology_gate",

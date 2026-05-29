@@ -509,21 +509,60 @@ def test_in_place_update_preserves_referencing_rows(conn_engine):
     )
 
 
-@pytest.mark.skip(
-    reason=(
-        "T0.4 #10 (C2): delete_insert dispatch path. T0.12 audit (see "
-        "docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md) "
-        "found 0 of the 9 Phase 1 `action='replace'` target tables require "
-        "delete_insert semantics — all 9 are in_place_update. No production "
-        "table to exercise this branch end-to-end today. The branch is still "
-        "implemented in db.py so future tables that DO need cascade semantics "
-        "(via a registry update) can route through it; when such a table is "
-        "added in a future sprint, replace this skip with a real cascade test."
-    )
-)
 def test_delete_insert_path_fires_cascade(conn_engine):
-    """T0.4 #10 (C2): delete_insert path fires ON DELETE CASCADE. Skipped — see decorator."""
-    pass  # pragma: no cover
+    """T0.4 #10 (C2): the delete_insert dispatch (_transactional_delete_insert) must
+    DELETE the conflict-target row — firing ON DELETE CASCADE to child rows — then
+    re-INSERT.
+
+    No PRODUCTION table is classified delete_insert yet (T0.12 audit: all 9 Phase-1
+    `replace` targets are in_place_update — see
+    docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md), so this
+    exercises the branch via a synthetic parent/child FK pair instead of a registry
+    table. When a real delete_insert target is added, point this at it.
+    """
+    from src.utils.db import _transactional_delete_insert, PostgresConnectionWrapper
+
+    conn = conn_engine
+    is_pg = isinstance(conn, PostgresConnectionWrapper)
+    cascade = " CASCADE" if is_pg else ""
+
+    if not is_pg:
+        # SQLite enforces FKs only when this PRAGMA is on; must be set outside a
+        # transaction, so commit any implicit one first.
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys=ON")
+
+    cur = conn.cursor()
+    cur.execute(f"DROP TABLE IF EXISTS _di_child{cascade}")
+    cur.execute(f"DROP TABLE IF EXISTS _di_parent{cascade}")
+    cur.execute("CREATE TABLE _di_parent (k TEXT PRIMARY KEY, v TEXT)")
+    cur.execute(
+        "CREATE TABLE _di_child (id INTEGER PRIMARY KEY, parent_k TEXT "
+        "REFERENCES _di_parent(k) ON DELETE CASCADE)"
+    )
+    conn.commit()
+
+    cur.execute("INSERT INTO _di_parent (k, v) VALUES (?, ?)", ("p1", "orig"))
+    cur.execute("INSERT INTO _di_child (id, parent_k) VALUES (?, ?)", (1, "p1"))
+    conn.commit()
+    assert _count_rows(conn, "_di_child") == 1, "child row not seeded"
+
+    # delete_insert semantics: DELETE parent k=p1 (must cascade to child) + re-INSERT.
+    _transactional_delete_insert(conn, "_di_parent", {"k": "p1", "v": "new"}, ["k"])
+    conn.commit()
+
+    assert _select_one(conn, "_di_parent", "k", "p1")["v"] == "new", (
+        "parent row not re-inserted by delete_insert"
+    )
+    assert _count_rows(conn, "_di_child") == 0, (
+        "ON DELETE CASCADE did not fire — delete_insert's DELETE half must cascade "
+        "to child rows"
+    )
+
+    # Cleanup so the synthetic tables don't leak into the shared PG.
+    cur.execute(f"DROP TABLE IF EXISTS _di_child{cascade}")
+    cur.execute(f"DROP TABLE IF EXISTS _di_parent{cascade}")
+    conn.commit()
 
 
 def test_unclassified_replace_target_raises_valueerror(conn_engine):

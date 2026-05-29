@@ -30,6 +30,25 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Second PG on host-port 5434 (test:test) — PR-E2 T41a robust fix. The
+      # lifecycle bootstrap scrubs TEST_DATABASE_URL -> :5434 at IMPORT (collection),
+      # which 24 module-level `TEST_PG_URL = os.environ.get("TEST_DATABASE_URL")`
+      # readers freeze, and SIM_DSN-hardcoded tools/lifecycle tests target :5434
+      # directly. Both services are bootstrapped (below) so every :5434- and
+      # :5432-targeting connection succeeds regardless of collection order.
+      postgres5434:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: halcyon
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d halcyon"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 15
     env:
       TEST_DATABASE_URL: postgresql://halcyon:halcyon@localhost:5432/halcyon
       # ARCIS_DB_PATH is required by src/config/__init__.py at module-import time
@@ -83,10 +102,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout pytest-asyncio
 
       - name: Bootstrap PG test schema
         run: python scripts/bootstrap_pg_test_schema.py
+
+      - name: Bootstrap PG test schema on 5434 sim PG
+        # Bootstrap the registry schema on the 5434 service (PR-E2 T41a robust
+        # fix) so the 24 module-level TEST_DATABASE_URL readers that froze the
+        # lifecycle :5434 scrub value, and the SIM_DSN-hardcoded tools/lifecycle
+        # tests, connect to real tables instead of "connection refused 5434".
+        run: TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:5434/halcyon python scripts/bootstrap_pg_test_schema.py
 
       - name: Bootstrap SQLite production-path schema
         # Production code path (Phase 0 — connect_db precedence not yet flipped)
@@ -203,7 +229,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout pytest-asyncio
 
       - name: Run authoritative lifecycle full gate
         # run_full_gate() bootstraps the registry schema on the 5434 PG and

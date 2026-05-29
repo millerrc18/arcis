@@ -62,12 +62,14 @@ class TestGovernorRejectsZeroEquity:
                 kwargs[name] = "Technology"
             elif name == "allocation_dollars":
                 kwargs[name] = 1000.0
+            elif name == "features":
+                kwargs[name] = {}
             elif name == "self":
                 continue
-        try:
-            result = g.check_trade(**kwargs)
-        except TypeError:
-            pytest.skip("check_trade signature differs; covered by source-scan test")
+        # Call directly (no skip-on-TypeError): if check_trade's signature drifts
+        # again, fail loudly so the introspection is updated, rather than silently
+        # skipping. The source-scan sibling below is the belt-and-suspenders guard.
+        result = g.check_trade(**kwargs)
         assert result.get("approved") is False, (
             "#438 — governor must reject when equity <= 0, not approve"
         )

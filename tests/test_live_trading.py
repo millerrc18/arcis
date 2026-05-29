@@ -692,7 +692,7 @@ class TestDualExecution:
 # ── Adapter Tests ────────────────────────────────────────────────────
 
 class TestLiveAdapter:
-    @patch("src.shadow_trading.alpaca_adapter.load_config")
+    @patch("src.shadow_trading.alpaca_adapter_live.load_config")
     def test_get_live_config_requires_credentials(self, mock_config):
         """_get_live_config should raise if no credentials configured."""
         mock_config.return_value = {
@@ -714,7 +714,7 @@ class TestLiveAdapter:
                 if val is not None:
                     os.environ[key] = val
 
-    @patch("src.shadow_trading.alpaca_adapter.load_config")
+    @patch("src.shadow_trading.alpaca_adapter_live.load_config")
     def test_live_trading_client_uses_paper_false(self, mock_config):
         """_get_live_trading_client should set paper=False."""
         mock_config.return_value = {

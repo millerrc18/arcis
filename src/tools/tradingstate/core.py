@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 from src.tools._config import load_arcis_config
 from src.tools._db import DBHelperError
+from src.utils.db import DBError, DBOperationalError
 from src.tools._safety import prod_guard, safe_op
 from src.tools.tradingstate.queries import (
     GPU_METRICS_PG,
@@ -179,7 +180,7 @@ def _sqlite_snapshot(sqlite_path: Path) -> tuple:
         try:
             cur.execute(OPEN_POSITIONS_SQLITE)
             positions = [dict(r) for r in cur.fetchall()]
-        except sqlite3.OperationalError as exc:
+        except DBOperationalError as exc:
             if "no such table" in str(exc).lower():
                 errors["open_positions"] = {
                     "error_type": type(exc).__name__,
@@ -193,7 +194,7 @@ def _sqlite_snapshot(sqlite_path: Path) -> tuple:
             cur.execute(RECENT_AUDIT_SQLITE)
             audit_raw = cur.fetchone()
             audit_row = dict(audit_raw) if audit_raw is not None else None
-        except sqlite3.OperationalError as exc:
+        except DBOperationalError as exc:
             if "no such table" in str(exc).lower():
                 errors["most_recent_audit"] = {
                     "error_type": type(exc).__name__,
@@ -206,7 +207,7 @@ def _sqlite_snapshot(sqlite_path: Path) -> tuple:
         try:
             cur.execute(GPU_METRICS_SQLITE)
             metrics_rows = [dict(r) for r in cur.fetchall()]
-        except sqlite3.OperationalError as exc:
+        except DBOperationalError as exc:
             if "no such table" in str(exc).lower():
                 errors["gpu_health"] = {
                     "error_type": type(exc).__name__,
@@ -260,7 +261,7 @@ def state(
                 sqlite_path_resolved
             )
             data_source = "sqlite_fallback"
-        except (sqlite3.Error, FileNotFoundError, OSError) as sqlite_exc:
+        except (*DBError, FileNotFoundError, OSError) as sqlite_exc:
             raise TradingStateError(
                 f"both PG and SQLite unavailable: {sqlite_exc}"
             ) from sqlite_exc

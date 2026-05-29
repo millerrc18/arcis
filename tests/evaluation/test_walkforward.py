@@ -357,12 +357,17 @@ class TestCLI:
         """--help exits 0 and mentions required args."""
         import subprocess
         import sys
+        from pathlib import Path
 
+        # Repo root derived from this file's location — `python -m` needs the
+        # root on cwd to resolve `src.`. (Was a hardcoded agent-worktree path
+        # that no longer exists, failing with NotADirectoryError everywhere.)
+        repo_root = Path(__file__).resolve().parents[2]
         result = subprocess.run(
             [sys.executable, "-m", "src.evaluation.walkforward", "--help"],
             capture_output=True,
             text=True,
-            cwd="C:/arcis/halcyon-lab/.claude/worktrees/agent-a560de5102ccfb77a",
+            cwd=str(repo_root),
         )
         assert result.returncode == 0, f"--help exited {result.returncode}: {result.stderr}"
         assert "--anchor" in result.stdout

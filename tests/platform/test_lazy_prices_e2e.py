@@ -65,12 +65,13 @@ def _db_date_range(db_path: str) -> tuple[str, str]:
 
 @pytest.mark.skipif(
     not Path(DB_PATH).exists(),
-    reason="production DB absent — requires scripts/backfill_edgar_fulltext.py",
+    reason="optional-dep: production DB absent — requires "
+           "scripts/backfill_edgar_fulltext.py to populate the EDGAR fulltext fixture",
 )
 @pytest.mark.skipif(
     Path(DB_PATH).exists() and not _db_has_prior_year_pairs(DB_PATH),
-    reason="production DB lacks prior-year pairs — need ≥2 years of filings "
-           "(run scripts/backfill_edgar_fulltext.py to populate)",
+    reason="optional-dep: production DB lacks prior-year pairs — needs >=2 years of "
+           "filings data (run scripts/backfill_edgar_fulltext.py to populate)",
 )
 def test_lazy_prices_produces_trades_on_real_data():
     """Lazy Prices backtest must produce at least 1 trade on the production DB.

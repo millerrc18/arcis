@@ -23,7 +23,7 @@ import sqlite3  # noqa: F401 — retained for test fixtures / future direct use
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.utils.db import _scalar, connect_db
+from src.utils.db import connect_db, _scalar
 
 import pandas as pd
 

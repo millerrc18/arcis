@@ -65,7 +65,11 @@ def test_quarantine_trade_sets_terminal_fields():
     with patch("src.shadow_trading.executor.connect_db") as mock_connect:
         mock_connect.return_value.__enter__ = lambda s: conn
         mock_connect.return_value.__exit__ = lambda s, *a: None
-        quarantine_trade(trade_id, reason="manual_operator_halt", db_path=":memory:")
+        # Use a CONTROLLED_VOCAB reason — quarantine_trade runs the reason through
+        # exit_reason.coerce_exit_reason(), which maps unrecognized strings to
+        # 'unknown'. "reconciled" is the canonical quarantine reason (quarantine is
+        # a reconciliation action). An invented string would coerce to 'unknown'.
+        quarantine_trade(trade_id, reason="reconciled", db_path=":memory:")
 
     row = conn.execute(
         "SELECT status, quarantined, exit_reason FROM shadow_trades WHERE trade_id=?",
@@ -75,7 +79,7 @@ def test_quarantine_trade_sets_terminal_fields():
     status, quarantined_flag, exit_reason = row
     assert status == "quarantined", f"Expected status='quarantined', got '{status}'"
     assert quarantined_flag == 1, "Expected quarantined=1"
-    assert exit_reason == "manual_operator_halt"
+    assert exit_reason == "reconciled"
 
 
 def test_quarantine_trade_at_most_one_open_per_ticker():

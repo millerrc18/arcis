@@ -85,10 +85,14 @@ def test_no_top_level_bidirectional_import_between_cycle_pairs():
 # ── #463: sqlalchemy phantom dependency ──────────────────────────────────
 
 def test_sqlalchemy_not_in_requirements_cloud():
-    """#463: sqlalchemy is not imported anywhere in production code — remove
-    from requirements-cloud.txt to shrink install + reduce supply-chain
-    surface."""
-    content = (REPO_ROOT / "requirements-cloud.txt").read_text(encoding="utf-8")
+    """#463: sqlalchemy is not imported anywhere in production code — must not
+    appear in requirements.txt (formerly requirements-cloud.txt which was
+    consolidated; the cloud-specific file no longer exists)."""
+    req_file = REPO_ROOT / "requirements.txt"
+    if not req_file.exists():
+        import pytest
+        pytest.skip("requirements.txt not found — skipping sqlalchemy check")
+    content = req_file.read_text(encoding="utf-8")
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith("#") or not stripped:

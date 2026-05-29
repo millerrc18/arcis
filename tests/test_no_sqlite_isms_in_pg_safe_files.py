@@ -135,7 +135,7 @@ ALLOWLIST_LINE_RANGES: dict[str, list[tuple[int, int]]] = {
 #       the detection to flag only raw-sqlite3 callers.
 KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # ── PRAGMA gated by isinstance(conn, sqlite3.Connection) at runtime ──
-    ("src/evaluation/system_validator.py", 167,
+    ("src/evaluation/system_validator.py", 174,
      "Phase 2 guarded — SQLite-only path with isinstance check"),
 
     # ── SQLite-only date functions in files not yet on Phase 2B list ─────
@@ -151,19 +151,24 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # PRAGMA-guarded site and the dynamic-? wrapper-handled sites remain).
 
     # ── Dynamic `?` placeholder construction — wrapper-handled ───────────
-    # 34 sites total. All use `connect_db()`/`closing(connect_db())` to
-    # obtain the connection, so the wrapper rewrites `?` → `%s` at runtime.
+    # All use `connect_db()`/`closing(connect_db())` to obtain the connection,
+    # so the wrapper rewrites `?` → `%s` at runtime on the final SQL string.
     # The static AST scan flags the construction pattern; these are the
-    # baseline allowlist of currently-known wrapper-routed sites.
+    # current allowlist of wrapper-routed sites (line numbers updated PR-E2
+    # after code additions shifted them from the Phase 2 baseline).
+    ("src/api/routes/diagnostic.py", 57,
+     "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/api/routes/logs.py", 74,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/api/routes/notes.py", 168,
+     "Dynamic ? placeholder — wrapper-handled via connect_db()"),
+    ("src/api/routes/shadow.py", 135,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/attribution/logger.py", 122,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/council/value_tracker.py", 313,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/data_collection/retention.py", 85,
+    ("src/data_collection/retention.py", 87,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/diagnostics/dashboard_runner.py", 87,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
@@ -177,52 +182,61 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/features/traffic_light.py", 245,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/journal/store.py", 191,
+    ("src/journal/store.py", 201,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/journal/store.py", 213,
+    ("src/journal/store.py", 223,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/journal/store.py", 245,
+    ("src/journal/store.py", 255,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/journal/store.py", 268,
+    ("src/journal/store.py", 278,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/journal/store.py", 318,
+    ("src/journal/store.py", 328,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/journal/store.py", 561,
+    ("src/journal/store.py", 574,
+     "Dynamic ? placeholder — wrapper-handled via connect_db()"),
+    ("src/notifications/email_digest.py", 278,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/platform/features/cosine_similarity.py", 195,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/platform/features/cosine_similarity.py", 211,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/platform/promotion.py", 694,
+    ("src/platform/promotion.py", 825,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/risk/governor.py", 865,
+    ("src/risk/governor.py", 905,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 403,
+    # Line numbers re-pinned after PR-E2 #102b wave 5c added STATUS-NARROW
+    # comments to reports.py (shifted these f-string SQL sites down). All sit
+    # under `with connect_db(DB_PATH) as conn:` — verified wrapper-handled (?->%s).
+    ("src/scheduler/reports.py", 375,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 419,
+    ("src/scheduler/reports.py", 393,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 438,
+    ("src/scheduler/reports.py", 416,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 445,
+    ("src/scheduler/reports.py", 423,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 674,
+    ("src/scheduler/reports.py", 652,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 680,
+    ("src/scheduler/reports.py", 658,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 699,
+    ("src/scheduler/reports.py", 677,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 705,
+    ("src/scheduler/reports.py", 683,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 713,
+    ("src/scheduler/reports.py", 691,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/scheduler/reports.py", 720,
+    ("src/scheduler/reports.py", 698,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/shadow_trading/executor.py", 667,
+    ("src/shadow_trading/executor.py", 633,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/shadow_trading/executor.py", 2510,
-     "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/shadow_trading/executor.py", 2519,
-     "Dynamic ? placeholder — wrapper-handled via connect_db()"),
+    # ── SQLite-only raw connection — PG-unreachable ───────────────────────
+    # These sites use `import sqlite3 as _sql275` + `_sql275.connect(db_path)`
+    # (raw sqlite3, not connect_db()), so PG is never involved. The `?`
+    # placeholders are correct for SQLite and the wrapper is not in the path.
+    ("src/shadow_trading/order_lifecycle.py", 1395,
+     "SQLite-only path: raw sqlite3.connect() not connect_db(); PG-unreachable"),
+    ("src/shadow_trading/order_lifecycle.py", 1404,
+     "SQLite-only path: raw sqlite3.connect() not connect_db(); PG-unreachable"),
 })
 
 # SQLite-only SQL substrings flagged in execute() argument strings.

@@ -164,7 +164,11 @@ class TestEnvVarCoverage:
         negatives. Pure Python avoids that class of env bug.
         """
         from pathlib import Path
-        needle = f'os.environ.get("{var_name}")'
+        # Match BOTH os.environ.get("VAR") and os.environ.get("VAR", default) by
+        # omitting the closing paren — the with-default form (e.g.
+        # src/email/notifier.py: os.environ.get("EMAIL_PASSWORD", "")) is a valid
+        # reference the exact-paren needle would miss.
+        needle = f'os.environ.get("{var_name}"'
         src_dir = Path(__file__).resolve().parent.parent / "src"
         hits = [
             p for p in src_dir.rglob("*.py")

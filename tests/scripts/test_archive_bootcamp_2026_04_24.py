@@ -126,12 +126,6 @@ def seeded_source_db(tmp_path) -> Path:
             ),
         )
 
-        # sync_state — 1 row (quiescent-state).
-        conn.execute(
-            "INSERT INTO sync_state (table_name, last_synced_at) "
-            "VALUES (?, ?)",
-            ("shadow_trades", TS_ENTRY),
-        )
         conn.commit()
 
         # Normalize page layout so byte-identity checks between archive
@@ -299,8 +293,8 @@ def test_archive_produces_verifiable_copy(
 ):
     """After --apply completes successfully, the archive file must exist,
     be a valid SQLite database, and contain the same row counts in the
-    four seeded tables as the source DB (shadow_trades=2,
-    training_examples=1, bracket_health=1, sync_state=1)."""
+    three seeded tables as the source DB (shadow_trades=2,
+    training_examples=1, bracket_health=1)."""
     from scripts.archive_bootcamp_2026_04_24 import main  # noqa: F401
 
     archive_path = tmp_path / "archive.sqlite3"
@@ -317,7 +311,6 @@ def test_archive_produces_verifiable_copy(
         "shadow_trades": 2,
         "training_examples": 1,
         "bracket_health": 1,
-        "sync_state": 1,
     }
     with sqlite3.connect(str(archive_path)) as conn:
         for table, expected_count in expected.items():
@@ -394,9 +387,8 @@ def test_manifest_written_correctly(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert "sha256" in manifest, "manifest must record archive sha256"
     assert "row_counts" in manifest, "manifest must record row counts"
-    # The 4 seeded tables must be represented.
-    for table in ("shadow_trades", "training_examples",
-                   "bracket_health", "sync_state"):
+    # The 3 seeded tables must be represented.
+    for table in ("shadow_trades", "training_examples", "bracket_health"):
         assert table in manifest["row_counts"], (
             f"manifest row_counts must include {table}"
         )

@@ -78,7 +78,6 @@ VERIFIED_TABLES: tuple[str, ...] = (
     "shadow_trades",
     "training_examples",
     "bracket_health",
-    "sync_state",
 )
 
 # Staleness threshold for render sync — 3× typical interval (sync thread
@@ -527,24 +526,18 @@ def create_fresh_db(
                 raise last_exc
         # Create empty DB.
         sqlite3.connect(str(fresh_path)).close()
-        # Populate schema from the registry (68 tables; was 67 pre-Track-1.5).
+        # Populate schema from the registry (count is registry-driven).
         create_all_tables(str(fresh_path))
     except Exception as exc:
         logger.error("Fresh DB creation failed: %s", exc)
         return False
 
-    # Verify: 68 tables in registry, all present in the DB, all empty.
+    # Verify: every registry table is present in the fresh DB and empty.
+    # (A hardcoded registry-count tripwire used to live here; it fired on every
+    # legitimate registry change. The dynamic all-tables-present check below is
+    # the real invariant and auto-adapts as the schema evolves.)
     verify_conn: sqlite3.Connection | None = None
     try:
-        expected_count = len(TABLES)
-        if expected_count != 68:  # bumped from 67 by Track 1.5 / B2.A which added broker_exceptions (c3e5431)
-            logger.error(
-                "Registry table count drift: expected 68, got %d. "
-                "Update CLAUDE.md + this script's invariant.",
-                expected_count,
-            )
-            return False
-
         verify_conn = sqlite3.connect(f"file:{fresh_path}?mode=ro", uri=True)
         existing = {
             r[0] for r in verify_conn.execute(

@@ -61,6 +61,22 @@ def _is_prod_pg_url(url: str) -> bool:
     return bool(url) and any(sig in url for sig in _PROD_SIGNATURES)
 
 
+# Env snapshot captured pre-collection (end of pytest_configure) and restored in
+# pytest_collection_finish. Guards against import-time os.environ scrubs poisoning
+# the whole session at collection: src/simulation/lifecycle/bootstrap.py:90 runs a
+# module-level _scrub_environment() that rewrites os.environ (TEST_DATABASE_URL ->
+# sim 127.0.0.1:5434, ARCIS_PG_CUTOVER_ENABLED=1, pops ARCIS_DB_PATH). pytest
+# collection imports that module (full_gate <- test_entrypoints), so without this
+# ~130 engine-aware / [postgres] tests connect to a 5434 PG the standard pg-tests
+# CI job does not provision and fail with connection-refused.
+_PRECOLLECT_ENV: dict = {}
+
+# PR-E2 T43 green-gate sentinel (DD-42 §46): (nodeid, reason) for every skip
+# that ACTUALLY FIRED this run. Checked at pytest_sessionfinish against the
+# DD-42 allowlist; any fired skip without an allowlisted reason fails the run.
+_GREEN_GATE_FIRED_SKIPS: list = []
+
+
 def pytest_configure(config):
     """P0 GUARD: refuse pytest if DATABASE_URL or TEST_DATABASE_URL points at prod PG.
 
@@ -171,6 +187,100 @@ def pytest_configure(config):
             + "=" * 70 + "\n",
             returncode=2,
         )
+
+    # Snapshot the intended test env BEFORE collection imports run. Collection
+    # imports modules whose top-level code may scrub os.environ (the lifecycle
+    # bootstrap — see _PRECOLLECT_ENV note above); pytest_collection_finish
+    # restores this so tests run against the CI/operator DB env, not the scrub.
+    _PRECOLLECT_ENV.clear()
+    _PRECOLLECT_ENV.update(os.environ)
+
+
+def pytest_collection_finish(session):
+    """Restore the pre-collection env, undoing any import-time os.environ scrub
+    that ran while pytest imported test modules during collection. Without this
+    the lifecycle bootstrap's module-level scrub (bootstrap.py:90) leaks
+    TEST_DATABASE_URL=...:5434 / ARCIS_PG_CUTOVER_ENABLED / popped ARCIS_DB_PATH
+    into every test in the session. Module-level code runs once per import, so a
+    single post-collection restore is sufficient (no re-pollution)."""
+    if not _PRECOLLECT_ENV:
+        return
+    for key in list(os.environ.keys()):
+        if key not in _PRECOLLECT_ENV:
+            del os.environ[key]
+    for key, value in _PRECOLLECT_ENV.items():
+        if os.environ.get(key) != value:
+            os.environ[key] = value
+
+
+def pytest_runtest_logreport(report):
+    """PR-E2 T43 (DD-42 §46): record skips that ACTUALLY FIRED this run.
+
+    Excludes xfails (an xfailed test reports as skipped but carries `wasxfail`)
+    — those are legitimate expected-failures, governed separately by
+    xfail_strict=true (an xpass becomes a real failure). For a genuine skip,
+    `report.longrepr` is the 3-tuple (path, lineno, "Skipped: <reason>").
+    """
+    if report.skipped and not getattr(report, "wasxfail", None):
+        longrepr = report.longrepr
+        if isinstance(longrepr, tuple) and len(longrepr) >= 3:
+            reason = str(longrepr[2])
+        else:
+            reason = str(longrepr)
+        _GREEN_GATE_FIRED_SKIPS.append((report.nodeid, reason))
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """PR-E2 T43 (DD-42 §46): fail the run if any fired skip is unjustified.
+
+    The green-gate policy: every skip must carry a reason in a DD-42
+    allowlisted category (platform / optional-dep / engine-aware /
+    tracked-upstream-bug(#N) / integration(authoritative-coverage:<job>)).
+    Conditional skips that did not fire in this environment are not checked.
+
+    Only overrides exitstatus when it is currently 0 (all-green) so genuine
+    test failures (already non-zero) are never masked.
+    """
+    if not _GREEN_GATE_FIRED_SKIPS:
+        return
+    try:
+        from tests.test_suite_integrity import is_justified_skip
+    except Exception:
+        # Matcher unavailable (e.g. collection-only / odd invocation) — do not
+        # crash the run; the sentinel's own self-tests cover the matcher.
+        return
+    offenders = [
+        (nid, reason)
+        for nid, reason in _GREEN_GATE_FIRED_SKIPS
+        if not is_justified_skip(reason)
+    ]
+    if offenders:
+        # Fail FIRST so a reporting hiccup can never mask the gate result. Only
+        # override a clean exit (0) — genuine test failures stay non-zero.
+        if session.exitstatus == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+        # ASCII-safe: skip reasons may contain non-ASCII (>=, em-dash). On Windows
+        # the captured stdout is cp1252 and a raw print() of those chars raises
+        # UnicodeEncodeError, which would crash pytest_sessionfinish and swallow
+        # the report. backslashreplace keeps the text legible without crashing.
+        def _ascii(s: str) -> str:
+            return str(s).encode("ascii", "backslashreplace").decode("ascii")
+
+        line = "=" * 70
+        report = [
+            "",
+            line,
+            "[GREEN-GATE] DD-42 sec.46 - skips fired without an allowlisted reason:",
+            "  (allowlist: platform | optional-dep | engine-aware |",
+            "   tracked-upstream-bug(#N) | integration(authoritative-coverage:<job>))",
+        ]
+        for nid, reason in offenders:
+            report.append(f"  - {_ascii(nid)}\n      reason: {_ascii(reason)}")
+        report.append(line)
+        print("\n".join(report))
+
+
 import shutil
 import sqlite3
 import subprocess
@@ -312,6 +422,36 @@ def _mock_alpaca_sdk(monkeypatch):
     mods = _build_mock_alpaca_modules()
     for mod_name, mod_obj in mods.items():
         monkeypatch.setitem(sys.modules, mod_name, mod_obj)
+
+
+@pytest.fixture(autouse=True)
+def _reset_enricher_rate_limit_state():
+    """Clear the enricher's module-global per-API rate-limit timestamps per test.
+
+    src/data_enrichment/enricher.py keeps `_last_request_time: dict[str, float]`
+    at module scope. A freezegun test frozen to a FUTURE date that triggers any
+    enrichment call records a future timestamp there. After the freeze lifts,
+    a later test's _rate_limit() computes `interval - (now - future_last)` =
+    `interval + (future - now)` and calls time.sleep() for that huge delta —
+    hanging until the per-test timeout hard-kills the whole pytest process
+    (observed: tests/simulation/lifecycle/test_scenario.py wedged the full-suite
+    run at the enricher rate limiter, though it passes in isolation).
+
+    Clearing the dict before AND after each test removes any leaked timestamp so
+    no test can inherit a poisoned future `last`. Bounded real intervals (<=1s)
+    mean a clean dict never sleeps meaningfully.
+    """
+    try:
+        from src.data_enrichment import enricher as _enr
+        _enr._last_request_time.clear()
+    except Exception:
+        _enr = None
+    yield
+    if _enr is not None:
+        try:
+            _enr._last_request_time.clear()
+        except Exception:
+            pass
 
 
 @pytest.fixture(autouse=True)
@@ -610,7 +750,14 @@ def pg_docker_url():
     falls back to the hardcoded CI URL postgresql://test:test@localhost/halcyon
     so CI's pg-tests.yml continues to work unchanged.
     """
-    already_set = os.environ.get("DATABASE_URL", "")
+    # Respect an already-provisioned Postgres on EITHER env var before spinning
+    # our own docker container. CI's pg-tests job sets a stable TEST_DATABASE_URL
+    # (its 5432 service) but NOT DATABASE_URL (it uses ARCIS_DB_PATH); the old
+    # check only inspected DATABASE_URL, so this fixture overwrote the stable
+    # TEST_DATABASE_URL with a flaky docker-compose PG on 5434 — producing ~130
+    # "connection refused 127.0.0.1:5434" failures across the engine-aware /
+    # [postgres]-parametrized tests. Prefer the provided URL.
+    already_set = os.environ.get("DATABASE_URL", "") or os.environ.get("TEST_DATABASE_URL", "")
     if already_set.startswith("postgres"):
         yield already_set
         return

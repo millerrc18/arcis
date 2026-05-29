@@ -33,7 +33,7 @@ def _route_email_or_enqueue(
         logger.critical("[RECAP] email_digest unavailable — fallback: %s", err)
         try:
             from src.notifications import safe_send
-            safe_send(event_type, subject=subject)
+            safe_send("eod_recap_email", subject=subject)
         except Exception as _safe_err:
             logger.warning("[RECAP] safe_send fallback failed: %s", _safe_err)
         send_email(subject, body)

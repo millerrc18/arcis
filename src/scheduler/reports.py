@@ -370,6 +370,8 @@ def send_eod_report():
             ).fetchone()
 
             # Paper closed today
+            # STATUS-NARROW: 'closed' only — EOD daily count for successfully-exited
+            # paper trades; exit_failed/exit_abandoned not meaningful for today's P&L display.
             paper_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status = 'closed' AND COALESCE(source,'paper')='paper' "
@@ -386,6 +388,8 @@ def send_eod_report():
             ).fetchone()
 
             # Live closed today
+            # STATUS-NARROW: 'closed' only — EOD daily count for successfully-exited
+            # live trades; exit_failed/exit_abandoned not meaningful for today's P&L display.
             live_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status = 'closed' AND source='live' "
@@ -394,6 +398,8 @@ def send_eod_report():
             ).fetchone()
 
             # All-time win rate
+            # STATUS-NARROW: 'closed' only — win-rate counts meaningful exits only;
+            # exit_failed/exit_abandoned don't have reliable pnl_dollars for win/loss counting.
             all_closed = conn.execute(
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN pnl_dollars > 0 THEN 1 ELSE 0 END) as wins "
@@ -405,6 +411,8 @@ def send_eod_report():
             win_rate = wins / total if total > 0 else 0
 
             # Best/worst today
+            # STATUS-NARROW: 'closed' only — best/worst trade display for successfully-exited
+            # trades; exit_failed/exit_abandoned not meaningful for pnl_pct ranking.
             best = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
                 "WHERE status = 'closed' AND actual_exit_time LIKE ?"

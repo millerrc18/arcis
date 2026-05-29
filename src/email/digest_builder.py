@@ -191,6 +191,9 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
 
     if council:
         consensus = council["consensus"] or "unknown"
+        # confidence_weighted_score is stored as a PERCENTAGE [0,100]
+        # (src/council/aggregation.py:237 + engine.py:610 write abs(score)*100,
+        # score in [-1,1]). Render the value directly — do NOT re-scale.
         confidence = _coerce_float(council["confidence_weighted_score"], 0.0)
         contested = " (contested)" if council["is_contested"] else ""
         lines.extend(["", "━━━ COUNCIL ━━━", f"Latest assessment: {consensus}{contested}"])

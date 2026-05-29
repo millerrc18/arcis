@@ -447,8 +447,9 @@
 2. `optional-dep` — requires an uninstalled optional dependency (gated import).
 3. `engine-aware` — PG-vs-SQLite behavioral divergence the test legitimately gates on.
 4. `tracked-upstream-bug (#N)` — a real defect tracked by issue #N (NOT a silent punt).
+5. `integration(authoritative-coverage:<job>)` — a heavy integration test whose logic is authoritatively exercised by a dedicated CI job that exceeds the per-PR unit window. NOT a punt: the behavior IS covered, just not as a per-PR pytest. Added 2026-05-28 (operator-approved during PR-E2) for the 15 `tests/simulation/lifecycle/` scenario tests (test_entrypoints run_smoke/run_full_gate, test_determinism, test_no_conn_leak, test_scenario) that run the full organic-runner scenario against the 5434 PG and exceed the 60s `pg-tests` timeout — authoritatively covered by the `lifecycle-full-gate` workflow_dispatch/nightly job (`run_full_gate()`).
 
-Every surviving skip carries an allowlisted reason string + (for category 4) a tracking task #N. A CI sentinel (T43, tests/test_suite_integrity.py) FAILS if any test failed, any skip lacks an allowlisted reason, or any xfail xpassed; xfail_strict=true is set globally. The sentinel is proven non-vacuous (verify-by-mutation: RED on injected skip-without-reason / failure / xpass).
+Every surviving skip carries an allowlisted reason string + (for category 4) a tracking task #N or (for category 5) the covering job name. A CI sentinel (T43, tests/test_suite_integrity.py) FAILS if any test failed, any skip lacks an allowlisted reason, or any xfail xpassed; xfail_strict=true is set globally. The sentinel is proven non-vacuous (verify-by-mutation: RED on injected skip-without-reason / failure / xpass).
 
 **Rationale:** the campaign repeatedly surfaced tests skipped/red "out of scope" (pre-existing api failures kin #20, date-sensitive flakes kin #18, notifications_digest_queue kin #8). The green-gate converts the suite from "mostly green with a tolerated tail" to "provably green or provably justified" — making future regressions detectable rather than buried in a skip/fail backdrop.
 

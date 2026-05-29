@@ -192,6 +192,20 @@ def _read_executor_source() -> str:
         return f.read()
 
 
+def _read_order_lifecycle_source() -> str:
+    """Read order_lifecycle.py source for static structural checks.
+
+    The order-lifecycle helpers (_close_from_broker_fill, the legs check)
+    were extracted here from executor.py in the Phase 5 PR-C T10 refactor.
+    """
+    import os
+    path = os.path.join(
+        os.path.dirname(__file__), "..", "src", "shadow_trading", "order_lifecycle.py",
+    )
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def test_parent_status_branch_removed_from_bracket_check():
     """The buggy parent-status-filled branch must not reappear in the
     bracket-exit detection block.
@@ -250,7 +264,7 @@ def test_close_from_broker_fill_has_side_guard():
     The guard is a `side` check that refuses BUY orders. Source-code lock
     so refactors don't accidentally remove it.
     """
-    source = _read_executor_source()
+    source = _read_order_lifecycle_source()
 
     # Locate the function and grab its body up to the next top-level def
     fn_marker = "def _close_from_broker_fill("
@@ -276,10 +290,10 @@ def test_legs_check_path_preserved():
     immediately below at lines 1870-1883 (now lower after the removal).
     The legs check is what correctly detects real bracket-leg fills.
     """
-    source = _read_executor_source()
+    source = _read_order_lifecycle_source()
     # The legs iteration pattern should still be present
     assert 'legs = order_status.get("legs", [])' in source, (
-        "The legs check must remain in executor.py — it's the correct way "
+        "The legs check must remain in order_lifecycle.py — it's the correct way "
         "to detect bracket exit (when a stop or target SELL leg actually fills)."
     )
     # And the loop body should still test partially_filled + filled

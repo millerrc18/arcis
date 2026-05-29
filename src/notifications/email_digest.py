@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 from src.config import load_config
 from src.email.notifier import send_email
 from src.notifications.digest_queue import DigestQueue, FlushResult
+from src.utils.db import engine_aware_upsert
 from src.notifications.telegram import EMAIL_TIER_EVENT_TYPES
 
 # Re-exported public API (Phase 5 PR-C T16 split — preserve import paths).
@@ -341,10 +342,11 @@ def _write_suppressed_dedup(tier: TierName, *, conn) -> None:
     dedup_key = f"email:{tier}:{date_str}:suppressed-empty"
     now = datetime.now(timezone.utc).isoformat()
     try:
-        conn.execute(
-            "INSERT OR IGNORE INTO notifications_dedup "
-            "(event_type, dedup_key, sent_at) VALUES (?, ?, ?)",
-            ("digest_suppressed_empty", dedup_key, now),
+        engine_aware_upsert(
+            conn,
+            "notifications_dedup",
+            {"event_type": "digest_suppressed_empty", "dedup_key": dedup_key, "sent_at": now},
+            action="ignore",
         )
         conn.commit()
     except Exception as e:  # table missing → best-effort, log + swallow

@@ -37,6 +37,10 @@ ALLOWLIST_FILES: frozenset[str] = frozenset({
     "src/training/trainer.py",
     "src/sync/render_sync.py",
     "src/sync/reconcile.py",
+    # Uses a raw psycopg2.connect() connection passed from the simulation oracle
+    # (not connect_db()), so the cursor returns plain tuples. Integer indexing
+    # r[0] IS correct positional access here — RealDictCursor is not in the path.
+    "src/simulation/lifecycle/oracle/_checks_db.py",
 })
 
 # Scripts that are excluded from the fetchall listcomp scan for one of two reasons:
@@ -70,7 +74,7 @@ SCRIPTS_ALLOWLIST_FETCHALL: dict[str, str] = {
 KNOWN_OFFENDERS_FETCHALL: frozenset[tuple[str, int, str]] = frozenset({
     (
         "src/evaluation/build_score.py",
-        341,
+        352,
         "Missed by PR-1060 cleanup; uses connect_db() non-PRAGMA query — "
         "MUST be fixed (use row['build_score'] or _scalar). #100-followup",
     ),

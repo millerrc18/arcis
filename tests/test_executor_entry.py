@@ -122,9 +122,12 @@ def test_buying_power_crisis_alert_after_consecutive_failures():
     """Fix #358: 3+ consecutive buying power failures should trigger an alert."""
     import src.shadow_trading.executor as executor_mod
     executor_mod._consecutive_bp_failures = 0
+    # executor.py does `from src.notifications.telegram import send_telegram`, so
+    # the BP-crisis alert calls executor.send_telegram (the name bound at import).
+    # Patch where it's looked up — patching the source module is a no-op here.
     with patch("src.shadow_trading.alpaca_adapter.get_account_info",
                return_value={"buying_power": 100.0}), \
-         patch("src.notifications.telegram.send_telegram") as mock_tg:
+         patch("src.shadow_trading.executor.send_telegram") as mock_tg:
         for _ in range(3):
             result = executor_mod._check_paper_buying_power(500.0, 10)
             assert result is False
