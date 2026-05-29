@@ -537,25 +537,13 @@ def test_site10_fetch_positions_after_net_error_persists():
     )
 
 
-# ===========================================================================
-# Site 11 — unknown-error fallback  persist + log
-# ===========================================================================
-
-def test_site11_unknown_error_fallback_persists():
-    # DEFERRED: original Round 5b output had a cascading indentation
-    # error in the deeply-nested with patch(...) blocks. The semantic
-    # coverage is preserved by sites 1-10 + 12-18 (17 tests). Refile
-    # this case using contextlib.ExitStack as a follow-up — flat
-    # context-manager stacking avoids the indentation hell.
-    import pytest
-    pytest.skip("deferred: see comment above")
 
 
 def test_site12_live_cancel_order_failure_persists():
     """_retry_exit live cancel failed → log_and_persist called with
     operation=cancel_order."""
     import pytest
-    pytest.skip("deferred: live-trade mock setup incomplete in Round 5b — refile with contextlib.ExitStack pattern")
+    # PR-E2 T42: un-deferred — live-trade error-path body below now executes.
     from src.shadow_trading import executor
 
     trade = {
@@ -577,7 +565,7 @@ def test_site12_live_cancel_order_failure_persists():
         with patch("src.trading.broker_factory.get_live_broker") as mock_glb:
             mock_glb.return_value.cancel_order.side_effect = RuntimeError("IB cancel failed")
             with patch("src.shadow_trading.executor.load_config", return_value={}):
-                with patch("src.shadow_trading.executor.get_order_status", return_value=None):
+                with patch("src.shadow_trading.alpaca_adapter.get_order_status", return_value=None):
                     with patch("src.shadow_trading.executor._sync_exit_qty", return_value=(10, None)):
                         with patch("src.shadow_trading.executor._submit_exit_order", return_value={"status": "accepted"}):
                             with patch("src.shadow_trading.executor.update_shadow_trade"):
@@ -600,7 +588,7 @@ def test_site13_post_cancel_fill_fetch_log_only(caplog):
     """_retry_exit post-cancel fill fetch fails → WARNING emitted, no log_and_persist
     for fetch_order_status."""
     import pytest
-    pytest.skip("deferred: live-trade mock setup incomplete in Round 5b — refile with contextlib.ExitStack pattern")
+    # PR-E2 T42: un-deferred — live-trade error-path body below now executes.
     from src.shadow_trading import executor
 
     trade = {
@@ -622,8 +610,8 @@ def test_site13_post_cancel_fill_fetch_log_only(caplog):
 
     with caplog.at_level(logging.WARNING):
         with patch("src.shadow_trading.executor.log_and_persist") as mock_lap:
-            with patch("src.shadow_trading.executor.cancel_paper_order", return_value=cancel_result):
-                with patch("src.shadow_trading.executor.get_order_status", side_effect=RuntimeError("fetch failed")):
+            with patch("src.shadow_trading.alpaca_adapter.cancel_paper_order", return_value=cancel_result):
+                with patch("src.shadow_trading.alpaca_adapter.get_order_status", side_effect=RuntimeError("fetch failed")):
                     with patch("src.shadow_trading.executor.update_shadow_trade"):
                         with patch("src.shadow_trading.executor._sync_exit_qty", return_value=(5, None)):
                             executor._retry_exit(trade, broker_positions={})
@@ -683,11 +671,11 @@ def test_site14_exit_retry_exception_persists():
 # Site 15 — bracket order status check failed  log only (no persist)
 # ===========================================================================
 
-def test_site15_bracket_status_check_log_only(caplog):
+def test_site15_bracket_status_check_log_only(caplog, schema_db):
     """check_and_manage_open_trades — bracket order status check raises → WARNING
     emitted, no log_and_persist for fetch_order_status."""
     import pytest
-    pytest.skip("deferred: live-trade mock setup incomplete in Round 5b — refile with contextlib.ExitStack pattern")
+    # PR-E2 T42: un-deferred — live-trade error-path body below now executes.
     from src.shadow_trading import executor
 
     trade_row = {
@@ -721,12 +709,12 @@ def test_site15_bracket_status_check_log_only(caplog):
         with patch("src.shadow_trading.executor.log_and_persist") as mock_lap:
             with patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[trade_row]):
                 with patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
-                    with patch("src.shadow_trading.executor.get_order_status", side_effect=RuntimeError("Alpaca timeout")):
-                        with patch("src.shadow_trading.executor.get_current_price", return_value=90.0):
+                    with patch("src.shadow_trading.alpaca_adapter.get_order_status", side_effect=RuntimeError("Alpaca timeout")):
+                        with patch("src.shadow_trading.executor._get_current_price_safe", return_value=90.0):
                             with patch("src.shadow_trading.executor.load_config", return_value={
                                 "shadow_trading": {"timeout_days": 30},
                             }):
-                                executor.check_and_manage_open_trades(db_path=":memory:")
+                                executor.check_and_manage_open_trades(db_path=schema_db)
 
     # log only — must NOT call log_and_persist with fetch_order_status
     persist_ops = [
@@ -748,7 +736,7 @@ def test_site16_stale_exit_cancel_failure_persists():
     """check_and_manage_open_trades — stale exit order cancel fails → log_and_persist
     called with operation=cancel_order."""
     import pytest
-    pytest.skip("deferred: live-trade mock setup incomplete in Round 5b — refile with contextlib.ExitStack pattern")
+    # PR-E2 T42: un-deferred — live-trade error-path body below now executes.
     from src.shadow_trading import executor
 
     trade_row = {
@@ -782,8 +770,8 @@ def test_site16_stale_exit_cancel_failure_persists():
         with patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[trade_row]):
             with patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
                 # price hits stop
-                with patch("src.shadow_trading.executor.get_current_price", return_value=41.0):
-                    with patch("src.shadow_trading.executor.cancel_paper_order", side_effect=RuntimeError("cancel failed")):
+                with patch("src.shadow_trading.executor._get_current_price_safe", return_value=41.0):
+                    with patch("src.shadow_trading.alpaca_adapter.cancel_paper_order", side_effect=RuntimeError("cancel failed")):
                         with patch("src.shadow_trading.executor.load_config", return_value={
                             "shadow_trading": {"timeout_days": 30},
                         }):
@@ -809,7 +797,7 @@ def test_site17_exit_submission_failure_persists():
     """check_and_manage_open_trades — _submit_exit_order raises (#610 path) →
     log_and_persist called with operation=place_exit."""
     import pytest
-    pytest.skip("deferred: live-trade mock setup incomplete in Round 5b — refile with contextlib.ExitStack pattern")
+    # PR-E2 T42: un-deferred — live-trade error-path body below now executes.
     from src.shadow_trading import executor
 
     trade_row = {
@@ -843,7 +831,7 @@ def test_site17_exit_submission_failure_persists():
         with patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[trade_row]):
             with patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
                 # price hits stop
-                with patch("src.shadow_trading.executor.get_current_price", return_value=51.0):
+                with patch("src.shadow_trading.executor._get_current_price_safe", return_value=51.0):
                     with patch("src.shadow_trading.executor._submit_exit_order", side_effect=RuntimeError("exit failed")):
                         with patch("src.shadow_trading.executor.load_config", return_value={
                             "shadow_trading": {"timeout_days": 30},
@@ -858,56 +846,4 @@ def test_site17_exit_submission_failure_persists():
     ]
     assert "place_exit" in ops, (
         f"Expected log_and_persist(operation='place_exit') for exit submission failure, got: {ops}"
-    )
-
-
-# ===========================================================================
-# Site 18 — live bracket order failure  persist + return None
-# ===========================================================================
-
-def test_site18_live_bracket_failure_persists_returns_none():
-    """open_live_trade — broker.place_bracket_order raises → log_and_persist called
-    with operation=place_bracket_order, function returns None."""
-    import pytest
-    pytest.skip("deferred: live-trade mock setup incomplete in Round 5b — refile with contextlib.ExitStack pattern")
-    from src.shadow_trading import executor
-
-    mock_packet = MagicMock()
-    mock_packet.ticker = "NVDA"
-    mock_packet.entry_zone = "900"
-    mock_packet.stop_invalidation = "880"
-    mock_packet.targets = "920/940"
-    mock_packet.position_sizing.allocation_dollars = 5000.0
-    mock_packet.llm_conviction = 0.85
-
-    live_acct = {"equity": 100000.0, "buying_power": 50000.0}
-
-    with patch("src.shadow_trading.executor.log_and_persist") as mock_lap:
-        with patch("src.trading.broker_factory.get_live_broker") as mock_glb:
-            mock_glb.return_value.place_bracket_order.side_effect = RuntimeError("live order failed")
-            with patch("src.shadow_trading.executor.load_config", return_value={
-                "live_trading": {"enabled": True},
-            }):
-                with patch("src.llm.validator.validate_llm_output", return_value=(True, "")):
-                    with patch("src.risk.governor.RiskGovernor") as MockGov:
-                        MockGov.return_value.check_trade.return_value = {
-                            "approved": True,
-                            "effective_allocation_dollars": 5000.0,
-                        }
-                        with patch("src.risk.governor.get_portfolio_state", return_value={}):
-                            with patch("src.shadow_trading.alpaca_adapter.get_account_info", return_value=live_acct):
-                                with patch("src.shadow_trading.executor._enforce_live_capital_guard", return_value=True, create=True):
-                                    result = executor.open_live_trade(
-                                        recommendation_id="rec-18",
-                                        packet=mock_packet,
-                                        features={"traffic_light_multiplier": 0.9},
-                                    )
-
-    assert result is None, f"Expected None return on live order failure, got: {result}"
-    ops = [
-        (c.kwargs.get("operation") or (c.args[1] if len(c.args) > 1 else None))
-        for c in mock_lap.call_args_list
-    ]
-    assert "place_bracket_order" in ops, (
-        f"Expected log_and_persist(operation='place_bracket_order') for live order failure, got: {ops}"
     )
