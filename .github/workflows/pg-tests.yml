@@ -102,7 +102,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout pytest-asyncio
 
       - name: Bootstrap PG test schema
         run: python scripts/bootstrap_pg_test_schema.py
@@ -229,7 +229,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout pytest-asyncio
 
       - name: Run authoritative lifecycle full gate
         # run_full_gate() bootstraps the registry schema on the 5434 PG and
