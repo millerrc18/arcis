@@ -51,8 +51,6 @@ def test_spec_hash_changes_on_modification():
     assert h1 != h2
 
 
-def test_run_id_uuid_generated():
-    pytest.skip("integration-level — requires real data; run CLI manually")
 
 
 def test_backtest_uses_registry_survivorship_haircut(tmp_path):

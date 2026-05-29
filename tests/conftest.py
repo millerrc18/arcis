@@ -71,6 +71,11 @@ def _is_prod_pg_url(url: str) -> bool:
 # CI job does not provision and fail with connection-refused.
 _PRECOLLECT_ENV: dict = {}
 
+# PR-E2 T43 green-gate sentinel (DD-42 §46): (nodeid, reason) for every skip
+# that ACTUALLY FIRED this run. Checked at pytest_sessionfinish against the
+# DD-42 allowlist; any fired skip without an allowlisted reason fails the run.
+_GREEN_GATE_FIRED_SKIPS: list = []
+
 
 def pytest_configure(config):
     """P0 GUARD: refuse pytest if DATABASE_URL or TEST_DATABASE_URL points at prod PG.
@@ -206,6 +211,60 @@ def pytest_collection_finish(session):
     for key, value in _PRECOLLECT_ENV.items():
         if os.environ.get(key) != value:
             os.environ[key] = value
+
+
+def pytest_runtest_logreport(report):
+    """PR-E2 T43 (DD-42 §46): record skips that ACTUALLY FIRED this run.
+
+    Excludes xfails (an xfailed test reports as skipped but carries `wasxfail`)
+    — those are legitimate expected-failures, governed separately by
+    xfail_strict=true (an xpass becomes a real failure). For a genuine skip,
+    `report.longrepr` is the 3-tuple (path, lineno, "Skipped: <reason>").
+    """
+    if report.skipped and not getattr(report, "wasxfail", None):
+        longrepr = report.longrepr
+        if isinstance(longrepr, tuple) and len(longrepr) >= 3:
+            reason = str(longrepr[2])
+        else:
+            reason = str(longrepr)
+        _GREEN_GATE_FIRED_SKIPS.append((report.nodeid, reason))
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """PR-E2 T43 (DD-42 §46): fail the run if any fired skip is unjustified.
+
+    The green-gate policy: every skip must carry a reason in a DD-42
+    allowlisted category (platform / optional-dep / engine-aware /
+    tracked-upstream-bug(#N) / integration(authoritative-coverage:<job>)).
+    Conditional skips that did not fire in this environment are not checked.
+
+    Only overrides exitstatus when it is currently 0 (all-green) so genuine
+    test failures (already non-zero) are never masked.
+    """
+    if not _GREEN_GATE_FIRED_SKIPS:
+        return
+    try:
+        from tests.test_suite_integrity import is_justified_skip
+    except Exception:
+        # Matcher unavailable (e.g. collection-only / odd invocation) — do not
+        # crash the run; the sentinel's own self-tests cover the matcher.
+        return
+    offenders = [
+        (nid, reason)
+        for nid, reason in _GREEN_GATE_FIRED_SKIPS
+        if not is_justified_skip(reason)
+    ]
+    if offenders:
+        line = "=" * 70
+        print(f"\n{line}")
+        print("[GREEN-GATE] DD-42 §46 — skips fired without an allowlisted reason:")
+        print("  (allowlist: platform | optional-dep | engine-aware |")
+        print("   tracked-upstream-bug(#N) | integration(authoritative-coverage:<job>))")
+        for nid, reason in offenders:
+            print(f"  - {nid}\n      reason: {reason}")
+        print(line)
+        if session.exitstatus == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 import shutil
