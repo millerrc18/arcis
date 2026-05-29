@@ -411,6 +411,36 @@ def _mock_alpaca_sdk(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_enricher_rate_limit_state():
+    """Clear the enricher's module-global per-API rate-limit timestamps per test.
+
+    src/data_enrichment/enricher.py keeps `_last_request_time: dict[str, float]`
+    at module scope. A freezegun test frozen to a FUTURE date that triggers any
+    enrichment call records a future timestamp there. After the freeze lifts,
+    a later test's _rate_limit() computes `interval - (now - future_last)` =
+    `interval + (future - now)` and calls time.sleep() for that huge delta —
+    hanging until the per-test timeout hard-kills the whole pytest process
+    (observed: tests/simulation/lifecycle/test_scenario.py wedged the full-suite
+    run at the enricher rate limiter, though it passes in isolation).
+
+    Clearing the dict before AND after each test removes any leaked timestamp so
+    no test can inherit a poisoned future `last`. Bounded real intervals (<=1s)
+    mean a clean dict never sleeps meaningfully.
+    """
+    try:
+        from src.data_enrichment import enricher as _enr
+        _enr._last_request_time.clear()
+    except Exception:
+        _enr = None
+    yield
+    if _enr is not None:
+        try:
+            _enr._last_request_time.clear()
+        except Exception:
+            pass
+
+
+@pytest.fixture(autouse=True)
 def _isolate_local_api_token_env(monkeypatch):
     """Hermetic test env: clear ARCIS_LOCAL_API_TOKEN.
 
