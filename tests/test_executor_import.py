@@ -208,6 +208,7 @@ class TestRetryExitDetectsBackgroundFill:
         filled_order = {
             "order_id": "raced-order-id",
             "status": "filled",
+            "side": "sell",  # v0.36.28 guard: _close_from_broker_fill refuses non-SELL fills
             "filled_qty": "49",
             "filled_avg_price": 147.50,
             "filled_at": "2026-04-14T15:13:30-04:00",
@@ -259,6 +260,7 @@ class TestRetryExitDetectsBackgroundFill:
                          "error": 'order is already in "filled" state'}
         # After the cancel fails with filled, re-fetch status shows filled
         filled_order = {"order_id": "race-order-id", "status": "filled",
+                        "side": "sell",  # v0.36.28 guard: refuses non-SELL fills
                         "filled_qty": "13", "filled_avg_price": 178.25,
                         "filled_at": "2026-04-14T15:30:40-04:00"}
 
