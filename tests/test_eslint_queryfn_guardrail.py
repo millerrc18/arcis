@@ -23,6 +23,13 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _FRONTEND_DIR = os.path.join(_REPO_ROOT, "frontend")
 
 
+def _eslint_available() -> bool:
+    """Return True if eslint is available in the frontend node_modules."""
+    eslint_path = os.path.join(_FRONTEND_DIR, "node_modules", ".bin", "eslint")
+    eslint_cmd = eslint_path + (".cmd" if os.name == "nt" else "")
+    return os.path.exists(eslint_cmd) or os.path.exists(eslint_path)
+
+
 def _run_npm_lint(env: dict | None = None):
     merged_env = {**os.environ, **(env or {})}
     return subprocess.run(
@@ -37,6 +44,10 @@ def _run_npm_lint(env: dict | None = None):
 
 def test_lint_passes_current_frontend():
     """All T17-T21 bare-queryFn sites are wrapped; lint must exit 0."""
+    # DD-42 optional-dep: eslint is a frontend tool not installed in all CI
+    # environments. Skip rather than fail when node_modules/.bin/eslint is absent.
+    if not _eslint_available():
+        pytest.skip("eslint not installed in node_modules — DD-42 optional-dep skip")
     result = _run_npm_lint()
     assert result.returncode == 0, (
         f"lint:queryfn failed on current frontend (expected 0, got {result.returncode}).\n"
@@ -46,6 +57,10 @@ def test_lint_passes_current_frontend():
 
 def test_lint_fails_on_bare_queryfn():
     """Synthetic file with bare queryFn: api.foo triggers the ESLint rule."""
+    # DD-42 optional-dep: eslint is a frontend tool not installed in all CI
+    # environments. Skip rather than fail when node_modules/.bin/eslint is absent.
+    if not _eslint_available():
+        pytest.skip("eslint not installed in node_modules — DD-42 optional-dep skip")
     synthetic_jsx = """\
 import { useQuery } from '@tanstack/react-query';
 import api from '../api.js';

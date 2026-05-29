@@ -520,6 +520,38 @@ _REQUIRED_INPUT_ALLOWLIST: frozenset[str] = frozenset(
         # build_score_history
         "build_score_history.score_id",
         # sp100_historical_constituents (already listed)
+        # short_volume_daily — added in W21 v0.36.x; collected_at is a required ingestion timestamp
+        "short_volume_daily.collected_at",
+        # backtest_results.provenance_kind — 3-state enum enforced at insert time
+        "backtest_results.provenance_kind",
+        # notifications_digest_queue — persistence layer for PolicyDecision outputs
+        "notifications_digest_queue.event_type",
+        "notifications_digest_queue.severity",
+        "notifications_digest_queue.payload_json",
+        # platform_events — forensic-trail write target
+        "platform_events.event_type",
+        "platform_events.severity",
+        "platform_events.source",
+        # institutional_holdings — plan-gated quarterly snapshot (W21 Finnhub capability)
+        "institutional_holdings.ticker",
+        "institutional_holdings.as_of_date",
+        # filings_sentiment — plan-gated per-filing sentiment (Finnhub C7b.2)
+        "filings_sentiment.ticker",
+        "filings_sentiment.filing_type",
+        "filings_sentiment.filed_at",
+        # press_releases — plan-gated press release feed (Finnhub C7b.3)
+        "press_releases.ticker",
+        "press_releases.headline",
+        "press_releases.released_at",
+        # company_executives — plan-gated executive roster (Finnhub capability)
+        "company_executives.ticker",
+        "company_executives.name",
+        # stock_financials — plan-gated fundamental metrics snapshot (v0.36.38 T3)
+        "stock_financials.ticker",
+        "stock_financials.as_of_date",
+        # price_targets — plan-gated analyst price target consensus (Finnhub capability)
+        "price_targets.ticker",
+        "price_targets.as_of_date",
     ]
 )
 

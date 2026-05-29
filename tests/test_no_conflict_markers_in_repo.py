@@ -20,7 +20,15 @@ from pathlib import Path
 # itself, plus any test fixtures that intentionally exercise marker handling).
 ALLOWLIST = {
     "tests/test_no_conflict_markers_in_repo.py",
-    # Add others as needed (none currently expected).
+    # These files use `=======` (exactly 7 equals) as RST section-header underlines
+    # inside module-level docstrings — standard Sphinx/reStructuredText convention.
+    # No `<<<<<<<` or `>>>>>>>` markers are present, so these are not conflict markers.
+    "tests/test_auditor_model_winrate_sample_v0_36_31.py",
+    "tests/test_exit_reconciliation_zero_drift_v0_36_32.py",
+    "tests/test_initialize_database_backfill_guard_v0_36_34.py",
+    "tests/test_institutional_holdings_bigint_v0_36_33.py",
+    "tests/test_phantom_close_v0_36_28.py",
+    "tests/test_reconcile_phantom_pnl_v0_36_30.py",
 }
 
 # Match start-of-line markers only (not embedded in docs prose).
