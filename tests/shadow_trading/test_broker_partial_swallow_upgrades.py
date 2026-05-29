@@ -847,3 +847,73 @@ def test_site17_exit_submission_failure_persists():
     assert "place_exit" in ops, (
         f"Expected log_and_persist(operation='place_exit') for exit submission failure, got: {ops}"
     )
+
+
+# ===========================================================================
+# Site 18 — open_live_trade bracket order failure  persist + return None
+# ===========================================================================
+
+def test_site18_live_bracket_failure_persists_returns_none(schema_db):
+    """open_live_trade — broker.place_bracket_order raises → log_and_persist called
+    with operation='place_bracket_order', function returns None.
+
+    This is the LIVE path (open_live_trade); site5 covers the PAPER path
+    (open_shadow_trade). No other test exercises the live bracket-failure persist
+    path, so this guards a real money-order safety behavior.
+
+    Harness note: the capital guard reads get_live_broker(config).get_account().equity
+    (an attribute, not a dict) — the equity MUST be a real float or the
+    `equity < starting_capital*0.5` comparison raises TypeError and the function
+    returns early before reaching place_bracket_order. The same broker mock both
+    passes the capital guard (get_account) and raises on place_bracket_order.
+    schema_db gives the daily-loss-guard's raw shadow_trades query a real table.
+    """
+    from src.shadow_trading import executor
+
+    mock_packet = MagicMock()
+    mock_packet.ticker = "NVDA"
+    mock_packet.entry_zone = "900"
+    mock_packet.stop_invalidation = "880"
+    mock_packet.targets = "920/940"
+    mock_packet.position_sizing.allocation_dollars = 5000.0
+    mock_packet.llm_conviction = 0.85
+
+    # Broker mock: get_account() passes the capital guard; place_bracket_order raises.
+    acct = MagicMock()
+    acct.equity = 100000.0
+    acct.cash = 100000.0
+    acct.buying_power = 50000.0
+    acct.portfolio_value = 100000.0
+
+    with patch("src.trading.broker_factory.get_live_broker") as mock_glb, \
+         patch("src.shadow_trading.executor.log_and_persist") as mock_lap, \
+         patch("src.shadow_trading.executor.load_config", return_value={
+             "live_trading": {"enabled": True, "starting_capital": 100000},
+         }), \
+         patch("src.llm.validator.validate_llm_output", return_value=(True, "")), \
+         patch("src.risk.governor.get_portfolio_state", return_value={}), \
+         patch("src.risk.governor.RiskGovernor") as MockGov:
+        MockGov.return_value.check_trade.return_value = {
+            "approved": True,
+            "effective_allocation_dollars": 5000.0,
+        }
+        broker = mock_glb.return_value
+        broker.get_account.return_value = acct
+        broker.place_bracket_order.side_effect = RuntimeError("live order failed")
+
+        result = executor.open_live_trade(
+            recommendation_id="rec-18",
+            packet=mock_packet,
+            features={"traffic_light_multiplier": 0.9},
+            db_path=schema_db,
+        )
+
+    assert result is None, f"Expected None return on live order failure, got: {result}"
+    ops = [
+        (c.kwargs.get("operation") or (c.args[1] if len(c.args) > 1 else None))
+        for c in mock_lap.call_args_list
+    ]
+    assert "place_bracket_order" in ops, (
+        f"Expected log_and_persist(operation='place_bracket_order') for live order "
+        f"failure, got: {ops}"
+    )
