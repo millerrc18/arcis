@@ -67,14 +67,14 @@ def test_holdout_empty_sends_telegram_alert(tmp_path):
     output_dir = tmp_path / "out"
     output_dir.mkdir()
 
-    with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
-         patch("src.notifications.telegram.notify_trainer_holdout_empty") as mock_notify:
+    # The holdout-empty alert routes through safe_send (W21 dispatch boundary),
+    # not a direct notify_* call — mock there and assert the event_type/payload.
+    with patch("src.training.trainer.safe_send") as mock_send:
         export_training_data(output_dir=str(output_dir), db_path=db_path)
 
-    mock_notify.assert_called_once()
-    # Should pass at least the most-recent-date and train-count
-    kwargs = mock_notify.call_args.kwargs
-    assert "most_recent_date" in kwargs or len(mock_notify.call_args.args) >= 1
+    mock_send.assert_called_once()
+    assert mock_send.call_args[0][0] == "trainer_holdout_empty"
+    assert "most_recent_date" in mock_send.call_args.kwargs
 
 
 def test_holdout_populated_does_not_alert(tmp_path):
@@ -87,19 +87,19 @@ def test_holdout_populated_does_not_alert(tmp_path):
     output_dir = tmp_path / "out"
     output_dir.mkdir()
 
-    with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
-         patch("src.notifications.telegram.notify_trainer_holdout_empty") as mock_notify:
+    with patch("src.training.trainer.safe_send") as mock_send:
         result, total = export_training_data(output_dir=str(output_dir), db_path=db_path)
 
     # Healthy corpus should not alert; holdout may or may not be non-empty
-    # depending on the temporal-gap window. The alert specifically fires
-    # only when holdout=0 + train>0. Check accordingly.
+    # depending on the temporal-gap window. The alert (safe_send) specifically
+    # fires only when holdout=0 + train>0. Check accordingly.
     if result["training"] > 0 and result["holdout"] == 0:
         # Edge case: even today's corpus could result in empty holdout.
         # If so the alert SHOULD fire.
-        mock_notify.assert_called_once()
+        mock_send.assert_called_once()
+        assert mock_send.call_args[0][0] == "trainer_holdout_empty"
     else:
-        mock_notify.assert_not_called()
+        mock_send.assert_not_called()
 
 
 def test_run_fine_tune_skips_before_subprocess_when_holdout_empty():

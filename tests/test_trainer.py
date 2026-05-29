@@ -56,8 +56,15 @@ def _mock_disabled():
     return _DISABLED_CONFIG
 
 
+# Isolate the threshold trigger from the temporal-holdout viability gate
+# (should_train added a get_training_split_viability check inside the
+# threshold branch). Viability is covered by tests/test_trainer_holdout_alert.py;
+# here we assert only that meeting the example threshold triggers training.
+# Without this, the 55 same-day seed examples yield an empty holdout -> non-viable.
+@patch("src.training.trainer.get_training_split_viability",
+       return_value=(True, "viable (test)", {}))
 @patch("src.training.trainer.load_config", _mock_enabled)
-def test_should_train_true_when_threshold_met():
+def test_should_train_true_when_threshold_met(mock_viability):
     db = _tmp_db()
     init_training_tables(db)
     _insert_examples(db, 55)
