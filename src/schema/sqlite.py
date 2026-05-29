@@ -254,6 +254,12 @@ def _migration_default(col):
     and the NOT NULL constraint is preserved (matches the fresh-create schema).
     Returns the registry default unchanged when the column is nullable or already
     has a default.
+
+    CAVEAT: a NOT NULL column that ALSO has a CHECK constraint the synthesized
+    default would violate (e.g. backtest_results.provenance_kind, a 3-state enum)
+    still can't be ALTER-added onto a populated table — the ALTER fails and
+    ensure_columns logs a warning + skips it. This is non-regressive (the prior
+    code failed identically) and never persists a constraint-violating value.
     """
     if col.default is not None or col.nullable:
         return col.default
