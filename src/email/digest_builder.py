@@ -191,16 +191,14 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
 
     if council:
         consensus = council["consensus"] or "unknown"
+        # confidence_weighted_score is stored as a PERCENTAGE [0,100]
+        # (src/council/aggregation.py:237 + engine.py:610 write abs(score)*100,
+        # score in [-1,1]). Render the value directly — do NOT re-scale.
         confidence = _coerce_float(council["confidence_weighted_score"], 0.0)
-        # confidence_weighted_score is stored as a 0-1 fraction; render as a
-        # percentage. Without the *100, a 0.73 confidence printed as "{:.0f}%"
-        # rounds to "1%" instead of "73%". Matches the fraction-vs-percent
-        # coercion in src/scheduler/reports.py (values in [0,1] are fractions).
-        confidence_pct = confidence * 100 if 0 <= confidence <= 1 else confidence
         contested = " (contested)" if council["is_contested"] else ""
         lines.extend(["", "━━━ COUNCIL ━━━", f"Latest assessment: {consensus}{contested}"])
-        if confidence_pct > 0:
-            lines.append(f"Confidence: {confidence_pct:.0f}%")
+        if confidence > 0:
+            lines.append(f"Confidence: {confidence:.0f}%")
 
     lines.extend([
         "", "━━━ TODAY'S PLAN ━━━",

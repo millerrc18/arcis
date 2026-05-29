@@ -73,7 +73,11 @@ class TestPremarketDigest:
             conn.execute(
                 "INSERT INTO council_sessions (session_id, created_at, consensus, confidence_weighted_score, is_contested) "
                 "VALUES (?, ?, ?, ?, ?)",
-                ("sess-1", "2026-04-06T07:20:00", "defensive", "0.73", 0),
+                # confidence_weighted_score is stored as a PERCENTAGE [0,100] string
+                # (abs(score)*100 per src/council/aggregation.py:237). Seed "73.0" —
+                # this asserts string→percent coercion renders "73%" (the prior "0.73"
+                # seed encoded a wrong 0-1 convention that didn't match production).
+                ("sess-1", "2026-04-06T07:20:00", "defensive", "73.0", 0),
             )
             conn.commit()
 
