@@ -255,16 +255,30 @@ def pytest_sessionfinish(session, exitstatus):
         if not is_justified_skip(reason)
     ]
     if offenders:
-        line = "=" * 70
-        print(f"\n{line}")
-        print("[GREEN-GATE] DD-42 §46 — skips fired without an allowlisted reason:")
-        print("  (allowlist: platform | optional-dep | engine-aware |")
-        print("   tracked-upstream-bug(#N) | integration(authoritative-coverage:<job>))")
-        for nid, reason in offenders:
-            print(f"  - {nid}\n      reason: {reason}")
-        print(line)
+        # Fail FIRST so a reporting hiccup can never mask the gate result. Only
+        # override a clean exit (0) — genuine test failures stay non-zero.
         if session.exitstatus == 0:
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+        # ASCII-safe: skip reasons may contain non-ASCII (>=, em-dash). On Windows
+        # the captured stdout is cp1252 and a raw print() of those chars raises
+        # UnicodeEncodeError, which would crash pytest_sessionfinish and swallow
+        # the report. backslashreplace keeps the text legible without crashing.
+        def _ascii(s: str) -> str:
+            return str(s).encode("ascii", "backslashreplace").decode("ascii")
+
+        line = "=" * 70
+        report = [
+            "",
+            line,
+            "[GREEN-GATE] DD-42 sec.46 - skips fired without an allowlisted reason:",
+            "  (allowlist: platform | optional-dep | engine-aware |",
+            "   tracked-upstream-bug(#N) | integration(authoritative-coverage:<job>))",
+        ]
+        for nid, reason in offenders:
+            report.append(f"  - {_ascii(nid)}\n      reason: {_ascii(reason)}")
+        report.append(line)
+        print("\n".join(report))
 
 
 import shutil
