@@ -23,12 +23,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.analytics.canonical_sharpe import raw_sharpe, rf_adjusted_excess_sharpe
-from src.api.app import app
+
+
+def _noop_auth():
+    return None
 
 
 @pytest.fixture(scope="module")
 def client():
-    return TestClient(app, raise_server_exceptions=False)
+    from src.api.app import app, verify_auth
+    import src.api.cloud_routes.kpis as kpis_route
+    app.dependency_overrides[verify_auth] = _noop_auth
+    app.dependency_overrides[kpis_route.verify_auth] = _noop_auth
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.pop(verify_auth, None)
+    app.dependency_overrides.pop(kpis_route.verify_auth, None)
 
 
 # ── C2: IB Shadow routes ─────────────────────────────────────────────────────
@@ -363,7 +372,8 @@ def test_projections_live_value_validation_sharpe_and_drawdown(client):
                 "  pnl_dollars REAL,"
                 "  pnl_pct REAL,"
                 "  quarantined INTEGER DEFAULT 0,"
-                "  actual_exit_time TEXT"
+                "  actual_exit_time TEXT,"
+                "  exit_reason TEXT"
                 ")"
             )
             for i, (pct, dollars) in enumerate(zip(pnl_pcts, pnl_dollars)):

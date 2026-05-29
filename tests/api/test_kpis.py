@@ -26,6 +26,22 @@ from src.api.cloud_routes.kpis import (
 )
 
 
+# ── Module-level autouse: block real FRED HTTP ────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _mock_fred_default(monkeypatch):
+    """Prevent real FRED HTTP calls in tests that don't explicitly mock RF.
+
+    CLAUDE.md: mock ALL external APIs in tests.  Tests that need specific
+    RF behavior (TestPerTradeRfWiring) override via their own ``with patch(...)``
+    context managers, which take precedence over this monkeypatch.
+    """
+    monkeypatch.setattr(
+        "src.data_ingestion.risk_free_rate.get_rf_rate",
+        lambda _date: (_ for _ in ()).throw(KeyError("mocked-no-fred")),
+    )
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 _RETURNS_35 = [0.012, -0.005, 0.023, 0.008, -0.003, 0.015, 0.019, -0.002,

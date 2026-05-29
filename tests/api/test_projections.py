@@ -21,12 +21,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.analytics.canonical_sharpe import raw_sharpe
-from src.api.app import app
+
+
+def _noop_auth():
+    return None
 
 
 @pytest.fixture(scope="module")
 def client():
-    return TestClient(app, raise_server_exceptions=False)
+    from src.api.app import app, verify_auth
+    app.dependency_overrides[verify_auth] = _noop_auth
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.pop(verify_auth, None)
 
 
 @pytest.fixture
@@ -49,7 +55,8 @@ def temp_db_with_trades():
             "  pnl_dollars REAL,"
             "  pnl_pct REAL,"
             "  quarantined INTEGER DEFAULT 0,"
-            "  actual_exit_time TEXT"
+            "  actual_exit_time TEXT,"
+            "  exit_reason TEXT"
             ")"
         )
         # Five known returns: known mean, known std → predictable raw_sharpe.
@@ -117,7 +124,7 @@ def test_projections_live_sharpe_zero_when_undefined(client):
             "CREATE TABLE shadow_trades ("
             "  trade_id TEXT PRIMARY KEY, status TEXT, pnl_dollars REAL,"
             "  pnl_pct REAL, quarantined INTEGER DEFAULT 0,"
-            "  actual_exit_time TEXT)"
+            "  actual_exit_time TEXT, exit_reason TEXT)"
         )
         conn.commit()
         conn.close()
