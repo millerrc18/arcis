@@ -9,6 +9,17 @@ from fastapi.testclient import TestClient
 from tests.conftest import init_test_db
 
 
+def _noop_auth():
+    """No-op auth override for TestClient fixtures."""
+    return None
+
+
+def _make_client(app_mod):
+    """Create a TestClient with verify_auth bypassed."""
+    app_mod.app.dependency_overrides[app_mod.verify_auth] = _noop_auth
+    return TestClient(app_mod.app)
+
+
 @pytest.fixture
 def local_db(tmp_path):
     """Create a temporary SQLite database with schema."""
@@ -38,9 +49,11 @@ def client(local_db):
         import importlib
         import src.api.routes.system as sys_mod
         importlib.reload(sys_mod)
+        import src.api.routes.system_status as sys_status_mod
+        importlib.reload(sys_status_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestActivityFeed:
@@ -111,7 +124,7 @@ def health_client(health_db):
         importlib.reload(sys_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestBuildScore:
@@ -138,7 +151,7 @@ class TestBuildScore:
             importlib.reload(health_mod)
             import src.api.app as app_mod
             importlib.reload(app_mod)
-            client = TestClient(app_mod.app)
+            client = _make_client(app_mod)
             resp = client.get("/api/build-score")
             assert resp.status_code == 200
             data = resp.json()
@@ -197,7 +210,7 @@ def council_client(council_db):
         importlib.reload(council_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestCouncil:
@@ -220,13 +233,13 @@ class TestCouncil:
             importlib.reload(council_mod)
             import src.api.app as app_mod
             importlib.reload(app_mod)
-            client = TestClient(app_mod.app)
+            client = _make_client(app_mod)
             resp = client.get("/api/council/latest")
             assert resp.status_code == 200
             assert resp.json() == {"session": None}
 
     def test_council_history(self, council_client):
-        resp = council_client.get("/api/council/history?days=30")
+        resp = council_client.get("/api/council/history?days=90")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -261,7 +274,7 @@ def notes_client(notes_db):
         importlib.reload(notes_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestNotes:
@@ -350,7 +363,7 @@ def live_client(live_db):
         importlib.reload(live_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestLiveLedger:
@@ -400,7 +413,7 @@ def logs_client(logs_db):
         importlib.reload(logs_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestLogs:
@@ -469,9 +482,11 @@ def settings_client(settings_db):
         import importlib
         import src.api.routes.system as sys_mod
         importlib.reload(sys_mod)
+        import src.api.routes.system_status as sys_status_mod
+        importlib.reload(sys_status_mod)
         import src.api.app as app_mod
         importlib.reload(app_mod)
-        yield TestClient(app_mod.app)
+        yield _make_client(app_mod)
 
 
 class TestSettings:
