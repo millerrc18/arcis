@@ -55,12 +55,12 @@
     {
       "file": "src/data_enrichment/enricher.py",
       "lines": 721,
-      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 525. Wave C7b.1 / T21 added enrich_institutional_flow (+54L). Wave C7b.2 / T22 added enrich_filings_sentiment (+52L) \u2014 plan-gated reader over filings_sentiment + _filings_sentiment_plan_supports signal for the MATERIAL EVENTS renderer. Wave C7b.3 / T23 added enrich_press_releases (+62L) \u2014 plan-gated reader over press_releases with press_release_count_7d + latest_press_release_* signals for the MATERIAL EVENTS press_releases sub-block. Wave C7b.4 / T24 added enrich_stock_financials (+28L) \u2014 thin plan-gated delegate to src/data_enrichment/financials.py for FUNDAMENTAL SNAPSHOT live-enrichment fields. Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is post-Sprint-5 \u2014 the existing scaffold expects a single enricher module."
+      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 525. Wave C7b.1 / T21 added enrich_institutional_flow (+54L). Wave C7b.2 / T22 added enrich_filings_sentiment (+52L) — plan-gated reader over filings_sentiment + _filings_sentiment_plan_supports signal for the MATERIAL EVENTS renderer. Wave C7b.3 / T23 added enrich_press_releases (+62L) — plan-gated reader over press_releases with press_release_count_7d + latest_press_release_* signals for the MATERIAL EVENTS press_releases sub-block. Wave C7b.4 / T24 added enrich_stock_financials (+28L) — thin plan-gated delegate to src/data_enrichment/financials.py for FUNDAMENTAL SNAPSHOT live-enrichment fields. Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is post-Sprint-5 — the existing scaffold expects a single enricher module."
     },
     {
       "file": "src/data_enrichment/news.py",
       "lines": 490,
-      "rationale": "Sprint 4 T13c: normalize_earnings_time helper added, plus T13-SECREV _html_escape wiring across fetch_recent_news/fetch_historical_news external-data interpolations. Pre-Sprint-4 baseline was under 400; Sprint 4 T13-series additions grew it to 490. Real split (separating fetch_recent_news vs fetch_historical_news into sibling helpers) deferred to Sprint 5 \u2014 functions are tightly coupled via shared Finnhub client state."
+      "rationale": "Sprint 4 T13c: normalize_earnings_time helper added, plus T13-SECREV _html_escape wiring across fetch_recent_news/fetch_historical_news external-data interpolations. Pre-Sprint-4 baseline was under 400; Sprint 4 T13-series additions grew it to 490. Real split (separating fetch_recent_news vs fetch_historical_news into sibling helpers) deferred to Sprint 5 — functions are tightly coupled via shared Finnhub client state."
     },
     {
       "file": "src/council/engine.py",
@@ -73,7 +73,7 @@
     {
       "file": "src/evaluation/auditor.py",
       "lines": 906,
-      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2; 645 after T2's _check_regime_classification). W21 audit-hotfix series grew it to 780: v0.36.22 drawdown sample guard, v0.36.27 _LLM_AUDIT_MIN_SAMPLE LLM-narrative guard (#1139), v0.36.31 _MODEL_WIN_RATE_MIN_SAMPLE precheck guard (#1143). Sprint #115 T9 grew it to 906 (+126L): Hybrid CRITICAL flow (DD-01 + DD-30 revised + DD-34) \u2014 Step 1 enqueue_for_email_digest call (canonical for digest replay), Step 2 immediate send_email (24h-throttled), ImportError/ModuleNotFoundError-only fallback with logger.critical FIREHOSE FALLBACK marker + best-effort safe_send Telegram alert, notifications_sent throttled_suppressed audit row writer; ALERT severity path also rewritten to enqueue-only with the same ImportError fallback shape. Real split into auditor_daily/_weekly/_escalation deferred to post-freeze."
+      "rationale": "Pre-existing violation (597 lines before Sprint 6 T2; 645 after T2's _check_regime_classification). W21 audit-hotfix series grew it to 780: v0.36.22 drawdown sample guard, v0.36.27 _LLM_AUDIT_MIN_SAMPLE LLM-narrative guard (#1139), v0.36.31 _MODEL_WIN_RATE_MIN_SAMPLE precheck guard (#1143). Sprint #115 T9 grew it to 906 (+126L): Hybrid CRITICAL flow (DD-01 + DD-30 revised + DD-34) — Step 1 enqueue_for_email_digest call (canonical for digest replay), Step 2 immediate send_email (24h-throttled), ImportError/ModuleNotFoundError-only fallback with logger.critical FIREHOSE FALLBACK marker + best-effort safe_send Telegram alert, notifications_sent throttled_suppressed audit row writer; ALERT severity path also rewritten to enqueue-only with the same ImportError fallback shape. Real split into auditor_daily/_weekly/_escalation deferred to post-freeze."
     },
     {
       "file": "src/evaluation/build_score.py",
@@ -91,7 +91,7 @@
     {
       "file": "src/evaluation/hshs_live.py",
       "lines": 414,
-      "rationale": "Sprint 5 Wave A+B T1ext (cross-engine fetchone fix): added +49 lines across 15 cross-engine compatibility sites (defensive `row[N] if not isinstance(row, dict) else row['name']` dispatch for psycopg2 RealDictCursor vs sqlite3.Row). File grew from 365 to 414 lines. Real refactor deferred \u2014 the fetchone fix pattern is intentional defensive code that the migration cutover requires."
+      "rationale": "Sprint 5 Wave A+B T1ext (cross-engine fetchone fix): added +49 lines across 15 cross-engine compatibility sites (defensive `row[N] if not isinstance(row, dict) else row['name']` dispatch for psycopg2 RealDictCursor vs sqlite3.Row). File grew from 365 to 414 lines. Real refactor deferred — the fetchone fix pattern is intentional defensive code that the migration cutover requires."
     },
     {
       "file": "src/evaluation/model_monitor.py",
@@ -108,12 +108,12 @@
     {
       "file": "src/llm/packet_writer.py",
       "lines": 1294,
-      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 1012. Wave C7b.1 / T21 added _render_institutional_flow (+45L). Wave C7b.2 / T22 added _render_filings_sentiment_subblock + _render_material_events (+56L) \u2014 plan-gated MATERIAL EVENTS packet section at index 7.5 wrapping the filings_sentiment sub-block (Decision 30 + composition rule: section absent when no sub-block has plan-support). Wave C7b.3 / T23 added _render_press_releases_subblock + extended _render_material_events to compose both sub-blocks (+29L). Wave C7b.4 / T24 added _render_fundamental_snapshot_live + _collect_tier2_omissions + _render_data_context_header (~149L total) \u2014 plan-gated DATA CONTEXT header preamble (spec 4.8.1 + 4.8.2) that surfaces omitted Tier-2 sections and stale-data ageing for the LLM, plus FUNDAMENTAL SNAPSHOT live-enrichment trailer reading the Finnhub stock_financials JSON sink. Each section/header is a coherent rendering unit; the renderers all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to post-Sprint-5."
+      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 1012. Wave C7b.1 / T21 added _render_institutional_flow (+45L). Wave C7b.2 / T22 added _render_filings_sentiment_subblock + _render_material_events (+56L) — plan-gated MATERIAL EVENTS packet section at index 7.5 wrapping the filings_sentiment sub-block (Decision 30 + composition rule: section absent when no sub-block has plan-support). Wave C7b.3 / T23 added _render_press_releases_subblock + extended _render_material_events to compose both sub-blocks (+29L). Wave C7b.4 / T24 added _render_fundamental_snapshot_live + _collect_tier2_omissions + _render_data_context_header (~149L total) — plan-gated DATA CONTEXT header preamble (spec 4.8.1 + 4.8.2) that surfaces omitted Tier-2 sections and stale-data ageing for the LLM, plus FUNDAMENTAL SNAPSHOT live-enrichment trailer reading the Finnhub stock_financials JSON sink. Each section/header is a coherent rendering unit; the renderers all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to post-Sprint-5."
     },
     {
       "file": "src/notifications/email_digest_render.py",
       "lines": 735,
-      "rationale": "Phase 5 PR-C T16 split (DD-08c + operator Option-A): the rendering/HTML/formatting surface lifted verbatim out of email_digest.py (which dropped from 1236L to 354L, now under the 400 limit and removed from this list). 735L = render_digest orchestrator + _truncate_top_k + preview_tier + _collect_preopen_critical_replays + the three per-tier HTML builders (_render_preopen_html / _render_postclose_html / _render_weekly_html) each with 3-5 per-section sub-renderers + the preopen/postclose data collectors + the four weekly per-section data collectors (_collect_weekly_performance/_training/_cto/_audit) + _render_plain_from_html + the required 5-header module docstring. render_digest + preview_tier are re-exported by email_digest.py so the public API + all `from src.notifications.email_digest import render_digest` call sites are byte-for-byte unchanged. The per-section renderers are already decomposed to satisfy the 60-line function cap (longest fn is _render_weekly_html at ~50L). 3-module split was the DD-08c minimum; the optional 4th (email_digest_collect.py) was NOT created because its gating condition \u2014 orchestrator staying >400L without it \u2014 is unmet (orchestrator is 354L), and the data collectors are render-feeding so they live with the renderers they serve. Phase-6 sub-target: if the file grows, split the three per-tier HTML builders into sibling render_preopen/postclose/weekly modules."
+      "rationale": "Phase 5 PR-C T16 split (DD-08c + operator Option-A): the rendering/HTML/formatting surface lifted verbatim out of email_digest.py (which dropped from 1236L to 354L, now under the 400 limit and removed from this list). 735L = render_digest orchestrator + _truncate_top_k + preview_tier + _collect_preopen_critical_replays + the three per-tier HTML builders (_render_preopen_html / _render_postclose_html / _render_weekly_html) each with 3-5 per-section sub-renderers + the preopen/postclose data collectors + the four weekly per-section data collectors (_collect_weekly_performance/_training/_cto/_audit) + _render_plain_from_html + the required 5-header module docstring. render_digest + preview_tier are re-exported by email_digest.py so the public API + all `from src.notifications.email_digest import render_digest` call sites are byte-for-byte unchanged. The per-section renderers are already decomposed to satisfy the 60-line function cap (longest fn is _render_weekly_html at ~50L). 3-module split was the DD-08c minimum; the optional 4th (email_digest_collect.py) was NOT created because its gating condition — orchestrator staying >400L without it — is unmet (orchestrator is 354L), and the data collectors are render-feeding so they live with the renderers they serve. Phase-6 sub-target: if the file grows, split the three per-tier HTML builders into sibling render_preopen/postclose/weekly modules."
     },
     {
       "file": "src/notifications/telegram.py",
@@ -131,12 +131,12 @@
     {
       "file": "src/platform/rigor/walkforward_runner.py",
       "lines": 435,
-      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 435 lines via VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, derived_from_backtest_id plumb (review fix), evidence field on WalkForwardRunResult, and SP-WF-010 corpus binding gate (delegates to canonical FS-based src.evaluation.walkforward._gate_corpus_or_raise per cutover-impact.md:24 \u2014 corpora are filesystem-based, not DB-backed). Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
+      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 435 lines via VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, derived_from_backtest_id plumb (review fix), evidence field on WalkForwardRunResult, and SP-WF-010 corpus binding gate (delegates to canonical FS-based src.evaluation.walkforward._gate_corpus_or_raise per cutover-impact.md:24 — corpora are filesystem-based, not DB-backed). Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
     },
     {
       "file": "src/platform/promotion.py",
       "lines": 938,
-      "rationale": "Sprint 2 T2 baseline 811. Sprint 6 Wave B T14 (SP-WF-014): _evaluate_production_gate extended from 18 to 104 lines \u2014 sentinel guard (WALKFORWARD_GATE_ENABLED), _evaluate_walkforward_gate call, strict no-row policy (returns False, no legacy fall-through), DA-1 freshness cap (sha-match + 30-day SQLite date check), and evidence dict with walkforward_* keys symmetric with shadow_trading gate. All additions are scope-required by SP-WF-014 + DA-1 (design spec 2026-05-13). Sprint 6 scope fence declared +<=30 net new lines; DA-1 freshness cap added ~67 additional lines beyond the minimal gate composition. Operator-visible rationale: DA-1 is CRITICAL per DA review and must not be hand-waved; splitting the staleness check into a helper would require a new function not justified by single-use pattern. Real split into a sibling promotion_production_gate.py is deferred to post-Sprint-6."
+      "rationale": "Sprint 2 T2 baseline 811. Sprint 6 Wave B T14 (SP-WF-014): _evaluate_production_gate extended from 18 to 104 lines — sentinel guard (WALKFORWARD_GATE_ENABLED), _evaluate_walkforward_gate call, strict no-row policy (returns False, no legacy fall-through), DA-1 freshness cap (sha-match + 30-day SQLite date check), and evidence dict with walkforward_* keys symmetric with shadow_trading gate. All additions are scope-required by SP-WF-014 + DA-1 (design spec 2026-05-13). Sprint 6 scope fence declared +<=30 net new lines; DA-1 freshness cap added ~67 additional lines beyond the minimal gate composition. Operator-visible rationale: DA-1 is CRITICAL per DA review and must not be hand-waved; splitting the staleness check into a helper would require a new function not justified by single-use pattern. Real split into a sibling promotion_production_gate.py is deferred to post-Sprint-6."
     },
     {
       "file": "src/platform/signal_eval.py",
@@ -149,12 +149,12 @@
     {
       "file": "src/risk/governor.py",
       "lines": 931,
-      "rationale": "Pre-existing growth from 847 to 949 lines (before v0.36.13). Risk governor is a core safety component; splitting is a structural refactor out of scope for v0.36.13. Deferred to post-Sprint-6 cleanup track. Phase 5 PR-C T14: the deterministic-audit entry-suppression gate (audit_entry_suppression_reason + _AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS) extracted to governor_audit.py and re-exported; governor.py 949 -> 931L. Still oversized \u2014 the remaining bulk is the RiskGovernor.check_trade 8-gate body, deferred."
+      "rationale": "Pre-existing growth from 847 to 949 lines (before v0.36.13). Risk governor is a core safety component; splitting is a structural refactor out of scope for v0.36.13. Deferred to post-Sprint-6 cleanup track. Phase 5 PR-C T14: the deterministic-audit entry-suppression gate (audit_entry_suppression_reason + _AUDIT_ENTRY_SUPPRESSION_LOOKBACK_HOURS) extracted to governor_audit.py and re-exported; governor.py 949 -> 931L. Still oversized — the remaining bulk is the RiskGovernor.check_trade 8-gate body, deferred."
     },
     {
       "file": "src/scheduler/ollama_watchdog.py",
       "lines": 411,
-      "rationale": "Pre-existing as of v0.36.55 (a8ea0977) \u2014 surfaced (not introduced) by the v0.36.57 #104 tooling-foundation test run. File grew past 400 lines during the #94 dual-GPU re-cutover (introduced ArcisOllamaWatchdog NSSM service + GPU1 partition + crash-escalation logic). Real split candidates: extract _check_gpu_partition_health() into a helper module, or pull the model-tag fallback chain (re-introduced in v0.36.52) into a tiny _model_resolution.py. Refactor deferred \u2014 out of scope for #104 (tooling foundation, no application-code changes), and the file is tightly coupled around the watchdog poll loop's invariants."
+      "rationale": "Pre-existing as of v0.36.55 (a8ea0977) — surfaced (not introduced) by the v0.36.57 #104 tooling-foundation test run. File grew past 400 lines during the #94 dual-GPU re-cutover (introduced ArcisOllamaWatchdog NSSM service + GPU1 partition + crash-escalation logic). Real split candidates: extract _check_gpu_partition_health() into a helper module, or pull the model-tag fallback chain (re-introduced in v0.36.52) into a tiny _model_resolution.py. Refactor deferred — out of scope for #104 (tooling foundation, no application-code changes), and the file is tightly coupled around the watchdog poll loop's invariants."
     },
     {
       "file": "src/scheduler/overnight.py",
@@ -164,12 +164,12 @@
     {
       "file": "src/scheduler/reports.py",
       "lines": 951,
-      "rationale": "Sprint 5 Wave A+B T1ext (cross-engine fetchone fix): added +88 lines via defensive `row[N] if not isinstance(row, dict) else row['name']` dispatch sites for psycopg2 RealDictCursor vs sqlite3.Row impedance. File grew from 863 to 951. Real refactor deferred \u2014 reports.py is the EOD/weekly report assembly module and the fetchone fix sites are scattered across summary/best-worst/streak query handlers."
+      "rationale": "Sprint 5 Wave A+B T1ext (cross-engine fetchone fix): added +88 lines via defensive `row[N] if not isinstance(row, dict) else row['name']` dispatch sites for psycopg2 RealDictCursor vs sqlite3.Row impedance. File grew from 863 to 951. Real refactor deferred — reports.py is the EOD/weekly report assembly module and the fetchone fix sites are scattered across summary/best-worst/streak query handlers."
     },
     {
       "file": "src/scheduler/watch.py",
       "lines": 2762,
-      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). Real split is deferred \u2014 the loop body and helper methods are tightly coupled. #94 dual-GPU: +startup guard (T5), +runtime liveness monitor (T18), +training-lifecycle handlers & flag disambiguation (T10). Split still deferred."
+      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). Real split is deferred — the loop body and helper methods are tightly coupled. #94 dual-GPU: +startup guard (T5), +runtime liveness monitor (T18), +training-lifecycle handlers & flag disambiguation (T10). Split still deferred."
     },
     {
       "file": "src/schema/registry.py",
@@ -184,7 +184,7 @@
     {
       "file": "src/shadow_trading/alpaca_adapter.py",
       "lines": 425,
-      "rationale": "Sprint 5 Wave A+B base: alpaca_adapter.py (unified broker adapter) introduced at 425 lines as part of PG/SQLite cutover work. Real split deferred post-Sprint-5 per #97 operator triage 2026-05-13 \u2014 sentinel test tests/shadow_trading/test_alpaca_adapter_split.py deleted at T16 (Sprint Close). Resolution: refactor into alpaca_adapter_core.py + alpaca_adapter_orders.py + alpaca_adapter_positions.py in the post-Sprint-5 window (~1 sprint estimate)."
+      "rationale": "Sprint 5 Wave A+B base: alpaca_adapter.py (unified broker adapter) introduced at 425 lines as part of PG/SQLite cutover work. Real split deferred post-Sprint-5 per #97 operator triage 2026-05-13 — sentinel test tests/shadow_trading/test_alpaca_adapter_split.py deleted at T16 (Sprint Close). Resolution: refactor into alpaca_adapter_core.py + alpaca_adapter_orders.py + alpaca_adapter_positions.py in the post-Sprint-5 window (~1 sprint estimate)."
     },
     {
       "file": "src/shadow_trading/executor.py",
@@ -204,7 +204,7 @@
     {
       "file": "src/shadow_trading/reconcile.py",
       "lines": 1392,
-      "rationale": "Sprint 5 Wave A+B base: reconcile.py grew from 901 to 1042 lines. Wave 6 reconciler improvements already grandfathered at 901 (reconcile_paper_trades at 581L); additional cutover-phase reconciler logic pushed it further. Real refactor of reconcile_paper_trades deferred. Recorded count was stale (1042) against origin/main, which already carries reconcile.py at 1392 lines from post-Sprint-5 reconciler work UNRELATED to #94 (the dual-GPU sprint did not touch this file \u2014 `git log origin/main..HEAD -- src/shadow_trading/reconcile.py` is empty). Bumped to 1392 during the #94 T15 repo-structure audit purely to record reality for CI-green; the underlying split remains owned by the reconciler/cutover track, not by #94."
+      "rationale": "Sprint 5 Wave A+B base: reconcile.py grew from 901 to 1042 lines. Wave 6 reconciler improvements already grandfathered at 901 (reconcile_paper_trades at 581L); additional cutover-phase reconciler logic pushed it further. Real refactor of reconcile_paper_trades deferred. Recorded count was stale (1042) against origin/main, which already carries reconcile.py at 1392 lines from post-Sprint-5 reconciler work UNRELATED to #94 (the dual-GPU sprint did not touch this file — `git log origin/main..HEAD -- src/shadow_trading/reconcile.py` is empty). Bumped to 1392 during the #94 T15 repo-structure audit purely to record reality for CI-green; the underlying split remains owned by the reconciler/cutover track, not by #94."
     },
     {
       "file": "src/simulation/engine.py",
@@ -218,7 +218,7 @@
     {
       "file": "src/evaluation/walkforward.py",
       "lines": 431,
-      "rationale": "#82 Sprint 1.C Phase 5 deterministic-ranker shadow portfolio adds ~64 net lines (3 small helpers \u2014 _compute_shadow_delta, _build_flat_result, _assemble_with_shadow_result \u2014 plus with_shadow=True branch in run_walkforward + --with-shadow CLI flag). The shadow branch is genuinely new functionality (pre-reg \u00a76 secondary diagnostic + addendum \u00a7A1.6 verbatim). Origin/main was 367 lines; extracting to a sibling module would split tightly-coupled fold-orchestration code across files for marginal aesthetic gain. Helpers already compressed (nested-function _powered_pnl inside _compute_shadow_delta; **prov varargs to avoid duplicated 7-key dict signatures)."
+      "rationale": "#82 Sprint 1.C Phase 5 deterministic-ranker shadow portfolio adds ~64 net lines (3 small helpers — _compute_shadow_delta, _build_flat_result, _assemble_with_shadow_result — plus with_shadow=True branch in run_walkforward + --with-shadow CLI flag). The shadow branch is genuinely new functionality (pre-reg §6 secondary diagnostic + addendum §A1.6 verbatim). Origin/main was 367 lines; extracting to a sibling module would split tightly-coupled fold-orchestration code across files for marginal aesthetic gain. Helpers already compressed (nested-function _powered_pnl inside _compute_shadow_delta; **prov varargs to avoid duplicated 7-key dict signatures)."
     },
     {
       "file": "src/training/curriculum.py",
@@ -240,17 +240,17 @@
     {
       "file": "src/utils/db.py",
       "lines": 1131,
-      "rationale": "Sprint 5 \u00a7J5/\u00a7J6 Phase 0: central engine-impedance wrapper. T0.1 CompatRow+_RowFactoryCursor (87L), T0.3 _resolve_conflict_target (32L), T0.8 configure_sqlite_for_production+_sqlite_only_connect re-export (40L), T0.2 _rewrite_question_to_pct quote-and-percent-aware tokenizer + PostgresConnectionWrapper rewrite integration (173L), T0.4 engine_aware_upsert with _REPLACE_SEMANTICS dispatch (~215L: _require_classified_replace + _transactional_delete_insert + _pg_replace_in_place + _dispatch_pg + _dispatch_sqlite + engine_aware_upsert + audit dict), T0.5 engine_aware_table_list + engine_aware_column_info (~93L), T0.6 engine_aware_index_list + engine_aware_foreign_keys (~145L, pg_indexes + information_schema.referential_constraints with PRAGMA-shape output). Pre-Sprint-5 baseline was 149. Spec section 2.X mandates 'All wrapper changes land in src/utils/db.py (no new files in this layer)' \u2014 splitting into siblings would violate the architectural decision. T0.9 conftest fixtures + T0.11 connect_db_with_pg_retry (~40L) remain. + T0.11 connect_db_with_pg_retry (~40L): bounded-retry helper for PG transient OperationalError with M3 fast-exit (watchdog.txt write + sys.exit(1)) on max_attempts exhaustion; sys/time/pathlib imports added at module top. Grown from 1023 to 1131 by sp5-followup PRs (#1059 _scalar + #1060 _RowFactoryCursor.__iter__). Refactor deferred to post-Sprint-5 when migration is complete and helpers can be split by concern (compat layer vs. helpers vs. shim)."
+      "rationale": "Sprint 5 §J5/§J6 Phase 0: central engine-impedance wrapper. T0.1 CompatRow+_RowFactoryCursor (87L), T0.3 _resolve_conflict_target (32L), T0.8 configure_sqlite_for_production+_sqlite_only_connect re-export (40L), T0.2 _rewrite_question_to_pct quote-and-percent-aware tokenizer + PostgresConnectionWrapper rewrite integration (173L), T0.4 engine_aware_upsert with _REPLACE_SEMANTICS dispatch (~215L: _require_classified_replace + _transactional_delete_insert + _pg_replace_in_place + _dispatch_pg + _dispatch_sqlite + engine_aware_upsert + audit dict), T0.5 engine_aware_table_list + engine_aware_column_info (~93L), T0.6 engine_aware_index_list + engine_aware_foreign_keys (~145L, pg_indexes + information_schema.referential_constraints with PRAGMA-shape output). Pre-Sprint-5 baseline was 149. Spec section 2.X mandates 'All wrapper changes land in src/utils/db.py (no new files in this layer)' — splitting into siblings would violate the architectural decision. T0.9 conftest fixtures + T0.11 connect_db_with_pg_retry (~40L) remain. + T0.11 connect_db_with_pg_retry (~40L): bounded-retry helper for PG transient OperationalError with M3 fast-exit (watchdog.txt write + sys.exit(1)) on max_attempts exhaustion; sys/time/pathlib imports added at module top. Grown from 1023 to 1131 by sp5-followup PRs (#1059 _scalar + #1060 _RowFactoryCursor.__iter__). Refactor deferred to post-Sprint-5 when migration is complete and helpers can be split by concern (compat layer vs. helpers vs. shim)."
     },
     {
       "file": "src/simulation/lifecycle/scenario.py",
       "lines": 583,
-      "rationale": "#97 T9 KEYSTONE \u2014 organic open\u2192exit\u2192reconcile ScenarioRunner. 583 lines (183 over the 400 limit) introduced as the organic lifecycle driver: ScenarioResult dataclass + ScenarioRunner.{__init__, run, _setup, _teardown, _install_sim_bridges, _drive_one_cycle, _drive_oco_exit, _drive_reconcile_when_gone, _find_held_leg, _fetch_shadow_trade_rows, _checkpoint} + module helpers (_extract_dsn, _extract_price, _UrlDsnConnAdapter). The driver's tick-A/tick-B cycle, setup/teardown, organic-patch install, and bridge-shim logic are tightly coupled around shared install ordering and try/finally invariants \u2014 a real split into scenario_setup.py + scenario_drive.py + scenario_bridges.py would force the install order across file boundaries, increasing the risk of leak-class regressions that the try/finally currently prevents. Real refactor deferred to a follow-up sprint after the gate is in production and the install-order invariants are stable."
+      "rationale": "#97 T9 KEYSTONE — organic open→exit→reconcile ScenarioRunner. 583 lines (183 over the 400 limit) introduced as the organic lifecycle driver: ScenarioResult dataclass + ScenarioRunner.{__init__, run, _setup, _teardown, _install_sim_bridges, _drive_one_cycle, _drive_oco_exit, _drive_reconcile_when_gone, _find_held_leg, _fetch_shadow_trade_rows, _checkpoint} + module helpers (_extract_dsn, _extract_price, _UrlDsnConnAdapter). The driver's tick-A/tick-B cycle, setup/teardown, organic-patch install, and bridge-shim logic are tightly coupled around shared install ordering and try/finally invariants — a real split into scenario_setup.py + scenario_drive.py + scenario_bridges.py would force the install order across file boundaries, increasing the risk of leak-class regressions that the try/finally currently prevents. Real refactor deferred to a follow-up sprint after the gate is in production and the install-order invariants are stable."
     },
     {
       "file": "src/notifications/telegram_delivery.py",
       "lines": 1127,
-      "rationale": "Phase 5 PR-C T11: the notify_* pre-formatted alert builders + their typed payload dataclasses + the 14 email-tier stubs, extracted from telegram.py to bring that module back under the structure-debt band (telegram.py shrank 1662 -> 821). 1127 lines. These are cohesive message-formatting functions (one per event type); each is short and independently testable. Splitting further by category is possible but deferred \u2014 they share the _tg late-binding transport seam and the XSS-escape discipline audited by tests/notifications/test_html_escape_siblings.py. Operator Option-A authorized the test re-targeting that made this extraction safe."
+      "rationale": "Phase 5 PR-C T11: the notify_* pre-formatted alert builders + their typed payload dataclasses + the 14 email-tier stubs, extracted from telegram.py to bring that module back under the structure-debt band (telegram.py shrank 1662 -> 821). 1127 lines. These are cohesive message-formatting functions (one per event type); each is short and independently testable. Splitting further by category is possible but deferred — they share the _tg late-binding transport seam and the XSS-escape discipline audited by tests/notifications/test_html_escape_siblings.py. Operator Option-A authorized the test re-targeting that made this extraction safe."
     }
   ],
   "oversized_functions": [
@@ -505,7 +505,7 @@
       "file": "src/data_enrichment/enricher.py",
       "function": "enrich_features",
       "lines": 204,
-      "rationale": "Pre-existing growth (was 137 in original known_violations.json, grew to 204). Sprint 2 T2 disclosure per #731. Function computes the full feature-enrichment pipeline \u2014 splitting would require injecting many intermediate results. Real refactor deferred."
+      "rationale": "Pre-existing growth (was 137 in original known_violations.json, grew to 204). Sprint 2 T2 disclosure per #731. Function computes the full feature-enrichment pipeline — splitting would require injecting many intermediate results. Real refactor deferred."
     },
     {
       "file": "src/data_enrichment/fundamentals.py",
@@ -574,7 +574,7 @@
       "file": "src/evaluation/auditor.py",
       "function": "check_escalation",
       "lines": 222,
-      "rationale": "Sprint #115 T9: grew from 92 to 222 lines via Hybrid CRITICAL flow (DD-01 + DD-30 revised + DD-34) \u2014 Step 1 enqueue (canonical), Step 2 immediate send (24h-throttled), ImportError/ModuleNotFoundError-only fallback with logger.critical FIREHOSE FALLBACK marker + best-effort safe_send Telegram alert + bypass-throttle fallback send_email, notifications_sent 'throttled_suppressed' audit-trail writer for the throttled-immediate case, ALERT severity rewrite to enqueue-only with the same ImportError fallback shape (catch (ImportError, ModuleNotFoundError) ONLY per DA-MIN-19 so module-load AssertionError still propagates). Splitting would scatter the Hybrid Step 1 + Step 2 sequencing across helpers \u2014 Step 1 enqueue MUST commit BEFORE Step 2 send so the throttle-suppressed-but-queued case (DD-34 single source of truth) still appears in the next pre-open digest. The bootcamp downgrade, severity dispatch, and per-severity error-handling are all co-located. Real split is owned by the auditor refactor track (auditor_daily/_weekly/_escalation post-freeze)."
+      "rationale": "Sprint #115 T9: grew from 92 to 222 lines via Hybrid CRITICAL flow (DD-01 + DD-30 revised + DD-34) — Step 1 enqueue (canonical), Step 2 immediate send (24h-throttled), ImportError/ModuleNotFoundError-only fallback with logger.critical FIREHOSE FALLBACK marker + best-effort safe_send Telegram alert + bypass-throttle fallback send_email, notifications_sent 'throttled_suppressed' audit-trail writer for the throttled-immediate case, ALERT severity rewrite to enqueue-only with the same ImportError fallback shape (catch (ImportError, ModuleNotFoundError) ONLY per DA-MIN-19 so module-load AssertionError still propagates). Splitting would scatter the Hybrid Step 1 + Step 2 sequencing across helpers — Step 1 enqueue MUST commit BEFORE Step 2 send so the throttle-suppressed-but-queued case (DD-34 single source of truth) still appears in the next pre-open digest. The bootcamp downgrade, severity dispatch, and per-severity error-handling are all co-located. Real split is owned by the auditor refactor track (auditor_daily/_weekly/_escalation post-freeze)."
     },
     {
       "file": "src/evaluation/auditor.py",
@@ -590,7 +590,7 @@
       "file": "src/evaluation/backtester.py",
       "function": "backtest_model",
       "lines": 305,
-      "rationale": "Sprint 1.C Phase 4 #96.3 added optional corpus_id parameter + per-candidate corpus lookup; the most disruptive corpus-decision logic was extracted into _resolve_corpus_decision helper. Pre-existing 280-line size already exceeded the previous recorded 213 (recorded count was stale before this PR); this entry now reflects the post-#96.3 size. Real refactor of the per-day candidate loop is deferred \u2014 splitting that loop touches too much existing logic and is out of scope for #96.3."
+      "rationale": "Sprint 1.C Phase 4 #96.3 added optional corpus_id parameter + per-candidate corpus lookup; the most disruptive corpus-decision logic was extracted into _resolve_corpus_decision helper. Pre-existing 280-line size already exceeded the previous recorded 213 (recorded count was stale before this PR); this entry now reflects the post-#96.3 size. Real refactor of the per-day candidate loop is deferred — splitting that loop touches too much existing logic and is out of scope for #96.3."
     },
     {
       "file": "src/evaluation/corpus_generator.py",
@@ -800,7 +800,7 @@
       "file": "src/notifications/policy.py",
       "function": "should_dispatch",
       "lines": 69,
-      "rationale": "T10 Sprint 5 Wave D D1: should_dispatch implements 5-rule first-match decision table per spec \u00a74.1. 69 lines (9 over). The function body is a linear rule chain (if-elif-elif pattern); extracting sub-conditions into helpers would require passing config + derived values (start_hm, end_hm, now_hm) across call boundaries with no cohesion benefit. The spec explicitly defines all 5 rules as a unit. Real split deferred until T12 D3 wiring clarifies whether the function needs extension."
+      "rationale": "T10 Sprint 5 Wave D D1: should_dispatch implements 5-rule first-match decision table per spec §4.1. 69 lines (9 over). The function body is a linear rule chain (if-elif-elif pattern); extracting sub-conditions into helpers would require passing config + derived values (start_hm, end_hm, now_hm) across call boundaries with no cohesion benefit. The spec explicitly defines all 5 rules as a unit. Real split deferred until T12 D3 wiring clarifies whether the function needs extension."
     },
     {
       "file": "src/notifications/telegram.py",
@@ -884,31 +884,31 @@
       "file": "src/platform/promotion.py",
       "function": "_evaluate_strategy_methodology_gate",
       "lines": 129,
-      "rationale": "Sprint 2 T2: methodology gate helper per spec \u00a73.2. Loads shadow_trades, applies instrumentation filter, builds MethodInputs (returns/dates/directions), calls promotion_gate, and composes evidence dict. Each sub-task is tightly coupled; splitting into multiple helpers would require passing large evidence dicts through multiple hops with no cohesion benefit. Deferred to Sprint 3 if needed."
+      "rationale": "Sprint 2 T2: methodology gate helper per spec §3.2. Loads shadow_trades, applies instrumentation filter, builds MethodInputs (returns/dates/directions), calls promotion_gate, and composes evidence dict. Each sub-task is tightly coupled; splitting into multiple helpers would require passing large evidence dicts through multiple hops with no cohesion benefit. Deferred to Sprint 3 if needed."
     },
     {
       "file": "src/platform/promotion.py",
       "function": "_evaluate_shadow_trading_gate",
       "lines": 101,
-      "rationale": "Sprint 2 T2: grew from 69 to 101 lines by adding AND-compose methodology gate at all 7 return sites (spec \u00a71.2 DA major fix 1). Each site requires identical 3-line pattern (mg_passes, mg_evidence = ...; evidence['methodology_gate'] = ...; return ... and mg_passes). Macro expansion is technically possible but would obscure the AND-compose intent; pattern is already clear and the function structure is correct."
+      "rationale": "Sprint 2 T2: grew from 69 to 101 lines by adding AND-compose methodology gate at all 7 return sites (spec §1.2 DA major fix 1). Each site requires identical 3-line pattern (mg_passes, mg_evidence = ...; evidence['methodology_gate'] = ...; return ... and mg_passes). Macro expansion is technically possible but would obscure the AND-compose intent; pattern is already clear and the function structure is correct."
     },
     {
       "file": "src/platform/promotion.py",
       "function": "_evaluate_walkforward_gate",
       "lines": 73,
-      "rationale": "Sprint 6 Wave B T1: grew to 73 lines via WALKFORWARD_GATE_ENABLED sentinel short-circuit block (PR #1090). Function owns the three-state walkforward outcome evaluation path; splitting would require passing WalkForwardResult partial state across helper boundaries. Disclosed by T4 (PR #1092) per #731 after PR #1090 shipped without disclosure \u2014 sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6 once walkforward v2 wiring is stable."
+      "rationale": "Sprint 6 Wave B T1: grew to 73 lines via WALKFORWARD_GATE_ENABLED sentinel short-circuit block (PR #1090). Function owns the three-state walkforward outcome evaluation path; splitting would require passing WalkForwardResult partial state across helper boundaries. Disclosed by T4 (PR #1092) per #731 after PR #1090 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6 once walkforward v2 wiring is stable."
     },
     {
       "file": "src/platform/promotion.py",
       "function": "_evaluate_production_gate",
       "lines": 104,
-      "rationale": "Sprint 6 Wave B T14 (SP-WF-014): new function implementing production-gate walkforward composition. 104 lines = sentinel guard (WALKFORWARD_GATE_ENABLED) + _evaluate_walkforward_gate call + strict no-row policy (production invariant: no row \u2192 False) + DA-1 freshness cap (sha-match + 30-day SQLite date check with separate DB reads for walkforward_results.code_git_sha and backtest_results.code_git_sha) + DSR AND walkforward AND methodology composition. DA-1 is CRITICAL per DA review and must not be hand-waved. Splitting the staleness block into a _check_walkforward_freshness helper is a single-use abstraction unjustified by the scope. Refactor candidate post-Sprint-6 if T15 adds a second staleness-check call site."
+      "rationale": "Sprint 6 Wave B T14 (SP-WF-014): new function implementing production-gate walkforward composition. 104 lines = sentinel guard (WALKFORWARD_GATE_ENABLED) + _evaluate_walkforward_gate call + strict no-row policy (production invariant: no row → False) + DA-1 freshness cap (sha-match + 30-day SQLite date check with separate DB reads for walkforward_results.code_git_sha and backtest_results.code_git_sha) + DSR AND walkforward AND methodology composition. DA-1 is CRITICAL per DA review and must not be hand-waved. Splitting the staleness block into a _check_walkforward_freshness helper is a single-use abstraction unjustified by the scope. Refactor candidate post-Sprint-6 if T15 adds a second staleness-check call site."
     },
     {
       "file": "src/platform/rigor/walkforward_metrics.py",
       "function": "compute_window_metrics",
       "lines": 68,
-      "rationale": "Sprint 6 Wave B T3: grew to 68 lines via excess_sharpe_min gate (PR #1091, SP-WF-004). Function owns the per-window Sharpe/MDE/bootstrap/VIX aggregation pipeline; splitting at 68 lines (8 over limit) would fragment tightly coupled metric dependencies. Disclosed by T4 (PR #1092) per #731 after PR #1091 shipped without disclosure \u2014 sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6."
+      "rationale": "Sprint 6 Wave B T3: grew to 68 lines via excess_sharpe_min gate (PR #1091, SP-WF-004). Function owns the per-window Sharpe/MDE/bootstrap/VIX aggregation pipeline; splitting at 68 lines (8 over limit) would fragment tightly coupled metric dependencies. Disclosed by T4 (PR #1092) per #731 after PR #1091 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6."
     },
     {
       "file": "src/platform/rigor/walkforward_runner.py",
@@ -1111,7 +1111,7 @@
       "file": "src/services/_scan_service_impl.py",
       "function": "_phase_collect",
       "lines": 131,
-      "rationale": "Phase 5 PR-C T15 extraction (KC-12 / DA9): collect phase lifted verbatim from run_scan \u2014 universe build + OHLCV/SPY fetch + feature compute + enrichment (data + post-scan + market-event-risk Telegram) + data-integrity filter + ranking. 131 lines; the enrichment try/except blocks and the strategy-vs-None branching are tightly coupled to the shared feature dict. Splitting further would require threading the partially-built feature dict across sub-helpers. Phase-6 sub-target alongside the _scan_service_impl file split."
+      "rationale": "Phase 5 PR-C T15 extraction (KC-12 / DA9): collect phase lifted verbatim from run_scan — universe build + OHLCV/SPY fetch + feature compute + enrichment (data + post-scan + market-event-risk Telegram) + data-integrity filter + ranking. 131 lines; the enrichment try/except blocks and the strategy-vs-None branching are tightly coupled to the shared feature dict. Splitting further would require threading the partially-built feature dict across sub-helpers. Phase-6 sub-target alongside the _scan_service_impl file split."
     },
     {
       "file": "src/services/_scan_service_impl.py",
@@ -1210,7 +1210,7 @@
       "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_paper_trades",
       "lines": 669,
-      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). Real refactor of this function is deferred \u2014 splitting the stale/orphan/stuck-exit logic into helpers is a structural change out of scope for this hotfix. Recorded count (581) was stale against origin/main, which already carried this function at 669 lines from post-Wave-6 reconciler work UNRELATED to #94 (the dual-GPU sprint did not touch reconcile.py; 0 commits in origin/main..HEAD). Bumped to 669 during the #94 T15 repo-structure audit to record reality for CI-green."
+      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). Real refactor of this function is deferred — splitting the stale/orphan/stuck-exit logic into helpers is a structural change out of scope for this hotfix. Recorded count (581) was stale against origin/main, which already carried this function at 669 lines from post-Wave-6 reconciler work UNRELATED to #94 (the dual-GPU sprint did not touch reconcile.py; 0 commits in origin/main..HEAD). Bumped to 669 during the #94 T15 repo-structure audit to record reality for CI-green."
     },
     {
       "file": "src/simulation/engine.py",
@@ -1431,37 +1431,37 @@
       "file": "src/data_collection/stock_financials_collector.py",
       "function": "collect_stock_financials",
       "lines": 90,
-      "rationale": "Pre-existing (#1151 Finnhub collectors), NOT introduced by #94 (the dual-GPU sprint); surfaced during the #94 T15 repo-structure audit. 90 lines, 30 over the 60-line limit. Out of dual-GPU scope \u2014 defer the real split to the collector owner."
+      "rationale": "Pre-existing (#1151 Finnhub collectors), NOT introduced by #94 (the dual-GPU sprint); surfaced during the #94 T15 repo-structure audit. 90 lines, 30 over the 60-line limit. Out of dual-GPU scope — defer the real split to the collector owner."
     },
     {
       "file": "src/shadow_trading/reconcile.py",
       "function": "_liquidate_if_held",
       "lines": 91,
-      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 91 lines, 31 over the 60-line limit. Out of dual-GPU scope \u2014 defer the real split to the reconciler/cutover track."
+      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 91 lines, 31 over the 60-line limit. Out of dual-GPU scope — defer the real split to the reconciler/cutover track."
     },
     {
       "file": "src/shadow_trading/bracket_attach.py",
       "function": "attach_brackets_for_unprotected_positions",
       "lines": 152,
-      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 152 lines, 92 over the 60-line limit. Out of dual-GPU scope \u2014 defer the real split to the shadow-trading owner."
+      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 152 lines, 92 over the 60-line limit. Out of dual-GPU scope — defer the real split to the shadow-trading owner."
     },
     {
       "file": "src/utils/codemod.py",
       "function": "apply_codemod",
       "lines": 71,
-      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 71 lines, 11 over the 60-line limit. Out of dual-GPU scope \u2014 defer the real split to the utils owner."
+      "rationale": "Pre-existing on origin/main (0 #94 commits in origin/main..HEAD); surfaced during the #94 T15 repo-structure audit. 71 lines, 11 over the 60-line limit. Out of dual-GPU scope — defer the real split to the utils owner."
     },
     {
       "file": "src/simulation/lifecycle/scenario.py",
       "function": "_install_sim_bridges",
       "lines": 74,
-      "rationale": "#97 T9 KEYSTONE \u2014 applies 4 sim bridges (versioning.init_training_tables + versioning.get_active_model_name + journal.store.initialize_database + FakeTradingClient._build_legs) that compensate for prod helpers which crash when ARCIS_DB_PATH is None in the sim worktree, plus the pydantic-aware _build_legs replacement that handles take_profit/stop_loss objects from alpaca-py SDK MarketOrderRequest. The 74 lines (14 over the 60-line limit) are dominated by: 4 lines of import, ~6 lines of capture closure, ~30 lines of the _pydantic_aware_build_legs function-as-replacement (which must construct FakeOrder objects with the exact attribute set the executor expects), and ~30 lines of setattr/undo wiring with try/except rollback. Splitting would require either passing the originals dict across helpers (decoupling capture from undo) or extracting _pydantic_aware_build_legs to a sibling module (decoupling from the FakeTradingClient surface it patches). The pydantic-aware shim is tightly bound to alpaca-py SDK shape and FakeOrder construction details; extracting it loses the locality of the patch contract. Real split deferred until the bridge set stabilizes (currently 4 shims; T11/T12 follow-ups will add more)."
+      "rationale": "#97 T9 KEYSTONE — applies 4 sim bridges (versioning.init_training_tables + versioning.get_active_model_name + journal.store.initialize_database + FakeTradingClient._build_legs) that compensate for prod helpers which crash when ARCIS_DB_PATH is None in the sim worktree, plus the pydantic-aware _build_legs replacement that handles take_profit/stop_loss objects from alpaca-py SDK MarketOrderRequest. The 74 lines (14 over the 60-line limit) are dominated by: 4 lines of import, ~6 lines of capture closure, ~30 lines of the _pydantic_aware_build_legs function-as-replacement (which must construct FakeOrder objects with the exact attribute set the executor expects), and ~30 lines of setattr/undo wiring with try/except rollback. Splitting would require either passing the originals dict across helpers (decoupling capture from undo) or extracting _pydantic_aware_build_legs to a sibling module (decoupling from the FakeTradingClient surface it patches). The pydantic-aware shim is tightly bound to alpaca-py SDK shape and FakeOrder construction details; extracting it loses the locality of the patch contract. Real split deferred until the bridge set stabilizes (currently 4 shims; T11/T12 follow-ups will add more)."
     },
     {
       "file": "src/simulation/lifecycle/wiring.py",
       "function": "install_organic_patches",
       "lines": 94,
-      "rationale": "#97 T5/T7/T9/preflight-QA \u2014 the central organic-patch installer. 94 lines (34 over the 60-line limit) is dominated by: ~12 lines of docstring enumerating each of the 10 patched module-level symbols with the spec section / finding that motivated it (so future readers can trace each setattr to its rationale), ~12 lines for the originals capture dict (one tuple per patched symbol \u2014 must precede ANY setattr so undo can roll back), ~6 lines for the undo() closure, ~10 lines for the setattr block wrapped in try/except \u2192 undo() + raise (the leak-resistance contract from spec \u00a72.5 teardown discipline), and ~30+ lines of inline comments explaining the lambda signatures (e.g., '_get_trading_client uses (*a, **kw) to accept positional desk calls' \u2014 preflight QA caught this surface contract). Splitting would either (a) introduce a per-patch helper that obscures the install ordering (and ordering matters \u2014 capture-then-setattr-then-rollback-on-fail is the leak-resistance invariant), or (b) extract the 10 symbols into a config dict, which loses the static type-safety of the explicit references. The function is a sequential setattr block with no branching; refactoring would add complexity, not remove it. Real split deferred \u2014 if further T11/T12 sim seams are added, that's the natural time to re-evaluate."
+      "rationale": "#97 T5/T7/T9/preflight-QA — the central organic-patch installer. 94 lines (34 over the 60-line limit) is dominated by: ~12 lines of docstring enumerating each of the 10 patched module-level symbols with the spec section / finding that motivated it (so future readers can trace each setattr to its rationale), ~12 lines for the originals capture dict (one tuple per patched symbol — must precede ANY setattr so undo can roll back), ~6 lines for the undo() closure, ~10 lines for the setattr block wrapped in try/except → undo() + raise (the leak-resistance contract from spec §2.5 teardown discipline), and ~30+ lines of inline comments explaining the lambda signatures (e.g., '_get_trading_client uses (*a, **kw) to accept positional desk calls' — preflight QA caught this surface contract). Splitting would either (a) introduce a per-patch helper that obscures the install ordering (and ordering matters — capture-then-setattr-then-rollback-on-fail is the leak-resistance invariant), or (b) extract the 10 symbols into a config dict, which loses the static type-safety of the explicit references. The function is a sequential setattr block with no branching; refactoring would add complexity, not remove it. Real split deferred — if further T11/T12 sim seams are added, that's the natural time to re-evaluate."
     },
     {
       "file": "src/notifications/telegram_delivery.py",
