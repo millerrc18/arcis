@@ -14,16 +14,48 @@ What it writes:
     - DIRECTORY.md in the repo root
 
 Prerequisites:
-    - No external dependencies — pure filesystem introspection
+    - git on PATH. The tree is intersected with `git ls-files` so only TRACKED
+      repo structure is emitted — untracked scratch (tmp/, audit dumps, stray
+      report files, the mojibake root file) never leaks into DIRECTORY.md even
+      though we still walk the live filesystem for ordering/annotations. git is
+      always present in a repo, so this is robust against ALL future debris;
+      the SKIP set below is now only a perf shortcut for bulk/vendored dirs.
 
 Usage:
     python scripts/generate_directory.py
 """
 
 from pathlib import Path
-import re
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _tracked_paths() -> set[Path]:
+    """Absolute paths of every git-tracked file, plus all their parent dirs.
+
+    Walking the filesystem (rglob / iterdir) sees untracked scratch; intersecting
+    with this set keeps DIRECTORY.md a faithful index of the COMMITTED repo. Parent
+    dirs are included so a tracked file keeps its enclosing directories visible.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    tracked: set[Path] = set()
+    for rel in out.split("\0"):
+        if not rel:
+            continue
+        f = (ROOT / rel).resolve()
+        tracked.add(f)
+        for parent in f.parents:
+            tracked.add(parent)
+            if parent == ROOT:
+                break
+    return tracked
+
+
+TRACKED = _tracked_paths()
 
 # Directories to skip
 SKIP = {
@@ -53,10 +85,10 @@ ANNOTATIONS = {
     "config/": "YAML settings, known violations, guardrail baselines",
     "data/": "Runtime data (gitignored) + reference data",
     "docs/": "Research, sprints, architecture, decisions, guides",
-    "frontend/": "React 19 dashboard (Vite 8, Tailwind 4, 18 pages)",
+    "frontend/": "React 19 dashboard (Vite 8, Tailwind 4)",
     "scripts/": "Utility scripts (audit, stress test, migration, verification)",
-    "src/": "Python backend — 28 modules, 195 files",
-    "tests/": "Test suite — 1,344 functions across 111 files",
+    "src/": "Python backend (FastAPI, scheduler, trading, training, schema registry)",
+    "tests/": "pytest suite (SQLite floor 5,467; live counts in Quick Stats)",
     # src/ modules
     "src/api/": "FastAPI routes (local + cloud), 120+ endpoints",
     "src/api/routes/": "Local API routes (14 files)",
@@ -80,7 +112,7 @@ ANNOTATIONS = {
     "src/ranking/": "Deterministic ranker (score 0-100)",
     "src/risk/": "Risk governor (8 hard checks + kill switch)",
     "src/scheduler/": "Watch loop + 4-tier multi-cadence scanners",
-    "src/schema/": "Schema registry (49 tables) + validator + Postgres sync",
+    "src/schema/": "Schema registry — single source of truth for all DB tables + validator + Postgres sync",
     "src/services/": "Business logic services (scan, shadow, system)",
     "src/shadow_trading/": "Trade execution (Alpaca adapter, bracket orders, reconcile)",
     "src/strategy/": "Strategy configuration and dispatching",
@@ -100,7 +132,7 @@ ANNOTATIONS = {
     "docs/charter/": "Project charter (.docx)",
     # frontend/
     "frontend/src/": "React source code",
-    "frontend/src/pages/": "18 dashboard pages",
+    "frontend/src/pages/": "Dashboard pages (count in Quick Stats)",
     "frontend/src/components/": "Shared UI components",
     "frontend/public/": "Static assets (icons, manifest, service worker)",
     # scripts/
@@ -116,8 +148,10 @@ def count_files(path: Path, ext: str = ".py") -> int:
     # Match SKIP against path COMPONENTS, not substrings: a substring test wrongly
     # excludes legitimate dirs like src/data_collection (contains "data") and zeroes
     # the count when the repo lives under a skipped dir (e.g. a .claude worktree).
+    # Also intersect with TRACKED so untracked scratch .py files don't inflate counts.
     return len([f for f in path.rglob(f"*{ext}") if f.name != "__init__.py"
-                and not any(part in SKIP for part in f.parts)])
+                and not any(part in SKIP for part in f.parts)
+                and f.resolve() in TRACKED])
 
 
 def build_tree(root: Path, prefix: str = "", max_depth: int = 3, current_depth: int = 0) -> list[str]:
@@ -126,8 +160,11 @@ def build_tree(root: Path, prefix: str = "", max_depth: int = 3, current_depth: 
         return lines
 
     items = sorted(root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-    # Filter
-    items = [i for i in items if i.name not in SKIP and not i.name.startswith(".")]
+    # Filter: drop SKIP dirs, dotfiles, and anything not git-tracked. TRACKED holds
+    # tracked files AND their parent dirs, so a directory survives iff it contains
+    # at least one tracked file — untracked scratch dirs/files are excluded.
+    items = [i for i in items if i.name not in SKIP and not i.name.startswith(".")
+             and i.resolve() in TRACKED]
 
     dirs = [i for i in items if i.is_dir()]
     files = [i for i in items if i.is_file()]
@@ -172,7 +209,13 @@ def main():
     test_count = count_files(ROOT / "tests")
     page_count = len(list((ROOT / "frontend" / "src" / "pages").glob("*.jsx")))
     research_count = len(list((ROOT / "docs" / "research").rglob("*.md")))
-    table_count = len(re.findall(r"^_register", (ROOT / "src" / "schema" / "registry.py").read_text(), re.MULTILINE))
+    # Authoritative table count: import the registry's TABLES dict directly rather
+    # than regex-counting `_register` calls (the regex is brittle — it silently
+    # drifts if a helper is renamed or a call is reformatted off column 0).
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from src.schema.registry import TABLES
+    table_count = len(TABLES)
 
     header = f"""# Arcis Repository Directory
 
