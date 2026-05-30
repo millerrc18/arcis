@@ -1,14 +1,14 @@
 # Arcis Repository Directory
 
 > **Auto-generated** by `scripts/generate_directory.py` — run after every sprint.
-> Last updated: 2026-05-24
+> Last updated: 2026-05-29
 
 ## Quick Stats
 
 | Metric | Count |
 |---|---|
-| Python source files | 374 |
-| Test files | 623 |
+| Python source files | 429 |
+| Test files | 691 |
 | Dashboard pages | 45 |
 | Research documents | 115 |
 | Schema tables | 80 |
@@ -17,6 +17,9 @@
 
 ```
 arcis/
+├── archive/
+│   └── sqlite-debris-2026-05-27/
+│       └── README.md
 ├── audit/
 │   └── state.json
 ├── audits/
@@ -29,20 +32,22 @@ arcis/
 │   ├── attribution-coverage-drop-postmortem-2026-04-29.md
 │   └── attribution-readout-2026-04-28.md
 ├── config/  ← YAML settings, known violations, guardrail baselines
+│   ├── arcis_config.yaml
 │   ├── daily_repo_audit_baseline.json
 │   ├── known_schema_violations.json
 │   ├── known_violations.json
 │   ├── settings.example.yaml
-│   ├── settings.local.yaml
-│   ├── settings.local.yaml.bak
 │   └── trade_commentary.gbnf
 ├── docs/  ← Research, sprints, architecture, decisions, guides
+│   ├── agent-tests/
+│   │   └── live-monitor-golden.md
 │   ├── archive/  ← Archived docs (49 old sprints, audits, governance)
 │   │   ├── audits/
 │   │   ├── governance/
 │   │   ├── misc/
 │   │   ├── quality/
 │   │   ├── reference/
+│   │   ├── sprint-receipts/
 │   │   ├── sprints/
 │   │   ├── audit_comprehensive_2026-03-28.md
 │   │   ├── audit_report.md
@@ -57,65 +62,26 @@ arcis/
 │   │   ├── arcis-db-sync-rebaseline_2026-05-03.md
 │   │   ├── arcis-db-sync-verification.md
 │   │   ├── live_state_analysis_2026-04-20.md
-│   │   ├── reconcile_2026_04_20_execution.log
 │   │   └── root_cause_investigation_2026-04-21.md
 │   ├── audits/
-│   │   ├── 2026-04-26-sprint-0-quality-pass/
-│   │   ├── 2026-04-26-zero-failures/
-│   │   ├── 2026-04-27-sprint-0.C/
-│   │   ├── 2026-04-27-sprint-0.D.2/
-│   │   ├── 2026-04-27-sprint-1.A/
-│   │   ├── 2026-04-27-sprint-1.A.x-corp-actions/
-│   │   ├── 2026-04-27-trading-readiness/
-│   │   ├── 2026-04-28-sprint-1.A.x.1-tier-b/
-│   │   ├── 2026-05-05-methodology-gate-wiring/
-│   │   ├── 2026-05-05-unified-db-architecture/
-│   │   ├── 2026-05-06-cockpit-coherence-sprint/
-│   │   ├── 2026-05-07-sprint-4-cockpit-followups/
-│   │   ├── 2026-05-07-telegram-email-sweep/
-│   │   ├── 2026-05-08-sprint-5-final-cleanup/
-│   │   ├── 2026-05-10-cloudflare-tunnel-cutover/
-│   │   ├── 2026-05-11-cutover-rectification/
-│   │   ├── 2026-05-11-modified-a-migration/
-│   │   ├── 2026-05-11-stage1-completion/
-│   │   ├── 2026-05-12-dual-gpu-ideation/
-│   │   ├── 2026-05-12-sprint-5-closeout-plan/
-│   │   ├── 2026-05-12-sprint-5-glidepath/
-│   │   ├── 2026-05-12-sprint-5-wave-ab/
-│   │   ├── 2026-05-13-sprint-6-walkforward-impl/
-│   │   ├── 2026-05-13-sprint-6-wave-a-sp6-catchall/
-│   │   ├── 2026-05-14-dashboard-rectification/
-│   │   ├── 2026-05-14-p0-pg-wipe/
-│   │   ├── 2026-05-17-v0.36.13-training-page/
 │   │   ├── 2026-05-21-capability-registry/
 │   │   ├── 2026-05-21-dual-gpu-separation/
 │   │   ├── 2026-05-22-dual-gpu-recutover/
 │   │   ├── 2026-05-22-lifecycle-simulator/
 │   │   ├── 2026-05-22-sim-gate-completion/
-│   │   ├── 2026-w21-collectors/
-│   │   ├── 2026-W21-doc-consolidation/
-│   │   ├── 2026-W21-execution-cleanup/
-│   │   ├── 2026-W21-orphan-source/
-│   │   ├── runtime/
-│   │   ├── sprint-1.A-wave-2-3/
-│   │   ├── sprint-1.C.4.5/
-│   │   ├── 2026-05-16-watchloop-root-cause-hardening.md
-│   │   ├── audit-2026-04-04.md
-│   │   ├── audit-2026-04-08.md
-│   │   ├── audit-2026-04-09.md
-│   │   ├── audit-2026-04-10.md
-│   │   ├── audit-2026-04-11.md
-│   │   ├── audit-2026-04-14.md
-│   │   ├── audit-2026-04-15.md
-│   │   ├── audit-2026-04-16.md
-│   │   ├── audit-2026-04-18.md
-│   │   ├── audit-2026-04-22.md
-│   │   ├── audit-2026-04-24.md
-│   │   ├── data-quality-audit-2026-04-10.md
-│   │   ├── known-pre-existing-failures.md
-│   │   ├── log-audit-2026-04-04.md
-│   │   ├── training-audit-2026-04-19-dryrun.md
-│   │   └── training-audit-2026-04-19.md
+│   │   ├── 2026-05-24-sim-conn-leak/
+│   │   ├── 2026-05-24-tier1-tools/
+│   │   ├── 2026-05-24-tier2-tools/
+│   │   ├── 2026-05-25-specialized-agents/
+│   │   ├── 2026-05-25-tier3-tools/
+│   │   ├── 2026-05-26-arcis-operate/
+│   │   ├── 2026-05-26-arcis-periodic-discipline/
+│   │   ├── 2026-05-26-arcis-strategy/
+│   │   ├── 2026-05-26-email-consolidation/
+│   │   ├── 2026-05-27-phase-5-unified/
+│   │   ├── 2026-05-28-test-audit/
+│   │   ├── cleanup-1/
+│   │   └── known-pre-existing-failures.md
 │   ├── blueprint/  ← Original project blueprint
 │   │   └── version1_blueprint.md
 │   ├── charter/  ← Project charter (.docx)
@@ -136,7 +102,6 @@ arcis/
 │   │   ├── risk-scaling-tiers-spec.md
 │   │   └── strategy-dashboard-spec.md
 │   ├── design/
-│   │   ├── 2026-W21-lifecycle-audit/
 │   │   └── v0.36.28/
 │   ├── diagnostics/
 │   │   ├── forensic-audit-2026-04-18/
@@ -282,6 +247,8 @@ arcis/
 │   │   ├── Volatility-Adaptive_Position_Management_for_Pullback_Trading.md
 │   │   ├── Walk-Forward_Backtesting_Protocol_for_Small-Sample_Strategies.md
 │   │   └── XML_Compliance_via_GBNF_Grammar_Enforcement.md
+│   ├── runbooks/
+│   │   └── stack-dump.md
 │   ├── specs/
 │   │   └── strategy-schema.md
 │   ├── sprints/  ← Sprint prompts and implementation plans
@@ -408,6 +375,8 @@ arcis/
 │   │   ├── v0.25.6_evaluation.md
 │   │   ├── walkforward_v1_evaluation.md
 │   │   └── walkforward_v1_research_findings.md
+│   ├── standards/
+│   │   └── boundary-touch-tests.md
 │   ├── superpowers/
 │   │   ├── plans/
 │   │   └── specs/
@@ -431,7 +400,7 @@ arcis/
 │   ├── telegram-commands.md
 │   ├── training-guide.md
 │   └── versioning-policy.md
-├── frontend/  ← React 19 dashboard (Vite 8, Tailwind 4, 18 pages)
+├── frontend/  ← React 19 dashboard (Vite 8, Tailwind 4)
 │   ├── eslint-rules/
 │   │   ├── eslint.queryfn.config.js
 │   │   ├── no-bare-queryfn-with-args.js
@@ -451,7 +420,7 @@ arcis/
 │   │   ├── components/  ← Shared UI components
 │   │   ├── contexts/
 │   │   ├── hooks/
-│   │   ├── pages/  ← 18 dashboard pages
+│   │   ├── pages/  ← Dashboard pages (count in Quick Stats)
 │   │   ├── utils/
 │   │   ├── api.js
 │   │   ├── App.jsx
@@ -467,6 +436,9 @@ arcis/
 │   ├── package.json
 │   ├── README.md
 │   └── vite.config.js
+├── schema/
+│   └── migrations/
+│       └── 2026-05-24_table_ownership_fix.sql
 ├── scripts/  ← Utility scripts (audit, stress test, migration, verification)
 │   ├── audits/
 │   │   └── training_data_v1_audit.py
@@ -488,7 +460,6 @@ arcis/
 │   │   ├── backfill_alpaca_order_id_post_wipe_2026_05_18.py
 │   │   └── restore_pg_from_snapshot.ps1
 │   ├── _shared_migration_utils.py
-│   ├── ai_research_desk.sqlite3
 │   ├── alpha_attribution_backtest.py  ← Attribution backtest on historical data
 │   ├── archive_bootcamp_2026_04_24.py
 │   ├── assign_curriculum_stages.py
@@ -508,7 +479,6 @@ arcis/
 │   ├── build_event_calendar.py
 │   ├── build_sp100_history.py
 │   ├── capture_pg_activity.ps1
-│   ├── check_cloud_deploy_imports.py
 │   ├── check_config.py
 │   ├── clean_training_data.py
 │   ├── cleanup_overshoot_zombies_2026_04_21.py
@@ -519,6 +489,7 @@ arcis/
 │   ├── daily_repo_audit.py  ← Automated CI audit (GitHub Actions)
 │   ├── diagnose_leakage.py
 │   ├── dump_config.py
+│   ├── dump_watchloop.ps1
 │   ├── export_backfill_prompts.py
 │   ├── export_chatgpt_inputs.py
 │   ├── fetch_earnings_calendar.py
@@ -529,6 +500,7 @@ arcis/
 │   ├── generate_directory.py
 │   ├── generate_llm_corpus.py
 │   ├── generate_schema_docs.py
+│   ├── gpu0_training_partition_smoke.py
 │   ├── gpu_placement_smoke.py
 │   ├── import_backfill_results.py
 │   ├── import_chatgpt_outputs.py
@@ -548,7 +520,6 @@ arcis/
 │   ├── recover_from_postgres.py
 │   ├── register_model_v1.py
 │   ├── render_architecture_doc.py
-│   ├── render_init_db.py
 │   ├── render_migrate.py  ← Postgres schema migration from registry
 │   ├── render_to_local_migrate.py
 │   ├── reresolve_attribution.py
@@ -577,7 +548,7 @@ arcis/
 │   ├── verify_training_readiness.py
 │   ├── weekly_review.bat
 │   └── weekly_review.py
-├── src/  ← Python backend — 28 modules, 195 files
+├── src/  ← Python backend (FastAPI, scheduler, trading, training, schema registry)
 │   ├── allocation/  ← (1 files)
 │   │   ├── __init__.py
 │   │   └── risk_parity.py
@@ -590,19 +561,21 @@ arcis/
 │   │   └── spy_benchmark.py
 │   ├── api/  ← (42 files) FastAPI routes (local + cloud), 120+ endpoints
 │   │   ├── cloud_routes/  ← (18 files) Render cloud API routes (6 files)
-│   │   ├── routes/  ← (19 files) Local API routes (14 files)
+│   │   ├── routes/  ← (20 files) Local API routes (14 files)
 │   │   ├── __init__.py
 │   │   ├── app.py
-│   │   ├── cloud_app.py
 │   │   ├── cohort_meta.py
 │   │   ├── local_auth.py
 │   │   └── websocket.py
 │   ├── attribution/  ← (1 files) Alpha attribution — LLM vs ranker-only comparison
 │   │   ├── __init__.py
 │   │   └── logger.py
-│   ├── cli/  ← (2 files) CLI commands (scan, watch, shadow-status, etc.)
+│   ├── cli/  ← (5 files) CLI commands (scan, watch, shadow-status, etc.)
 │   │   ├── __init__.py
 │   │   ├── commands.py
+│   │   ├── commands_data.py
+│   │   ├── commands_ops.py
+│   │   ├── commands_training.py
 │   │   └── promotion_cmd.py
 │   ├── commands/  ← (3 files) Command queue executor (11 command types)
 │   │   ├── __init__.py
@@ -630,7 +603,7 @@ arcis/
 │   │   ├── protocol.py
 │   │   ├── rate_limiter.py
 │   │   └── value_tracker.py
-│   ├── data_collection/  ← (28 files) 12 overnight collectors (options, VIX, FRED, EDGAR, etc.)
+│   ├── data_collection/  ← (29 files) 12 overnight collectors (options, VIX, FRED, EDGAR, etc.)
 │   │   ├── __init__.py
 │   │   ├── _capability_health.py
 │   │   ├── _finnhub_shared.py
@@ -654,6 +627,7 @@ arcis/
 │   │   ├── research_collector.py
 │   │   ├── research_sources.py
 │   │   ├── research_synthesizer.py
+│   │   ├── result.py
 │   │   ├── retention.py
 │   │   ├── short_interest_collector.py
 │   │   ├── short_volume_finra.py
@@ -767,16 +741,20 @@ arcis/
 │   │   ├── errors.py
 │   │   ├── manual_intervention_drift.py
 │   │   └── system_metrics.py
-│   ├── notifications/  ← (8 files) Telegram bot (32 notification functions)
+│   ├── notifications/  ← (12 files) Telegram bot (32 notification functions)
 │   │   ├── __init__.py
 │   │   ├── _config.py
 │   │   ├── capability_registration.py
 │   │   ├── digest_queue.py
+│   │   ├── email_digest.py
+│   │   ├── email_digest_handover.py
+│   │   ├── email_digest_render.py
 │   │   ├── errors.py
 │   │   ├── platform_events.py
 │   │   ├── policy.py
 │   │   ├── telegram.py
-│   │   └── telegram_commands.py
+│   │   ├── telegram_commands.py
+│   │   └── telegram_delivery.py
 │   ├── observability/  ← (2 files)
 │   │   ├── __init__.py
 │   │   ├── formatters.py
@@ -812,10 +790,11 @@ arcis/
 │   ├── ranking/  ← (1 files) Deterministic ranker (score 0-100)
 │   │   ├── __init__.py
 │   │   └── ranker.py
-│   ├── risk/  ← (3 files) Risk governor (8 hard checks + kill switch)
+│   ├── risk/  ← (4 files) Risk governor (8 hard checks + kill switch)
 │   │   ├── __init__.py
 │   │   ├── gate_decisions.py
 │   │   ├── governor.py
+│   │   ├── governor_audit.py
 │   │   └── price_utils.py
 │   ├── scheduler/  ← (15 files) Watch loop + 4-tier multi-cadence scanners
 │   │   ├── __init__.py
@@ -834,15 +813,16 @@ arcis/
 │   │   ├── universe_scanner.py
 │   │   ├── watch.py
 │   │   └── watch_handlers.py
-│   ├── schema/  ← (5 files) Schema registry (49 tables) + validator + Postgres sync
+│   ├── schema/  ← (5 files) Schema registry — single source of truth for all DB tables + validator + Postgres sync
 │   │   ├── __init__.py
 │   │   ├── postgres.py
 │   │   ├── registry.py
 │   │   ├── sqlite.py
 │   │   ├── sync_config.py
 │   │   └── validator.py
-│   ├── services/  ← (9 files) Business logic services (scan, shadow, system)
+│   ├── services/  ← (10 files) Business logic services (scan, shadow, system)
 │   │   ├── __init__.py
+│   │   ├── _scan_service_impl.py
 │   │   ├── bootcamp_state.py
 │   │   ├── mr_scan_service.py
 │   │   ├── recap_service.py
@@ -852,7 +832,7 @@ arcis/
 │   │   ├── system_service.py
 │   │   ├── training_service.py
 │   │   └── watchlist_service.py
-│   ├── shadow_trading/  ← (21 files) Trade execution (Alpaca adapter, bracket orders, reconcile)
+│   ├── shadow_trading/  ← (23 files) Trade execution (Alpaca adapter, bracket orders, reconcile)
 │   │   ├── __init__.py
 │   │   ├── _status_sql.py
 │   │   ├── alpaca_adapter.py
@@ -870,13 +850,15 @@ arcis/
 │   │   ├── ledger.py
 │   │   ├── metrics.py
 │   │   ├── models.py
+│   │   ├── order_lifecycle.py
 │   │   ├── qty_mismatch.py
 │   │   ├── reconcile.py
 │   │   ├── reconcile_dispatch.py
 │   │   ├── reconcile_state.py
+│   │   ├── reconciliation_engine.py
 │   │   └── state.py
-│   ├── simulation/  ← (29 files)
-│   │   ├── lifecycle/  ← (26 files)
+│   ├── simulation/  ← (30 files)
+│   │   ├── lifecycle/  ← (27 files)
 │   │   ├── __init__.py
 │   │   ├── cache.py
 │   │   ├── engine.py
@@ -884,7 +866,28 @@ arcis/
 │   ├── strategy/  ← (1 files) Strategy configuration and dispatching
 │   │   ├── __init__.py
 │   │   └── canary.py
-│   ├── sync/  ← Render Postgres sync (incremental, per-table reconnect)
+│   ├── tools/  ← (41 files)
+│   │   ├── capabilityregistry/  ← (2 files)
+│   │   ├── ciinvestigate/  ← (2 files)
+│   │   ├── contractcheck/  ← (2 files)
+│   │   ├── dbquery/  ← (2 files)
+│   │   ├── docconsistency/  ← (2 files)
+│   │   ├── gitarchaeology/  ← (4 files)
+│   │   ├── healthprobe/  ← (3 files)
+│   │   ├── logtail/  ← (2 files)
+│   │   ├── prcomments/  ← (2 files)
+│   │   ├── processmanager/  ← (4 files)
+│   │   ├── symbolfind/  ← (2 files)
+│   │   ├── testpatternscan/  ← (3 files)
+│   │   ├── tradingstate/  ← (4 files)
+│   │   ├── __init__.py
+│   │   ├── _cli_envelope.py
+│   │   ├── _config.py
+│   │   ├── _db.py
+│   │   ├── _execution_log.py
+│   │   ├── _safety.py
+│   │   ├── _secrets.py
+│   │   └── _subprocess.py
 │   ├── trading/  ← (6 files)
 │   │   ├── __init__.py
 │   │   ├── alpaca_broker.py
@@ -893,7 +896,7 @@ arcis/
 │   │   ├── ib_broker.py
 │   │   ├── ib_broker_helpers.py
 │   │   └── ib_shadow.py
-│   ├── training/  ← (30 files) Training pipeline (data collector, versioning, backfill, leakage)
+│   ├── training/  ← (31 files) Training pipeline (data collector, versioning, backfill, leakage)
 │   │   ├── audit/  ← (6 files)
 │   │   ├── __init__.py
 │   │   ├── ab_evaluation.py
@@ -916,6 +919,7 @@ arcis/
 │   │   ├── report.py
 │   │   ├── stop_callback.py
 │   │   ├── trainer.py
+│   │   ├── trainer_checkpoint.py
 │   │   ├── training_control.py
 │   │   ├── training_stop.py
 │   │   ├── validation.py
@@ -946,7 +950,7 @@ arcis/
 │   ├── startup.py
 │   ├── startup_checks.py
 │   └── version.py
-├── tests/  ← Test suite — 1,344 functions across 111 files
+├── tests/  ← pytest suite (SQLite floor 5,467; live counts in Quick Stats)
 │   ├── _helpers/
 │   │   ├── __init__.py
 │   │   └── seed_closed_trades.py
@@ -965,6 +969,7 @@ arcis/
 │   │   ├── test_attribution_stats.py
 │   │   ├── test_broker_exceptions_route.py
 │   │   ├── test_calmar_unit_audit.py
+│   │   ├── test_cloud_routes_db_seam.py
 │   │   ├── test_commands_route.py
 │   │   ├── test_diagnostic_routes.py
 │   │   ├── test_docs_mime_safety.py
@@ -981,7 +986,6 @@ arcis/
 │   │   ├── test_shadow_metrics.py
 │   │   ├── test_sharpe_attribution.py
 │   │   ├── test_spa_fallback_handler.py
-│   │   ├── test_status.py
 │   │   ├── test_system_index.py
 │   │   ├── test_trades_route_timeout.py
 │   │   ├── test_trades_sharpe_se_units.py
@@ -995,7 +999,10 @@ arcis/
 │   │   └── test_training_audit_cli.py
 │   ├── cli/
 │   │   ├── __init__.py
-│   │   └── test_commands_imports.py
+│   │   ├── test_cli_split_integrity.py
+│   │   ├── test_commands_imports.py
+│   │   ├── test_digest_preview_cli.py
+│   │   └── test_email_cli_passthrough.py
 │   ├── config/
 │   │   ├── __init__.py
 │   │   └── test_db_path_canonical.py
@@ -1013,6 +1020,7 @@ arcis/
 │   │   ├── test_analyst_collector.py
 │   │   ├── test_analyst_collector_rate_limit.py
 │   │   ├── test_capability_health.py
+│   │   ├── test_collector_result.py
 │   │   ├── test_company_executive_collector.py
 │   │   ├── test_edgar_collector.py
 │   │   ├── test_fed_collector.py
@@ -1060,6 +1068,7 @@ arcis/
 │   │   ├── test_audit_email_throttle.py
 │   │   ├── test_auditor_bootcamp_flag.py
 │   │   ├── test_auditor_drawdown_sample_size.py
+│   │   ├── test_auditor_email_routing.py
 │   │   ├── test_auditor_llm_sample_size_guard.py
 │   │   ├── test_backtester_corpus.py
 │   │   ├── test_build_score.py
@@ -1088,6 +1097,7 @@ arcis/
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── test_data_context_header_trigger.py
+│   │   ├── test_ollama_shutdown_boundary.py
 │   │   ├── test_ollama_state.py
 │   │   ├── test_packet_council_consensus.py
 │   │   ├── test_packet_historical_credibility.py
@@ -1120,6 +1130,17 @@ arcis/
 │   │   ├── test_dedup_persistence.py
 │   │   ├── test_digest_queue.py
 │   │   ├── test_digest_queue_atomicity.py
+│   │   ├── test_email_digest_coverage_matrix.py
+│   │   ├── test_email_digest_crash_recovery.py
+│   │   ├── test_email_digest_dst.py
+│   │   ├── test_email_digest_handover.py
+│   │   ├── test_email_digest_holdover.py
+│   │   ├── test_email_digest_holiday.py
+│   │   ├── test_email_digest_module.py
+│   │   ├── test_email_digest_opt_out.py
+│   │   ├── test_email_digest_render_daily.py
+│   │   ├── test_email_digest_render_weekly.py
+│   │   ├── test_escalation_carveout.py
 │   │   ├── test_event_map_load_order.py
 │   │   ├── test_html_escape.py
 │   │   ├── test_html_escape_siblings.py
@@ -1136,6 +1157,7 @@ arcis/
 │   │   ├── test_t13c_earnings_time.py
 │   │   ├── test_telegram_chunked_send.py
 │   │   ├── test_telegram_commands.py
+│   │   ├── test_telegram_event_map.py
 │   │   ├── test_telegram_payload_wiring.py
 │   │   └── test_telegram_send_path.py
 │   ├── platform/
@@ -1173,23 +1195,32 @@ arcis/
 │   │   ├── test_fail_closed.py
 │   │   ├── test_governor_disabled_alert.py
 │   │   └── test_governor_gates.py
+│   ├── safety/
+│   │   ├── __init__.py
+│   │   └── test_safe_op_http_boundary.py
 │   ├── scheduler/
 │   │   ├── __init__.py
 │   │   ├── test_done_flag_discipline.py
 │   │   ├── test_eod_report_format.py
 │   │   ├── test_exit_reconciliation.py
+│   │   ├── test_healthprobe_nssm_filenames.py
 │   │   ├── test_holidays.py
+│   │   ├── test_overnight_email_routing.py
 │   │   ├── test_overnight_encoding.py
 │   │   ├── test_overnight_plan_gated_mass_failure.py
 │   │   ├── test_overnight_reconcile_dispatch.py
 │   │   ├── test_reports.py
+│   │   ├── test_reports_email_routing.py
 │   │   ├── test_run_watch_handler.py
+│   │   ├── test_safe_run_collector_result.py
 │   │   ├── test_scan_metrics_writer.py
 │   │   ├── test_schedule_health_report.py
 │   │   ├── test_schema_verify_call_count.py
 │   │   ├── test_sentiment_scanner_news_block.py
 │   │   ├── test_walkforward_reconciler.py
 │   │   ├── test_watch_clock_seam.py
+│   │   ├── test_watch_email_digest_schedule.py
+│   │   ├── test_watch_email_routing.py
 │   │   └── test_watch_platform_tick.py
 │   ├── schema/
 │   │   ├── __init__.py
@@ -1202,6 +1233,7 @@ arcis/
 │   │   ├── test_archive_bootcamp_2026_04_24.py
 │   │   ├── test_backfill_v0_36_13_archaeology_pg_compat.py
 │   │   ├── test_build_sp100_history.py
+│   │   ├── test_dump_watchloop_script.py
 │   │   ├── test_lazy_prices_smoke.py
 │   │   ├── test_migrate_render_sync_live_drift_2026_05_03.py
 │   │   ├── test_migrate_shadow_trades_quarantined_not_null.py
@@ -1210,14 +1242,19 @@ arcis/
 │   │   ├── test_quarantine_pre_651.py
 │   │   ├── test_reconcile_2026_04_20.py
 │   │   ├── test_render_to_local_migrate.py
+│   │   ├── test_run_backtest_walkforward_deprecated.py
 │   │   ├── test_run_walkforward_cli.py
 │   │   ├── test_shared_migration_utils.py
 │   │   ├── test_sqlite_to_pg_migrate_confirm.py
 │   │   └── test_stage1_baseline.py
 │   ├── services/
 │   │   ├── __init__.py
+│   │   ├── test_recap_service_email_routing.py
+│   │   ├── test_scan_service_email_routing.py
 │   │   ├── test_scan_service_persistence.py
-│   │   └── test_scan_service_regime_keys.py
+│   │   ├── test_scan_service_regime_keys.py
+│   │   ├── test_via_cli_propagation.py
+│   │   └── test_watchlist_service_email_routing.py
 │   ├── shadow_trading/
 │   │   ├── __init__.py
 │   │   ├── conftest.py
@@ -1263,9 +1300,41 @@ arcis/
 │   │   ├── lifecycle/
 │   │   ├── __init__.py
 │   │   └── test_engine.py
+│   ├── skills/
+│   │   ├── strategy/
+│   │   ├── __init__.py
+│   │   ├── test_periodic_discipline.py
+│   │   └── test_periodic_discipline_boundary.py
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── test_capabilityregistry_integration.py
+│   │   ├── test_ciinvestigate_integration.py
+│   │   ├── test_cli_envelope.py
+│   │   ├── test_config.py
+│   │   ├── test_contractcheck_integration.py
+│   │   ├── test_db_helper.py
+│   │   ├── test_dbquery_integration.py
+│   │   ├── test_docconsistency_integration.py
+│   │   ├── test_execution_log.py
+│   │   ├── test_gitarchaeology_integration.py
+│   │   ├── test_healthprobe_integration.py
+│   │   ├── test_logtail_integration.py
+│   │   ├── test_prcomments_integration.py
+│   │   ├── test_processmanager_integration.py
+│   │   ├── test_safe_op_integration.py
+│   │   ├── test_safety.py
+│   │   ├── test_secrets.py
+│   │   ├── test_symbolfind_integration.py
+│   │   ├── test_symbolfind_ripgrep_boundary.py
+│   │   ├── test_testpatternscan_integration.py
+│   │   ├── test_tradingstate_cli.py
+│   │   ├── test_tradingstate_integration.py
+│   │   ├── test_tradingstate_metric_date_cast.py
+│   │   └── test_workflow_parity_scanner.py
 │   ├── trading/
 │   │   ├── __init__.py
 │   │   ├── test_alpaca_live_verification.py
+│   │   ├── test_broker_adapter_boundary.py
 │   │   ├── test_ib_broker_helpers.py
 │   │   └── test_ib_cancel_before_close.py
 │   ├── training/
@@ -1310,7 +1379,6 @@ arcis/
 │   ├── test_canary.py
 │   ├── test_canonical_sharpe.py
 │   ├── test_capability_registry_coverage.py
-│   ├── test_capability_registry_imports.py
 │   ├── test_capability_registry_integration.py
 │   ├── test_capability_registry_metadata.py
 │   ├── test_capability_registry_probes.py
@@ -1321,9 +1389,7 @@ arcis/
 │   ├── test_cli_shadow_close.py
 │   ├── test_client_ollama_health.py
 │   ├── test_cloud_analytics.py
-│   ├── test_cloud_app.py
-│   ├── test_cloud_auth.py
-│   ├── test_cloud_requirements_imports.py
+│   ├── test_cloud_app_removed.py
 │   ├── test_cloud_routes_auth_coverage.py
 │   ├── test_cloud_routes_status.py
 │   ├── test_cmd_run_promotion_gate_post_fix.py
@@ -1337,6 +1403,7 @@ arcis/
 │   ├── test_compatrow_indexing.py
 │   ├── test_confidence.py
 │   ├── test_config_db_path.py
+│   ├── test_config_email_consolidation.py
 │   ├── test_config_guardrails.py
 │   ├── test_config_tech_debt.py
 │   ├── test_config_validation.py
@@ -1460,6 +1527,7 @@ arcis/
 │   ├── test_mr_scan_service.py
 │   ├── test_news.py
 │   ├── test_no_conflict_markers_in_repo.py
+│   ├── test_no_database_url_branch.py
 │   ├── test_no_fetchone_int_index_in_pg_unsafe_files.py
 │   ├── test_no_legacy_watchdog_scripts.py
 │   ├── test_no_naked_sqlite_exceptions.py
@@ -1467,6 +1535,10 @@ arcis/
 │   ├── test_notifications_telegram.py
 │   ├── test_observability_quick_wins.py
 │   ├── test_ollama_watchdog.py
+│   ├── test_operate_action_authorization_matrix.py
+│   ├── test_operate_error_envelopes_ref.py
+│   ├── test_operate_runbook_data_anomaly.py
+│   ├── test_operate_runbook_frontmatter_consistency.py
 │   ├── test_order_verification.py
 │   ├── test_outcome_stats_filter_coverage.py
 │   ├── test_overnight_handoff_removed.py
@@ -1526,7 +1598,6 @@ arcis/
 │   ├── test_security.py
 │   ├── test_self_blinding.py
 │   ├── test_services.py
-│   ├── test_shadow_desk_filter.py
 │   ├── test_shadow_metrics.py
 │   ├── test_shadow_service.py
 │   ├── test_shadow_trading_executor_date_now.py
@@ -1541,6 +1612,7 @@ arcis/
 │   ├── test_stop_callback.py
 │   ├── test_stop_loss_sign.py
 │   ├── test_stress_test_methodology.py
+│   ├── test_suite_integrity.py
 │   ├── test_sync_composite_pk.py
 │   ├── test_sync_config.py
 │   ├── test_system_metrics.py
@@ -1550,6 +1622,7 @@ arcis/
 │   ├── test_system_validator_cutover_v0_36_39.py
 │   ├── test_system_validator_introspection.py
 │   ├── test_system_validator_sanitize.py
+│   ├── test_table_ownership.py
 │   ├── test_telegram_token_redaction.py
 │   ├── test_test_coverage_invariant.py
 │   ├── test_tier_1_5_hygiene.py
@@ -1564,6 +1637,7 @@ arcis/
 │   ├── test_trainer_gpu_pin.py
 │   ├── test_trainer_holdout_alert.py
 │   ├── test_trainer_modelfile_v0_36_35.py
+│   ├── test_trainer_pid_resolution.py
 │   ├── test_training_control.py
 │   ├── test_training_data.py
 │   ├── test_training_outcome_bucketing.py
@@ -1596,26 +1670,6 @@ arcis/
 │   └── test_xml_format.py
 ├── training/
 │   └── requirements.txt  ← Training-specific deps (PEFT, TRL, BitsAndBytes) — relocated from repo root in v0.36.55 (#101) so GitHub's auto dependency-submission stops choking on the unsloth git+URL pin
-├── --db-path
-├── _582_operator_action.sql
-├── _a.py
-├── _audit.py
-├── _ck.py
-├── _f.py
-├── _p.py
-├── _q.py
-├── _t1.py
-├── _t1b.py
-├── _t1c.py
-├── _t1d.py
-├── _t1e.py
-├── _t1e0.py
-├── _t1f.py
-├── _t1h.py
-├── _t1i.py
-├── _t1i2.py
-├── _v.py
-├── ai_research_desk.sqlite3
 ├── CHANGELOG.md  ← Detailed change log (all PRs)
 ├── CLAUDE.md  ← CC agent instructions — rules, schema, startup sequence
 ├── DIRECTORY.md
@@ -1627,10 +1681,7 @@ arcis/
 ├── pytest.ini
 ├── README.md  ← Public-facing project overview
 ├── RELEASES.md  ← Version history and release process
-├── render.yaml  ← Render deployment configuration
-├── requirements-cloud.txt  ← Render cloud deployment deps
-├── requirements.txt  ← Core Python dependencies
-└── validate-schema-report.txt
+└── requirements.txt  ← Core Python dependencies
 ```
 
 ## Key Files (start here)

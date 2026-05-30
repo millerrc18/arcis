@@ -1,9 +1,22 @@
 # Changelog
 
+> **See also:** [`RELEASES.md`](RELEASES.md) — release-process narrative + path-to-v1.0.0 dashboard. This file is the per-change log (Keep-a-Changelog format); RELEASES.md is the process/release-history companion. They are deliberately kept separate (DD-25).
+
 ## [Unreleased]
 
-<!-- PR-A entries -->
-### Added
+## [v0.36.78] — 2026-05-29 — Phase 5: codebase + docs consolidation
+
+Phase 5 unified-design campaign (`docs/audits/2026-05-27-phase-5-unified/`):
+codebase + docs consolidation across PR-A … PR-F. Entries are grouped by PR
+below; the per-PR `<!-- PR-X entries -->` conflict-avoidance markers (DD-37)
+were unified into this single versioned block by PR-F T33. Tag cut by the
+coordinator at T39 (versioning-policy.md §3).
+
+### PR-A — boundary-touch standards + repo-root structure rules
+
+#### Added
+
+- **Phase 5 PR-A — boundary-touch standards + PR template** (`chore(phase-5/pr-a)`):
 
 - **Phase 5 PR-A — boundary-touch standards + PR template** (`chore(phase-5/pr-a)`):
   Created `.github/PULL_REQUEST_TEMPLATE.md` (none existed previously) carrying
@@ -24,7 +37,7 @@
   `..._sqlite_rule_detects_violation`) that prove non-vacuousness without
   writing to the real repo root.
 
-### Removed
+#### Removed
 
 - 17 `_*.py` REPL-scratch files at repo root: `_a.py`, `_audit.py`,
   `_ck.py`, `_f.py`, `_p.py`, `_q.py`, `_t1.py`, `_t1b.py`, `_t1c.py`,
@@ -40,10 +53,9 @@
   canonical runtime DB at `C:/arcis/data/ai_research_desk.sqlite3` (566 MB,
   82 tables) is untouched.
 
-<!-- /PR-A entries -->
+### PR-B — Render decommission + cloud_routes SQLite-only
 
-<!-- PR-B entries -->
-### Added
+#### Added
 
 - 2 regression-lock sentinels at `tests/` root (T8 commit `7d708598`):
   - `tests/test_cloud_app_removed.py` — locks `src/api/cloud_app.py` deletion;
@@ -68,7 +80,7 @@
     `test_sqlite_is_sole_path_regardless_of_database_url_env`,
     `test_empty_state_when_no_transcript`
 
-### Changed
+#### Changed
 
 - `src/api/cloud_routes/` modules now SQLite-only (no `DATABASE_URL` gating).
   7 modules + `__init__.py` updated across two batches:
@@ -88,7 +100,7 @@
 - `scripts/render_architecture_doc.py` line 120 `route_files` list — dropped
   `cloud_app.py` entry (T4c commit `fa95d4a7`)
 
-### Removed
+#### Removed
 
 - `src/api/cloud_app.py` — standalone Render FastAPI entry point (T4 commit
   `b7984155`)
@@ -108,7 +120,7 @@
   `b7c2d1ff`; kin #10 + #11 filed for rewrites):
   `tests/api/test_status.py` (400L), `tests/test_shadow_desk_filter.py` (294L)
 
-### Skipped (deferred — kin #13)
+#### Skipped (deferred — kin #13)
 
 - T5: deletion of `scripts/render_to_local_migrate.py` deferred to a dedicated
   follow-up PR. Script houses load-bearing `apply_ownership_reconciliation`
@@ -116,10 +128,10 @@
   `feedback_drop_schema_grant_pattern`). Proper migration requires moving the
   function to `scripts/_shared_migration_utils.py` first; kin task #13 tracks
   the dedicated PR.
-<!-- /PR-B entries -->
 
-<!-- PR-C entries -->
-### Changed
+### PR-C — structure-debt refactor (#65): 7 oversized modules split
+
+#### Changed
 
 - **Structure-debt refactor (#65)** — 7 oversized modules split, all behavior-preserving
   (public APIs re-exported at original import paths):
@@ -156,7 +168,7 @@
     proven non-vacuous (iterates the moved notify_* + catches an injected unescaped f-string).
     [T11 commit `1bdfb931`; DD-08c; operator Option-A test-retarget authorized — see kin #17]
 
-### Added
+#### Added
 
 - `tests/cli/test_cli_split_integrity.py` — re-export import-identity sentinel (verifies
   `src.cli.commands.cmd_X IS src.cli.commands_<cat>.cmd_X` for all 61 exported commands)
@@ -170,7 +182,7 @@
   — all dropped below the 400L threshold post-split; entries pruned from
   `config/known_violations.json` by their respective tasks (T13–T16)
 
-### Deferred (Phase-6 sub-targets)
+#### Deferred (Phase-6 sub-targets)
 
 - Files still >400L post-split, grandfathered in known_violations.json with sub-target
   notes: `order_lifecycle.py` (1640L — decompose check_and_manage_open_trades 771L +
@@ -180,10 +192,10 @@
   (1339L) whose residual bulk is large single functions (e.g. governor check_trade 267L)
   that need their own decomposition tasks. T11 (telegram split) LANDED in this PR (commit
   `1bdfb931`) — NOT deferred; kin #22 is therefore closed.
-<!-- /PR-C entries -->
 
-<!-- PR-D entries -->
-### Changed
+### PR-D — CollectorResult Big Bang (#72)
+
+#### Changed
 
 - **Phase 5 PR-D — CollectorResult Big Bang (#72)** — 21 data-collection collectors
   migrated from 8 heterogeneous dict shapes to the unified `CollectorResult` frozen
@@ -221,10 +233,9 @@
   After T19 lands, `CLAUDE.md §207` "done-flag" pattern is:
   `result = self._safe_run(...); if result.is_healthy: self._done = True`.
 
-<!-- /PR-D entries -->
+### PR-E — test audit (#102): vacuous-test removal + boundary-touch suite
 
-<!-- PR-E entries -->
-### Removed
+#### Removed
 
 - **Phase 5 PR-E — test audit (#102)** — removed 2 empirically-confirmed vacuous
   tests (each proven by a PASSED-while-broken experiment in
@@ -237,7 +248,7 @@
     — H4 "does-not-raise" over a classify+log stub SUT (`handle_ib_error`).
     Sibling `test_ib_broker_helpers_module_imports` retains symbol-presence coverage.
 
-### Added
+#### Added
 
 - **6-seam boundary-touch test suite (DD-19, +23 tests)** — boundary-complete
   coverage of the codebase's external seams per
@@ -254,10 +265,9 @@
   candidates, Pass B empirical DELETION_LIST, README overview). Net test count
   6,989 → 7,010 (SQLite floor 5,467 held).
 
-<!-- /PR-E entries -->
+### PR-E2 — suite green-gate (#102b)
 
-<!-- PR-E2 entries -->
-### Added
+#### Added
 
 - **Phase 5 PR-E2 — suite green-gate sentinel (#102b, T43)** (`feat(green-gate)`):
   Added `tests/test_suite_integrity.py` (the T43 CI sentinel) plus enforcement
@@ -280,7 +290,7 @@
   `core.autocrlf=true` was producing for the pre-push hook + its tests. Scoped
   to shell scripts; no repo-wide renormalization.
 
-### Fixed
+#### Fixed
 
 - **Suite green-gate drive (#102b, T40–T44)**: drove the full PG-aware suite to
   GREEN — every test passes or carries a DD-42-justified skip; zero failures;
@@ -318,7 +328,7 @@
   cascade test non-vacuous (real FK-`ON DELETE CASCADE` exercise on both engines)
   instead of a `pass` stub.
 
-### Changed
+#### Changed
 
 - **CI `.github/workflows/pg-tests.yml`**: added a bootstrapped `postgres5434`
   service + a 5434-bootstrap step (so the 24 module-level `TEST_DATABASE_URL`
@@ -337,7 +347,56 @@
   process-global state) carry DD-42 category-4 `tracked-upstream-bug (#1192)`
   skips. Not product bugs or regressions; per-victim bisection is scoped in #1192.
 
-<!-- /PR-E2 entries -->
+### PR-F — docs consolidation + v0.36.78 version cut (T31–T36)
+
+#### Changed
+
+- **T31 — README rewrite** (commit `88e5f9b4`): rewrote `README.md` as the
+  operator-facing overview (DD-35) — quick-start, repo layout, and the
+  authoritative SQLite test floor 5,467 (closes the floor-drift remediation,
+  DD-26). Version badge bumped to `v0.36.78` (T33).
+- **T32 — MASTER.md §2 + DIRECTORY regen** (commit `69db7c55`): MASTER §2 now
+  documents the rolling-window test-floor model; `DIRECTORY.md` regenerated from
+  HEAD via `scripts/generate_directory.py` (DD-28); the generator's
+  git-tracked-file filter was repaired so it no longer ingests untracked
+  worktree debris; de-hardcoded annotations point at `len(TABLES)` for the
+  authoritative table count (= 80).
+- **T33 — CLAUDE.md / CHANGELOG.md / RELEASES.md consolidation + v0.36.78 cut**:
+  - `CLAUDE.md` delta-only (DD-27): de-hardcoded the schema-table count
+    (`70` → authoritative `len(TABLES)`), added the two new PR-A repo-root
+    structure rules + the T0a boundary-touch standards note; §207 done-flag
+    contract re-verified intact.
+  - `CHANGELOG.md`: added the RELEASES.md cross-link header (DD-25), unified the
+    six per-PR `<!-- PR-X entries -->` conflict-avoidance markers (DD-37) into
+    this single versioned `## [v0.36.78]` block, and left `## [Unreleased]`
+    empty.
+  - `RELEASES.md`: added the CHANGELOG.md cross-link header (DD-25; the two
+    files remain separate).
+  - **v0.36.78 version cut** (policy-consistent, `docs/versioning-policy.md`):
+    bumped `src/version.py` `VERSION` `v0.36.72` → `v0.36.78` + comment block,
+    the README version badge, and the `tests/test_version.py` version-lock
+    literals. Coupling trace per versioning-policy.md §42 / #631: the frontend
+    `Layout.jsx` version fallback is the literal placeholder `'unknown'`
+    (post-#631-15), NOT a hardcoded version constant — so no frontend change is
+    coupled to this cut. Tag cut by the coordinator at T39.
+
+#### Added
+
+- **T34 — audits archive sweep**: stale audit/receipt subdirectories swept into
+  the dated `archive/` hierarchy per the audits-archive policy (visual-verify
+  `.png` hierarchies preserved with their parent receipts, DD-31).
+- **T35 — module-docstring header sweep**: standard `Called by/Calls/Owns
+  tables/Config keys/Tests` headers backfilled across modules surfaced by
+  `tests/test_repo_structure.py::test_all_modules_have_standard_docstring`.
+- **T36 — phase-close sentinels**: regression-lock sentinels added for the
+  post-Phase-5 invariants (known_violations freshness + audits-archive policy +
+  CollectorResult `_safe_run` contract, DD-32).
+
+#### Decisions
+
+- Phase 5 unified-design decisions log: `docs/audits/2026-05-27-phase-5-unified/design-decisions.md`
+  (DD-25 keep CHANGELOG/RELEASES separate; DD-27 CLAUDE delta-only; DD-37 marker
+  unification at PR-F; DD-39 boundary-touch standards).
 
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 

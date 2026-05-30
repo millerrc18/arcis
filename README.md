@@ -1,35 +1,48 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.36.x-blue?style=flat-square)
-![phase](https://img.shields.io/badge/phase-1%20honest%20baseline-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-3%2C500%20passing-brightgreen?style=flat-square)
-![audit](https://img.shields.io/badge/audit--2026--04--27-signed-blue?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.36.78-blue?style=flat-square)
+![tests](https://img.shields.io/badge/tests-5%2C467%20floor%20(SQLite)-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
-![issues](https://img.shields.io/github/issues/millerrc18/arcis?style=flat-square)
 ![dashboard](https://img.shields.io/badge/dashboard-halcyonlab.app-00C7B7?style=flat-square)
 
-Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca or Interactive Brokers — all governed by a hard risk stack, regime-aware sizing, and a score-gated dual-broker router.
+Arcis (Adaptive Regime Classification & Intelligence Systems) is a systematic equity-research platform built on a fine-tuned local LLM and a 5-agent AI council. It scans the S&P 100 for high-conviction pullback setups, generates institutional-quality trade packets with local inference, and executes bracket orders through Alpaca (Interactive Brokers dormant per SD#41) — all governed by an 8-check risk governor, regime-aware sizing, and a score-gated dual-broker router.
 
-## Current Status
+This README is the public-facing overview. The authoritative references are:
 
-- **Phase 1 Honest Baseline + Track 1.5 instrumentation gaps closed** (Track 1.5 PR on `feature/track-1.5-instrumentation-gaps`; audit closed 2026-04-25; signed memo at [`audits/2026-04-27/stage1_baseline_memo.md`](audits/2026-04-27/stage1_baseline_memo.md), commit `d651160`). Bootcamp paper trading archived to `C:/arcis/data/archive/ai_research_desk_bootcamp_2026-04-24.sqlite3`; current DB is fresh post-archive. Live deploy deferred per fix-now-before-trade principle (SD#46) until instrumentation gaps are confirmed closed and a strategy with positive expected alpha exists.
-- **3-stage roadmap (audit-spec §3.1, supersedes SD#41 REVISED):** Stage 1 = honest signed baseline (DONE); Stage 2 = excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS via block bootstrap + ≥4-of-5 promotion gate; Stage 3 = > 1.0 at p < 0.05 over 300 OOS.
-- **Stage-1 numbers (n=35 fully-instrumented from archive):** rf-adjusted excess Sharpe 6.14 (literal verdict GREEN per §3.1 Decision Matrix); SPY-relative non-significant at p=0.43 (the diagnostic gate — strategy not yet differentiated from passive long-SPY).
-- **Track 1.5 instrumentation gaps closed (v0.27.0):** exit slippage (B1), broker exception logging (B2.A/B/C), exit_reason taxonomy (B3), LLM Key Risk persistence (B4), instrumentation_version sentinel (B5), B6 end-to-end test, LLM timeout persistence (B8), dashboard timeout visibility (B9), 5-KPI hero strip (Round 8.B), broker_exceptions panel (Round 8.C), preflight gate UI echo (Round 8.D). See `docs/audits/2026-04-27-trading-readiness/SHIPPED.md` for full scorecard.
-- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain gated on Stage-2 promotion
-- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) — served from the local machine via Cloudflare Tunnel (Render hosting decommissioned 2026-05; see `docs/operations/render-decommission.md`). Multi-page cockpit with 5-KPI hero strip, broker exceptions panel, preflight gate echo, Trade History with timeout visibility, mobile-responsive sidebar, dark/light toggle.
-- **IB integration**: cold-stored per SD#41 — code intact, `trading.ib_enabled=false` default. Reactivation is a single flag flip; all modules, tests, table, and dependency preserved.
-- **Current counts**: ~3,500 tests passing (Track 1.5 sweep pending) / 67 schema tables / 28 dashboard pages. See [MASTER.md](MASTER.md) Section 2 for full live metrics.
+- **[MASTER.md](MASTER.md)** — single source of truth: system identity, current state, architecture, schema, strategy decisions, phase gates, conventions, and principles. Read this before making any change.
+- **[CLAUDE.md](CLAUDE.md)** — engineering rules and local-dev workflow: schema-registry discipline, test floor, worktree discipline, repo layout, and common commands.
+- **[RELEASES.md](RELEASES.md)** — release history, versioning policy, and the path to v1.0.0.
+- **[docs/operator-guide.md](docs/operator-guide.md)** — daily ops cadence, troubleshooting decision trees, recovery patterns, CLI commands, and glossary.
 
-## 2026-04-27 Audit Artifacts
+## Quick Start (operator)
 
-- [`docs/audits/2026-04-27-trading-readiness/SHIPPED.md`](docs/audits/2026-04-27-trading-readiness/SHIPPED.md) — what got delivered (26 commits, +342 net tests, +6 new module families)
-- [`docs/audits/2026-04-27-trading-readiness/audit-spec.md`](docs/audits/2026-04-27-trading-readiness/audit-spec.md) — original spec (sections 3.1, 9, F-1 through F-16)
-- [`audits/2026-04-27/stage1_baseline_memo.md`](audits/2026-04-27/stage1_baseline_memo.md) — signed memo (the artifact Mon's go/halt rests on)
-- [`audits/2026-04-27/devils_advocate_stage1.md`](audits/2026-04-27/devils_advocate_stage1.md) — pre-sign-off skeptic checklist (5 categories)
-- [`docs/methodology-toolkit.md`](docs/methodology-toolkit.md) — when to use CPCV / block bootstrap / MC perm / PSR-DSR-MinTRL / White RC / promotion gate
+The runtime DB is **local Docker PostgreSQL** as of the 2026-05 SQLite→Postgres cutover. The git repo at `C:\arcis\halcyon-lab\` must be the working directory for every CLI invocation.
+
+```bash
+# 1. Environment (Windows)
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+
+# 2. Secrets + config (never commit these — both are gitignored)
+cp .env.example .env                                          # API keys, tokens
+cp config/settings.example.yaml config/settings.local.yaml    # thresholds
+
+# 3. Schema + model
+python -m src.main validate-schema --fix                      # create/sync all tables from the registry
+ollama pull qwen3:8b
+
+# 4. Dry-run scan (no orders placed)
+python -m src.main scan --verbose --dry-run
+
+# 5. Launch the autonomous watch loop
+#    Validates config/schema/env/connectivity, auto-fixes schema drift,
+#    sends a Telegram start notification, then runs with --overnight defaults.
+python -m src.main startup
+```
+
+The watch loop is managed by NSSM in production — restart it via `nssm restart ArcisWatchLoop`, **not** by re-running `python -m src.main startup` (that spawns a duplicate that races the managed instance). Full ops cadence, restart sequences, and stuck-position/lost-commit recovery live in the [operator guide](docs/operator-guide.md). Local-dev rules (schema registry, test discipline, worktree isolation) live in [CLAUDE.md](CLAUDE.md).
 
 ## Architecture
 
@@ -37,82 +50,88 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
   <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
 </p>
 
-See [MASTER.md](MASTER.md) Section 4 for the schema summary (67 tables). Full DDL in `src/schema/registry.py`.
+See [MASTER.md](MASTER.md) Section 4 for the schema summary. The schema registry in `src/schema/registry.py` is the single source of truth for every table; get the authoritative count with:
+
+```bash
+python -c "from src.schema.registry import TABLES; print(len(TABLES))"
+```
 
 See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
 
 The scheduler runs 24/7: pre-market watchlist, intraday scans every 15 min, EOD recaps, overnight data collection (12 collectors), daily council sessions, and weekly training cycles.
 
-## Quick Start
+## Repo Layout
 
-```bash
-# Set up environment
-python -m venv .venv && .venv\Scripts\activate  # Windows
-pip install -r requirements.txt
+Runtime state lives **outside** the git repo by design — see [CLAUDE.md](CLAUDE.md) "Repo Layout (local dev)" for the full rationale and mechanism.
 
-# Configure secrets (.env) and settings (YAML)
-cp .env.example .env           # Fill in API keys, tokens
-cp config/settings.example.yaml config/settings.local.yaml  # Adjust thresholds
-
-# Initialize DB + pull model
-python -m src.main init-db
-ollama pull qwen3:8b
-
-# Test scan
-python -m src.main scan --verbose --dry-run
-
-# Start autonomous scheduler (validates config, schema, env, connectivity first)
-python -m src.main startup
 ```
+arcis/
+├── src/             Python backend (FastAPI, scheduler, trading, training, schema registry)
+│   ├── schema/      Schema registry — the ONLY place CREATE TABLE / ALTER TABLE may appear
+│   ├── scheduler/   Watch loop + multi-cadence scanners
+│   ├── shadow_trading/  Alpaca adapter, bracket orders, reconciliation
+│   ├── risk/        8-check risk governor + kill switch
+│   ├── council/     5-agent AI council (Modified Delphi protocol)
+│   ├── llm/         Ollama client, packet writer, conviction parser
+│   ├── training/    QLoRA training pipeline + quality gates
+│   ├── platform/    Backtest engine + statistical rigor stack
+│   └── simulation/  Trading-day lifecycle simulator + gates
+├── tests/           pytest suite (SQLite floor 5,467 — see below)
+├── frontend/        React 19 dashboard (Vite 8, Tailwind 4)
+├── scripts/         Operator + maintenance scripts (migration, audit, backfill)
+├── config/          YAML settings, guardrail baselines, known-violations allowlists
+├── docs/            Research, audits, decisions, guides, operator-guide.md
+├── MASTER.md        Single source of truth (read first)
+├── CLAUDE.md        Engineering rules + local-dev workflow
+└── RELEASES.md      Release history + versioning policy
+```
+
+The active database is **not** in the repo: `.env` sets the runtime DB location, and a 1 GB binary is kept out of `git status` / `git diff`. See [DIRECTORY.md](DIRECTORY.md) for the auto-generated full tree (regenerated each sprint via `scripts/generate_directory.py`).
 
 ## Dashboard
 
-Local: `python -m src.main dashboard` (localhost:8000)
-Cloud: [halcyonlab.app](https://halcyonlab.app) — the local dashboard exposed publicly via Cloudflare Tunnel (the `ArcisDashboard` NSSM service). Render hosting was decommissioned in 2026-05.
+- **Local:** `python -m src.main dashboard` (localhost:8000)
+- **Cloud:** [halcyonlab.app](https://halcyonlab.app) — the local dashboard exposed publicly via Cloudflare Tunnel (the `ArcisDashboard` NSSM service). Render hosting was decommissioned 2026-05 (see `docs/operations/render-decommission.md`).
+
+Multi-page cockpit with a 5-KPI hero strip, broker-exceptions panel, preflight-gate echo, Trade History with timeout visibility, mobile-responsive sidebar, and a dark/light toggle.
 
 ## Tech Stack
 
-- **Backend**: Python 3.12, FastAPI, PostgreSQL (local Docker PG is the runtime DB as of the 2026-05 SQLite→Postgres cutover; legacy SQLite paths retired)
-- **Frontend**: React 19, Vite 8, Tailwind 4, Recharts
-- **Inference**: Ollama (Qwen3 8B), Anthropic Claude (council + quality scoring)
-- **Broker**: Alpaca (paper + live, active) / Interactive Brokers (dormant per SD#41) via broker abstraction (`src/trading/`)
-- **Data**: Finnhub, FRED, SEC EDGAR, Yahoo Finance, 12 overnight collectors
-- **Ops**: Telegram alerts, Cloudflare Tunnel public access, NSSM-managed services, CI on PRs, command queue from dashboard
+- **Backend:** Python 3.12, FastAPI, PostgreSQL (local Docker — runtime DB since the 2026-05 SQLite→Postgres cutover; raw SQL via a thin engine-aware adapter, no ORM)
+- **Frontend:** React 19, Vite 8, Tailwind 4, TanStack Query, Recharts
+- **Inference:** Ollama (halcyon-v1.0.0, Qwen3 8B QLoRA fine-tuned), Anthropic Claude (council + quality scoring)
+- **Training:** PEFT + TRL + BitsAndBytes on RTX 3090 24GB (RTX 3060 12GB secondary)
+- **Broker:** Alpaca (paper + live, active) / Interactive Brokers (dormant per SD#41, `trading.ib_enabled=false`) via broker abstraction (`src/trading/`)
+- **Data:** Finnhub, FRED, SEC EDGAR, Yahoo Finance, 12 overnight collectors
+- **Ops:** Telegram alerts, Cloudflare Tunnel public access, NSSM-managed services, CI on PRs, command queue from the dashboard
 
-## Development Workflow
+## Testing
 
-All code changes go through Claude Code (CC) sprints with strict guardrails:
+```bash
+python -m pytest tests/ -q          # full suite
+python -m src.main preflight        # operator preflight check
+```
 
-**Sprint Rules:**
-- ≤10 tasks per sprint; never refactor and add features in the same sprint
-- Every sprint ends with a mandatory documentation update (see MASTER.md Section 9)
-- No `src/` file exceeds 400 lines; no function exceeds 60 lines
-- Refactor by extraction, not rewrite
+- **SQLite test floor: 5,467.** CI enforces that the SQLite-path suite never drops below this count (see [CLAUDE.md](CLAUDE.md) "Test count must not drop" for the full floor lineage). The floor is a regression tripwire — bump it in CLAUDE.md whenever the suite grows past it.
+- **PostgreSQL CI floor: 5,267.** The PG-aware sweep (`.github/workflows/pg-tests.yml`) runs the full suite against a Postgres service and enforces a deliberately lower floor, because the chronic-failure class (worktree env-drift, hardcoded fixtures, env-pollution) costs the hosted-runner sweep a few hundred tests relative to the local SQLite run.
+- **External APIs are always mocked** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama).
 
-**PR Review Discipline (human reviewer):**
-- Fetch and read EVERY changed file before approving
-- Check for: functions returning empty/default values, TODO/FIXME/placeholder comments, error handlers that just `pass`, missing implementations behind if/else branches, hardcoded mock data
-- Do not merge until every file is verified
+## Development
 
-**CC Mandatory Steps (every sprint):**
-1. Read `MASTER.md` before writing any code
-2. Run `python -m pytest tests/ -x -q` before and after all changes
-3. Run `npm run build` in `frontend/` to verify no build regressions
-4. Run `python scripts/verify_docs.py` to check documentation drift
-5. Update `MASTER.md` Section 2 and `CHANGELOG.md`
-6. Run the Postgres schema migration if any new tables or columns were added
-7. Update `config/settings.example.yaml` if any new config keys were added
-8. Commit with descriptive messages referencing issue numbers
+All code changes go through Claude Code sprints with strict guardrails. The complete rules — schema-registry discipline (`CREATE TABLE` only in `src/schema/registry.py`), the test floor, parallel-agent worktree discipline, data-collection contracts, and the per-PR checklist — live in **[CLAUDE.md](CLAUDE.md)**. Highlights:
 
-**Governance hierarchy:** `MASTER.md` → Charter → Blueprint → Code
+- No `src/` file exceeds 400 lines; no function exceeds 60 lines (`tests/test_repo_structure.py` enforces this).
+- Never refactor and add features in the same sprint; refactor by extraction, not rewrite.
+- Every PR updates `CHANGELOG.md` under `[Unreleased]`; releases bump `src/version.py` and create a git tag.
+- Governance hierarchy: `MASTER.md` → Charter → Blueprint → Code.
 
 ## Research
 
-100 documents in `docs/research/` covering regime detection, position sizing, risk management, training methodology, market microstructure, model degradation prevention, hardware deployment strategy, capital velocity optimization, and IB integration best practices (6 IB deep-research docs).
+The `docs/research/` corpus covers regime detection, position sizing, risk management, training methodology, market microstructure, model-degradation prevention, hardware deployment strategy, capital-velocity optimization, and IB integration best practices. The statistical-rigor toolkit (CPCV, block bootstrap, Monte Carlo permutation, PSR/DSR/MinTRL, White's Reality Check, and the ≥4-of-5 promotion gate) is documented in [docs/methodology-toolkit.md](docs/methodology-toolkit.md).
 
 ## SEC Compliance
 
-All trading activity is AI-informed, systematic, and research-driven. The system operates under paper trading during the bootcamp phase. No advisory services are provided.
+All trading activity is AI-informed, systematic, and research-driven. The system operates under paper trading. No advisory services are provided.
 
 ## License
 

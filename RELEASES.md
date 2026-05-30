@@ -1,5 +1,7 @@
 # Arcis Release History
 
+> **See also:** [`CHANGELOG.md`](CHANGELOG.md) — the per-change log (Keep-a-Changelog format). This file is the release-process narrative + path-to-v1.0.0 dashboard. The two are deliberately kept separate (DD-25).
+>
 > **Versioning:** [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 > **v1.0.0 criteria:** Phase 1 gate passed, all critical bugs resolved, 7-day uptime, ≥90% conviction parse rate
 

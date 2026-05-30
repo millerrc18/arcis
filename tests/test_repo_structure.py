@@ -7,9 +7,11 @@ Config keys: none
 Tests: self
 """
 import ast
+import datetime
 import importlib
 import json
 import re
+import subprocess
 import warnings
 from pathlib import Path
 
@@ -568,4 +570,229 @@ def test_repo_root_sqlite_rule_detects_violation(tmp_path):
         )
     assert "README.md" not in offender_names, (
         "Over-match: README.md was flagged as a SQLite file"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 PR-F T36 sentinels: DIRECTORY.md staleness + docs-header discipline.
+# Canonical context: docs/audits/2026-05-27-phase-5-unified/implementation-plan.md
+# (T36 entry). Both sentinels are NON-grandfathered — there is no entry in
+# config/known_violations.json for either; they must pass on the real tree.
+# ---------------------------------------------------------------------------
+
+# Staleness threshold for DIRECTORY.md vs the HEAD commit date.
+# N = 45 days. Rationale: Arcis sprints historically run ~1–3 weeks, and
+# generate_directory.py is re-run "after every sprint" (see its module
+# docstring) — so a fresh DIRECTORY.md lands within a sprint of any commit
+# that materially reshapes the tree. 45 days is a ~2–3-sprint window: loose
+# enough that normal cadence never trips it, tight enough to flag a months-
+# stale index whose tree has drifted. The plan text says "within N sprints";
+# 45 days is the calendar proxy for that sprint-count, chosen because there is
+# no machine-readable sprint clock in the repo to count against.
+_DIRECTORY_STALENESS_MAX_DAYS = 45
+
+
+def _parse_directory_last_updated(text: str) -> datetime.date:
+    """Parse the `Last updated: YYYY-MM-DD` date that generate_directory.py
+    writes INTO DIRECTORY.md.
+
+    The generator emits the line as ``> Last updated: {date.today()}`` inside a
+    blockquote, so we tolerate an optional leading ``>`` / whitespace. We use
+    THIS in-file date — not filesystem mtime — because mtime resets on
+    ``git checkout`` and is meaningless in CI / fresh clones, whereas the
+    written date is committed content that travels with the file.
+
+    Raises AssertionError if the line is absent or malformed (a missing
+    freshness stamp is itself a regression worth failing on).
+    """
+    m = re.search(r"^\s*>?\s*Last updated:\s*(\d{4}-\d{2}-\d{2})\s*$", text, re.MULTILINE)
+    assert m, "DIRECTORY.md has no parseable `Last updated: YYYY-MM-DD` line"
+    return datetime.date.fromisoformat(m.group(1))
+
+
+def _head_commit_date() -> datetime.date:
+    """Return the HEAD commit's author/commit date (``git log -1 %cI``).
+
+    %cI is strict-ISO-8601 with a timezone offset; we take the calendar date.
+    """
+    out = subprocess.run(
+        ["git", "log", "-1", "--format=%cI"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return datetime.date.fromisoformat(out[:10])
+
+
+def test_directory_md_not_stale_vs_head():
+    """Sentinel: DIRECTORY.md's `Last updated:` date is within
+    _DIRECTORY_STALENESS_MAX_DAYS (45) of the HEAD commit date.
+
+    Freshness source is the `Last updated: YYYY-MM-DD` line the generator
+    writes INTO DIRECTORY.md — NOT filesystem mtime (mtime resets on
+    `git checkout` and is unreliable in CI / fresh clones). We compare it to
+    the HEAD commit date from `git log -1 --format=%cI`.
+
+    Verified non-vacuous (verify-by-mutation, Q5): a `Last updated:` date 45+
+    days behind the head date FAILS the gap check, while a same-day date
+    PASSES — proven in test_directory_staleness_rule_detects_violation below
+    using tmp_path content (no real-tree write).
+    """
+    last_updated = _parse_directory_last_updated(
+        Path("DIRECTORY.md").read_text(encoding="utf-8")
+    )
+    head_date = _head_commit_date()
+    gap = (head_date - last_updated).days
+    assert gap <= _DIRECTORY_STALENESS_MAX_DAYS, (
+        f"DIRECTORY.md is stale: `Last updated: {last_updated}` is {gap} days "
+        f"behind HEAD commit date {head_date} (max {_DIRECTORY_STALENESS_MAX_DAYS}). "
+        f"Re-run `python scripts/generate_directory.py` and commit the result."
+    )
+
+
+def test_directory_staleness_rule_detects_violation(tmp_path):
+    """Sentinel-of-the-sentinel: the staleness check FAILS on a stale stamp
+    and PASSES on a fresh one.
+
+    Verify-by-mutation (Q5): an OLD `Last updated:` date (45+ days behind the
+    reference head date) yields a gap over the threshold (violation); a fresh
+    same-day date yields gap 0 (clean). Drives the parser with tmp_path
+    content — never touches the real DIRECTORY.md.
+    """
+    head_date = datetime.date(2026, 5, 29)
+
+    stale = tmp_path / "DIRECTORY_stale.md"
+    stale.write_text("> Last updated: 2020-01-01\n", encoding="utf-8")
+    stale_gap = (head_date - _parse_directory_last_updated(stale.read_text(encoding="utf-8"))).days
+    assert stale_gap > _DIRECTORY_STALENESS_MAX_DAYS, (
+        f"Mutation check broken: a 2020 stamp should exceed the "
+        f"{_DIRECTORY_STALENESS_MAX_DAYS}-day window (got gap {stale_gap})"
+    )
+
+    fresh = tmp_path / "DIRECTORY_fresh.md"
+    fresh.write_text(f"> Last updated: {head_date.isoformat()}\n", encoding="utf-8")
+    fresh_gap = (head_date - _parse_directory_last_updated(fresh.read_text(encoding="utf-8"))).days
+    assert fresh_gap <= _DIRECTORY_STALENESS_MAX_DAYS, (
+        f"Mutation check broken: a same-day stamp should be within the window "
+        f"(got gap {fresh_gap})"
+    )
+
+
+def _doc_header_violation(text: str) -> str | None:
+    """Return a reason string if `text` violates the doc-header contract, else
+    None.
+
+    Contract (after stripping an OPTIONAL leading YAML frontmatter block
+    delimited by `---` … `---`):
+      1. Line 1 is an ATX H1 — exactly one `#`, then a space, then a title.
+      2. The next non-blank line is a PROSE paragraph: NOT another heading
+         (`#`/`##`/…), NOT a list item (`-`/`*`/`+`/`1.`), NOT a code fence
+         (```` ``` ```` / `~~~`).
+
+    A doc that opens with `# Title` immediately followed by a sub-heading,
+    a bullet list, or a code block jumps the reader straight into structure
+    with no orienting sentence — exactly what this sentinel forbids.
+    """
+    lines = text.splitlines()
+
+    # Strip optional YAML frontmatter: a leading `---` line, up to the next `---`.
+    if lines and lines[0].strip() == "---":
+        end = None
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                end = i
+                break
+        if end is None:
+            return "unterminated YAML frontmatter (opening `---` has no closing `---`)"
+        lines = lines[end + 1:]
+
+    # Skip blank lines between frontmatter and the title.
+    idx = 0
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    if idx >= len(lines):
+        return "no content after optional frontmatter"
+
+    title = lines[idx]
+    if not re.match(r"^#\s+\S", title) or title.lstrip().startswith("##"):
+        return f"line 1 is not an `# Title` H1: {title!r}"
+
+    # Find the next non-blank line after the title.
+    j = idx + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    if j >= len(lines):
+        return "H1 title has no following prose paragraph"
+
+    nxt = lines[j].lstrip()
+    if nxt.startswith("#"):
+        return f"line after H1 is another heading, not prose: {lines[j]!r}"
+    if re.match(r"^([-*+]\s|\d+[.)]\s)", nxt):
+        return f"line after H1 is a list item, not prose: {lines[j]!r}"
+    if nxt.startswith("```") or nxt.startswith("~~~"):
+        return f"line after H1 is a code fence, not prose: {lines[j]!r}"
+    return None
+
+
+def _docs_with_header_violations() -> list[str]:
+    """Scan docs/standards/ + docs/runbooks/ for header-contract violations."""
+    bad = []
+    for d in (Path("docs/standards"), Path("docs/runbooks")):
+        for p in sorted(d.rglob("*.md")):
+            reason = _doc_header_violation(p.read_text(encoding="utf-8"))
+            if reason is not None:
+                bad.append(f"{p.as_posix()}: {reason}")
+    return bad
+
+
+def test_standards_and_runbooks_docs_have_header():
+    """Sentinel: every doc in docs/standards/ + docs/runbooks/ opens with an
+    `# Title` H1 whose next non-blank line is a prose paragraph (after any
+    optional YAML frontmatter).
+
+    T35 made both current docs (standards/boundary-touch-tests.md,
+    runbooks/stack-dump.md) conform, so this passes on the real tree.
+
+    Verified non-vacuous (verify-by-mutation, Q5): a doc whose `# Title` is
+    immediately followed by `## Heading` (no prose) FAILS the contract, while
+    a `# Title` + prose doc PASSES — proven in
+    test_doc_header_rule_detects_violation below using tmp_path content.
+    """
+    bad = _docs_with_header_violations()
+    assert not bad, (
+        "Docs in standards/ or runbooks/ violate the header contract "
+        "(H1 then prose paragraph; see Phase 5 PR-F T36):\n"
+        + "\n".join(f"  - {b}" for b in bad)
+    )
+
+
+def test_doc_header_rule_detects_violation(tmp_path):
+    """Sentinel-of-the-sentinel: the header check FAILS on a heading-after-H1
+    doc and PASSES on a conforming H1+prose doc.
+
+    Verify-by-mutation (Q5): `# Title` immediately followed by `## Heading`
+    (no orienting prose) is a violation; `# Title` followed by a prose
+    paragraph is clean. Also confirms an optional YAML frontmatter block is
+    skipped before the H1 check. Drives the helper with tmp_path content —
+    never touches the real docs tree.
+    """
+    # Violation: H1 then a sub-heading with no prose.
+    assert _doc_header_violation("# Title\n\n## Heading\n\nbody\n") is not None, (
+        "Mutation check broken: `# Title` + `## Heading` should be a violation"
+    )
+    # Violation: H1 then a list item.
+    assert _doc_header_violation("# Title\n\n- bullet\n") is not None, (
+        "Mutation check broken: `# Title` + list item should be a violation"
+    )
+    # Violation: H1 then a code fence.
+    assert _doc_header_violation("# Title\n\n```\ncode\n```\n") is not None, (
+        "Mutation check broken: `# Title` + code fence should be a violation"
+    )
+    # Clean: H1 then prose.
+    assert _doc_header_violation("# Title\n\nA prose sentence orienting the reader.\n") is None, (
+        "False positive: `# Title` + prose should be clean"
+    )
+    # Clean: optional YAML frontmatter, then H1 then prose.
+    assert _doc_header_violation(
+        "---\ntitle: x\n---\n# Title\n\nProse after frontmatter.\n"
+    ) is None, (
+        "Frontmatter handling broken: `---`…`---` then H1+prose should be clean"
     )
