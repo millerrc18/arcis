@@ -126,7 +126,7 @@ class TestRegimeFollowupAuditExists:
     def test_followup_audit_exists_and_has_required_sections(self):
         from pathlib import Path
         repo_root = Path(__file__).resolve().parent.parent
-        path = repo_root / "docs" / "audits" / "2026-05-17-v0.36.13-training-page" / "regime_capture_followup.md"
+        path = repo_root / "docs" / "archive" / "sprint-receipts" / "2026-05-17-v0.36.13-training-page" / "regime_capture_followup.md"
         assert path.exists(), f"Followup audit missing at {path}"
         contents = path.read_text(encoding="utf-8")
         required_sections = [
