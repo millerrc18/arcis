@@ -269,3 +269,29 @@ The two-step structure (revert + sentinel-delete in separate companion commit, p
 - #11: rewrite tests/test_shadow_desk_filter.py using src.api.app
 - #12: test_route_excludes_operator_confirm_rows hardcoded-timestamp flake (unrelated, surfaced during T4c)
 - #13: PLAN GAP T5 — render_to_local_migrate.py proper-expansion deletion
+
+---
+
+## Phase 4 — Decommission Complete (closeout 2026-05-29, PR-F T35)
+
+This runbook is now **CLOSED**. All four decommission phases described above are complete; the Render web service and Postgres mirror no longer exist and nothing in the live system references them. This closeout receipt is the operational counterpart to the PR-B code-sweep receipt above (which removed the Render-facing *code*); together they confirm both the infrastructure and the codebase are fully Render-free.
+
+### Status by phase
+
+| Phase | What it covered | Status |
+|---|---|---|
+| Phase 1 | Suspend Render web service (`arcis-api`) | DONE — superseded by Cloudflare Tunnel since the 2026-05-10 cutover (PR #1047); Render traffic path was already inert |
+| Phase 2 | Suspend Render Postgres (`arcis-pg`) | DONE — live read paths (`cloud_routes/*`) serve from local SQLite; Render PG received no live writes post-cutover |
+| Phase 3 | 7-day grace observability window | DONE — `api_render_connection` / `api_render_config` / `api_cloud_healthz` validator probes were gutted in v0.36.39 (2026-05-20) precisely because the Render services were confirmed gone; expected-FAIL probes are documented as offline in operator memory (`project_render_resources_stopped`, 2026-05-18) |
+| Phase 4 | Final deletion + config cleanup | DONE — Render account resources stopped/offline (operator, 2026-05-18); the last Render-facing code (`cloud_app.py`, `render.yaml`, `requirements-cloud.txt`, `scripts/render_init_db.py`, `DATABASE_URL` gating across `cloud_routes/*`) removed in Phase 5 PR-B (#73) |
+
+### What confirms completion
+
+- **Code side (PR-B, #73):** `src/api/cloud_app.py`, `render.yaml`, `requirements-cloud.txt`, `scripts/render_init_db.py` deleted; all 7 `cloud_routes/*` modules SQLite-only (no `DATABASE_URL` gating). Two regression-lock sentinels (`tests/test_cloud_app_removed.py`, `tests/test_no_database_url_branch.py`) prevent reintroduction. See the PR-B receipt above and the `## [v0.36.78]` → `### PR-B` CHANGELOG block.
+- **Validator side (v0.36.39, 2026-05-20):** `src/evaluation/system_validator.py` Render checks removed — there is no longer any live probe that expects a Render endpoint to answer.
+- **Operator side (2026-05-18):** Render Postgres + cloud_app + frontend intentionally taken offline post-cutover. Any residual `api_render_connection` FAIL is expected, not an alarm (operator memory `project_render_resources_stopped`).
+
+### Residual / not-in-this-runbook
+
+- **`scripts/render_to_local_migrate.py`** is intentionally retained (NOT a live Render dependency): it houses the load-bearing `apply_ownership_reconciliation` function from the 2026-05-14 incident fix. Its deletion is tracked separately under PR-B kin #13 (proper-expansion move to a shared utils module first). This is a code-hygiene follow-up, not a decommission gap.
+- **Snapshot retention:** `C:/arcis/data/render-pg-snapshot-2026-05-10.sql` (478 MB) is kept indefinitely per the operator decision in the "Decision points" table above. It is the nuclear-option restore source and depends on nothing live.

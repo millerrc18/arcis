@@ -1,5 +1,7 @@
 # Stack-Dump Runbook — ArcisWatchLoop wedge diagnostic
 
+Capture a py-spy stack dump from a wedged ArcisWatchLoop process so the wedge can be root-caused (deadlock vs. blocking syscall vs. tight loop) before the service is restarted and the forensic state is lost.
+
 ## When to use
 
 Run this runbook when the live-monitor agent (or an operator) detects a **watchloop wedge**: the ArcisWatchLoop service is running (NSSM reports status STARTED) but arcis.log has been silent for 20+ minutes during market hours and no in-progress task markers are visible. A py-spy stack-dump reveals whether the process is deadlocked, stuck in a blocking syscall, or looping unexpectedly.
