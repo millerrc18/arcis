@@ -398,6 +398,61 @@ coordinator at T39 (versioning-policy.md §3).
   (DD-25 keep CHANGELOG/RELEASES separate; DD-27 CLAUDE delta-only; DD-37 marker
   unification at PR-F; DD-39 boundary-touch standards).
 
+### PR-G — phase-5 close-out (T37–T39)
+
+#### Added
+
+- **T37 — three non-grandfathered phase-5 close-out sentinels** (commit
+  `48bfe9f6`; DD-32 / DD-37 §3) locking the post-Phase-5 invariants. Each is
+  proven non-vacuous by a `tmp_path` negative dry-run (fails when its constraint
+  is violated):
+  - **known_violations freshness** — no `config/known_violations.json` entry may
+    refer to a file currently under the 400-line threshold.
+  - **docs/audits archive policy** — no audit/receipt subdirectory older than
+    three sprints may remain at the `docs/audits/` top level (must be swept into
+    the dated `archive/` hierarchy).
+  - **CollectorResult `_safe_run` contract** — `src/scheduler/watch.py`
+    `_safe_run` is locked to the `CollectorResult` return contract (PR-D #72
+    follow-through).
+
+#### Removed
+
+- **T37 — known_violations.json enabling prune** (commit `48bfe9f6`): the two
+  now-undersized rows the freshness sentinel would otherwise flag were pruned:
+  - `src/api/cloud_routes/kpis_compute.py` — `401 → 366L` (fell under threshold
+    via the PR-B SQLite-only strip).
+  - `src/data_collection/backfill.py` — stale entry corrected (`343 → 344L`,
+    already below threshold; entry removed).
+  KC-6 cloud_routes leftovers and the grandfathered >400L PR-C residuals
+  (`order_lifecycle.py`, `telegram_delivery.py`, `executor.py`, `telegram.py`,
+  `governor.py`, `trainer.py`, `email_digest_render.py`) are intentionally
+  retained with Phase-6 sub-target notes.
+
+#### Docs
+
+- **T38 — this CHANGELOG `### PR-G` sub-section** added to the `## [v0.36.78]`
+  block (DD-37: the per-PR `<!-- PR-X entries -->` conflict-avoidance markers
+  were unified to `### PR-X` sub-sections by PR-F T33, so PR-G uses a `### PR-G`
+  sub-section rather than a re-introduced marker).
+- **T39 — RELEASES.md v0.36.78 phase-5 close receipt** added (see `RELEASES.md`;
+  CHANGELOG and RELEASES remain deliberately separate per DD-25).
+
+#### Decisions
+
+- **Phase-5 Cleanup-1 kin subsumption** (T39) — the two internal attack-plan
+  Cleanup-1 follow-up kins are resolved at Phase-5 close:
+  - **Cleanup-1 kin-125 (lazy-import)** — the "6 tests need lazy-import" cleanup
+    is subsumed/closed at Phase-5 end; the actual lazy-import refactor is a
+    tracked follow-up **deferred to Phase-6** (NOT a green-gate blocker — the
+    affected `tests/training/test_pass_c.py` skips are sklearn optional-dep
+    skips, DD-42 §46-justified).
+  - **Cleanup-1 kin-126 (walkforward)** — the "2 walkforward stale-row tests"
+    cleanup was **already absorbed by PR-E2 (T44)**; closed-by-PR-E2, not
+    re-handled here.
+  (These are internal Cleanup-1 attack-plan kins, distinct from the unrelated
+  GitHub bug issues; deliberately referenced WITHOUT the `#NNN` form so no
+  unrelated issue is auto-closed or cross-referenced.)
+
 ## [v0.36.72] — 2026-05-27 — TradingState GPU_METRICS text=date hotfix (#124b)
 
 ### Fixed
