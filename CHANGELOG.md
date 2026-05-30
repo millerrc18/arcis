@@ -421,7 +421,7 @@ coordinator at T39 (versioning-policy.md §3).
   now-undersized rows the freshness sentinel would otherwise flag were pruned:
   - `src/api/cloud_routes/kpis_compute.py` — `401 → 366L` (fell under threshold
     via the PR-B SQLite-only strip).
-  - `src/data_collection/backfill.py` — stale entry corrected (`343 → 344L`,
+  - `src/training/backfill.py` — stale entry corrected (`343 → 344L`,
     already below threshold; entry removed).
   KC-6 cloud_routes leftovers and the grandfathered >400L PR-C residuals
   (`order_lifecycle.py`, `telegram_delivery.py`, `executor.py`, `telegram.py`,
