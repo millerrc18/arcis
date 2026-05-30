@@ -796,3 +796,228 @@ def test_doc_header_rule_detects_violation(tmp_path):
     ) is None, (
         "Frontmatter handling broken: `---`…`---` then H1+prose should be clean"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 PR-G T37 sentinels: known_violations freshness + docs/audits archive
+# policy. Canonical context:
+# docs/audits/2026-05-27-phase-5-unified/implementation-plan.md (T37 entry).
+# Both sentinels are NON-grandfathered — there is no entry in
+# config/known_violations.json for either; they must pass on the real tree.
+# ---------------------------------------------------------------------------
+
+
+def _stale_oversized_file_entries(known: dict, root: Path) -> list[str]:
+    """Return ``oversized_files`` entries whose file is CURRENTLY <=400 lines.
+
+    A grandfather entry is "stale" once the file it excuses no longer exceeds
+    the 400-line cap: the entry is dead weight that should be PRUNED (T38), and
+    leaving it lets a future regression re-grow the file silently under cover of
+    a still-present allowlist row. Missing files are skipped here — a deleted
+    file is a separate concern (and T38's prune target), not a <400L staleness
+    signal — so this sentinel flags only the precise "exists AND now small"
+    case.
+
+    ``root`` is explicit so the negative sentinel can drive it with a tmp_path
+    tree (see test_known_violations_freshness_rule_detects_violation).
+    """
+    stale = []
+    for entry in known.get("oversized_files", []):
+        rel = entry["file"]
+        p = root / rel
+        if not p.is_file():
+            continue
+        lines = len(p.read_text(encoding="utf-8").splitlines())
+        if lines <= 400:
+            stale.append(f"{rel}: now {lines} lines (<=400) — grandfather entry is stale")
+    return stale
+
+
+def test_known_violations_has_no_stale_undersized_file_entries():
+    """Sentinel (a): no ``oversized_files`` entry in known_violations.json
+    refers to a file that is CURRENTLY <=400 lines.
+
+    Rationale: a grandfather row for a file that has since shrunk under the cap
+    is dead weight — and worse, it silently re-permits the file to re-grow back
+    to its (large) recorded count + tolerance without tripping
+    test_no_file_over_400_lines. Freshness here keeps the allowlist honest.
+
+    NON-grandfathered: this sentinel has no self-entry. The 4 currently-live
+    >400L entries flagged in the T37 brief (auditor.py, cloud_routes/
+    analytics.py, core.py, kpis_compute.py) all exceed 400 lines today, so this
+    passes on the real tree. If it ever FAILS, the offending row is a T38 prune
+    target — do NOT silence it by editing known_violations.json from here.
+
+    Verified non-vacuous (verify-by-mutation, Q5): a synthetic known-violations
+    dict pointing at a 3-line tmp_path file is flagged stale, while the real
+    tree is clean — proven in
+    test_known_violations_freshness_rule_detects_violation below.
+    """
+    stale = _stale_oversized_file_entries(KNOWN, Path("."))
+    assert not stale, (
+        "Stale grandfather entries in config/known_violations.json (file now "
+        "<=400 lines — PRUNE per Phase 5 PR-G T38, do not edit from the test):\n"
+        + "\n".join(f"  - {s}" for s in stale)
+    )
+
+
+def test_known_violations_freshness_rule_detects_violation(tmp_path):
+    """Sentinel-of-the-sentinel: the freshness check FLAGS an entry whose file
+    is now <=400 lines and IGNORES one that is still >400.
+
+    Verify-by-mutation (Q5): builds a fake known-violations dict with two rows —
+    one pointing at a 3-line file (stale), one at a 500-line file (still
+    legitimately oversized) — under tmp_path, and asserts only the small-file
+    row is returned. Also confirms a missing-file row is not treated as a
+    <=400L staleness hit. Never reads the real known_violations.json.
+    """
+    small = tmp_path / "src" / "now_small.py"
+    small.parent.mkdir(parents=True, exist_ok=True)
+    small.write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")  # 3 lines, <=400
+
+    big = tmp_path / "src" / "still_big.py"
+    big.write_text("\n".join(f"x{i} = {i}" for i in range(500)) + "\n", encoding="utf-8")
+
+    fake = {
+        "oversized_files": [
+            {"file": "src/now_small.py", "lines": 612},
+            {"file": "src/still_big.py", "lines": 500},
+            {"file": "src/deleted_file.py", "lines": 444},  # absent on disk
+        ]
+    }
+    stale = _stale_oversized_file_entries(fake, tmp_path)
+
+    assert any("src/now_small.py" in s for s in stale), (
+        f"Mutation check broken: a now-3-line file must be flagged stale — got {stale!r}"
+    )
+    assert not any("src/still_big.py" in s for s in stale), (
+        "False positive: a genuinely >400L file must NOT be flagged stale"
+    )
+    assert not any("src/deleted_file.py" in s for s in stale), (
+        "A missing file must not be reported as a <=400L staleness hit "
+        "(deletion is a separate concern)"
+    )
+
+
+# Archive-policy cutoff for git-TRACKED top-level subdirs of docs/audits/.
+# N = 90 days behind the HEAD commit date — the calendar proxy for the plan's
+# "older than 3 sprints" rule. Rationale: Arcis sprints run ~1–3 weeks each
+# (same cadence cited for the T36 DIRECTORY staleness window); 3 sprints is at
+# most ~9 weeks ≈ 63 days, rounded up to 90 for a safe margin so normal cadence
+# never trips it, yet a months-stale receipt directory that T34's archive sweep
+# (boundary 2026-05-21) should have moved to docs/archive/sprint-receipts/ is
+# caught. We use the HEAD commit date (not wall-clock) so the check is
+# reproducible in CI / fresh clones, and only police *date-prefixed*
+# (`YYYY-MM-DD-…`) subdirs — undated dirs (e.g. `cleanup-1`) carry no age signal
+# and are out of this policy's scope.
+_AUDITS_ARCHIVE_MAX_DAYS = 90
+_DATE_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
+
+
+def _git_tracked_top_level_audit_subdirs(root: Path) -> list[str]:
+    """Return the names of git-TRACKED top-level subdirectories of
+    ``docs/audits/`` (one hop below docs/audits/, dirs only).
+
+    Uses ``git ls-files docs/audits/`` — exactly how generate_directory.py
+    discovers tracked content — so UNTRACKED debris is invisible. This is
+    deliberate: the untracked ``docs/audits/2026-05-06-dashboard-coherence/``
+    that T34 could not ``git mv`` still sits on disk; a filesystem walk would
+    wrongly flag it. Top-level *files* (e.g. known-pre-existing-failures.md) are
+    excluded — they are not subdirectories and the archive policy is about
+    receipt *directories*.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "docs/audits/"],
+        capture_output=True, text=True, check=True, cwd=str(root),
+    ).stdout
+    subdirs = set()
+    for line in out.splitlines():
+        rel = line.strip()
+        if not rel.startswith("docs/audits/"):
+            continue
+        remainder = rel[len("docs/audits/"):]
+        # Only entries with a path separator are inside a subdir; the first
+        # component is the top-level subdir name. Bare files (no '/') are skipped.
+        if "/" in remainder:
+            subdirs.add(remainder.split("/", 1)[0])
+    return sorted(subdirs)
+
+
+def _aged_tracked_audit_subdirs(root: Path, head_date: datetime.date) -> list[str]:
+    """Return ``"name: N days old"`` for tracked top-level docs/audits subdirs
+    whose ``YYYY-MM-DD-`` prefix is more than _AUDITS_ARCHIVE_MAX_DAYS behind
+    ``head_date``. Undated subdirs are skipped (no age signal)."""
+    aged = []
+    for name in _git_tracked_top_level_audit_subdirs(root):
+        m = _DATE_PREFIX_RE.match(name)
+        if not m:
+            continue  # undated dir (e.g. cleanup-1) — out of policy scope
+        dir_date = datetime.date.fromisoformat(m.group(1))
+        age = (head_date - dir_date).days
+        if age > _AUDITS_ARCHIVE_MAX_DAYS:
+            aged.append(f"{name}: {age} days old")
+    return aged
+
+
+def test_docs_audits_has_no_stale_tracked_top_level_subdir():
+    """Sentinel (b): no git-TRACKED top-level subdir of docs/audits/ is older
+    than _AUDITS_ARCHIVE_MAX_DAYS (90 days) behind the HEAD commit date.
+
+    Enforces T34's archive policy going forward: pre-2026-05-21 receipt dirs
+    were moved to docs/archive/sprint-receipts/; aged receipts must not
+    re-accumulate at the docs/audits/ top level. The oldest tracked subdir
+    today is dated 2026-05-21 (T34's boundary), well inside the window, so this
+    passes on the real tree.
+
+    Scans git-TRACKED subdirs ONLY (``git ls-files``), so the untracked
+    docs/audits/2026-05-06-dashboard-coherence/ debris T34 couldn't git-mv is
+    correctly ignored — a filesystem walk would wrongly flag it.
+
+    Verified non-vacuous (verify-by-mutation, Q5): an injected 2020-dated entry
+    is flagged aged while the real tracked set is clean — proven in
+    test_docs_audits_archive_rule_detects_violation below.
+    """
+    aged = _aged_tracked_audit_subdirs(Path("."), _head_commit_date())
+    assert not aged, (
+        "Aged git-tracked top-level docs/audits/ subdirs (older than "
+        f"{_AUDITS_ARCHIVE_MAX_DAYS} days — archive them under "
+        "docs/archive/sprint-receipts/ per Phase 5 T34 policy):\n"
+        + "\n".join(f"  - {a}" for a in aged)
+    )
+
+
+def test_docs_audits_archive_rule_detects_violation():
+    """Sentinel-of-the-sentinel: the age check FLAGS a 2020-dated subdir,
+    IGNORES a fresh one, and IGNORES an undated one.
+
+    Verify-by-mutation (Q5): exercises the pure date-filter half
+    (``_DATE_PREFIX_RE`` + age math, mirrored from _aged_tracked_audit_subdirs)
+    against a reference head date with three synthetic names — far-past, recent,
+    and undated. No git, no filesystem: it pins the policy arithmetic that the
+    real-tree test relies on.
+    """
+    head_date = datetime.date(2026, 5, 30)
+
+    def _age_filter(names: list[str]) -> list[str]:
+        out = []
+        for name in names:
+            m = _DATE_PREFIX_RE.match(name)
+            if not m:
+                continue
+            age = (head_date - datetime.date.fromisoformat(m.group(1))).days
+            if age > _AUDITS_ARCHIVE_MAX_DAYS:
+                out.append(name)
+        return out
+
+    flagged = _age_filter(
+        ["2020-01-01-ancient-receipt", "2026-05-21-capability-registry", "cleanup-1"]
+    )
+    assert "2020-01-01-ancient-receipt" in flagged, (
+        "Mutation check broken: a 2020-dated subdir must be flagged aged"
+    )
+    assert "2026-05-21-capability-registry" not in flagged, (
+        "False positive: a subdir dated 9 days behind head must NOT be flagged"
+    )
+    assert "cleanup-1" not in flagged, (
+        "An undated subdir must be out of policy scope (no age signal)"
+    )

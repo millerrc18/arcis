@@ -51,6 +51,64 @@
 
 ## Releases
 
+### v0.36.78 — Phase 5: codebase + docs consolidation (PR-A…PR-G) (2026-05-29)
+
+Phase 5 unified-design campaign close (`docs/audits/2026-05-27-phase-5-unified/`).
+A seven-PR consolidation sprint (PR-A → PR-G) that paid down accumulated
+codebase + docs debt without changing trading behavior. This is the release
+**process** narrative; the per-change log lives in
+[`CHANGELOG.md`](CHANGELOG.md) under the `## [v0.36.78]` block (kept separate
+per DD-25).
+
+**What ships (PR by PR):**
+
+- **PR-A — debris cleanup + structure rules:** removed 17 `_*.py` REPL-scratch
+  files + a stray one-shot `.sql` + a `--db-path` typo artifact at repo root;
+  moved a 0-byte stray SQLite file out of the root; added two repo-root
+  structure rules (no underscore scratch, no SQLite at root) + the
+  boundary-touch PR template (DD-39).
+- **PR-B — Render decommission:** deleted the standalone Render entry point
+  (`cloud_app.py`), `render.yaml`, `requirements-cloud.txt`, and the Render
+  DB-init helper; made all `cloud_routes/` modules SQLite-only (DATABASE_URL
+  gating stripped), with regression-lock sentinels.
+- **PR-C — structure-debt refactor (#65):** split 7 oversized modules
+  behavior-preservingly (public APIs re-exported at original import paths);
+  pruned the now-undersized known_violations entries, grandfathering the
+  residual >400L files with Phase-6 sub-target notes.
+- **PR-D — CollectorResult Big Bang (#72):** migrated 21 data collectors from 8
+  heterogeneous dict shapes to the unified `CollectorResult` frozen dataclass;
+  consumers made dual-mode for the migration window (the `_safe_run` flip is the
+  Phase-6 follow-through).
+- **PR-E — test audit (#102):** removed 2 empirically-confirmed vacuous tests
+  and added the 6-seam boundary-touch suite (real artifacts, no seam mocks).
+- **PR-E2 — suite green-gate (#102b):** drove the full PG-aware suite to GREEN
+  (every test passes or carries a DD-42-justified skip; zero failures, zero
+  xpass) and added the `test_suite_integrity.py` CI sentinel + `xfail_strict`.
+- **PR-F — docs consolidation + version cut:** README/MASTER/CLAUDE/DIRECTORY
+  consolidation, audits-archive sweep, module-docstring header sweep, and the
+  policy-consistent `v0.36.72 → v0.36.78` version cut.
+- **PR-G — close-out sentinels + this receipt:** 3 non-grandfathered close-out
+  sentinels (known_violations freshness + docs/audits archive policy +
+  CollectorResult `_safe_run` contract) with the enabling known_violations
+  prune, the CHANGELOG `### PR-G` sub-section, and this RELEASES receipt.
+
+**Cleanup-1 kin subsumption (Phase-5 close):**
+
+- **Cleanup-1 kin-125 (lazy-import)** — the "6 tests need lazy-import" Cleanup-1
+  follow-up is subsumed/closed at Phase-5 end; the lazy-import refactor itself is
+  a tracked follow-up **deferred to Phase-6** (not a green-gate blocker — the
+  affected `tests/training/test_pass_c.py` skips are sklearn optional-dep skips,
+  DD-42-justified).
+- **Cleanup-1 kin-126 (walkforward)** — the "2 walkforward stale-row tests"
+  Cleanup-1 follow-up was **already absorbed by PR-E2 (T44)**; closed there.
+
+(These two are internal Cleanup-1 attack-plan kins — deliberately referenced
+WITHOUT the `#NNN` GitHub form, since the same numbers map to unrelated GitHub
+bug issues.)
+
+**Tag:** `v0.36.78` is cut + pushed by the coordinator at merge
+(`docs/versioning-policy.md` §3) — not by this close-out work.
+
 ### v0.26.2-scoped — Post-Audit Ruleset v1 (Schema + Filters) (2026-04-19)
 
 Schema extension + spec addition + walk-forward run. First non-null

@@ -15,11 +15,6 @@
       "lines": 533
     },
     {
-      "file": "src/api/cloud_routes/kpis_compute.py",
-      "lines": 401,
-      "rationale": "Sprint 5 Wave A+B base: new kpis_compute.py file introduced as part of KPI dashboard split. 401 lines (1 over limit). Real refactor deferred; file is a new addition and the content boundary is not yet stable."
-    },
-    {
       "file": "src/api/cloud_routes/system_index.py",
       "lines": 449,
       "rationale": "Sprint 5 Wave A+B base: system_index.py introduced as part of cloud routes reorganization. 449 lines. Real refactor deferred."
@@ -224,10 +219,6 @@
       "file": "src/evaluation/walkforward.py",
       "lines": 431,
       "rationale": "#82 Sprint 1.C Phase 5 deterministic-ranker shadow portfolio adds ~64 net lines (3 small helpers — _compute_shadow_delta, _build_flat_result, _assemble_with_shadow_result — plus with_shadow=True branch in run_walkforward + --with-shadow CLI flag). The shadow branch is genuinely new functionality (pre-reg §6 secondary diagnostic + addendum §A1.6 verbatim). Origin/main was 367 lines; extracting to a sibling module would split tightly-coupled fold-orchestration code across files for marginal aesthetic gain. Helpers already compressed (nested-function _powered_pnl inside _compute_shadow_delta; **prov varargs to avoid duplicated 7-key dict signatures)."
-    },
-    {
-      "file": "src/training/backfill.py",
-      "lines": 343
     },
     {
       "file": "src/training/curriculum.py",
