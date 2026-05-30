@@ -18,8 +18,9 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.72
-# (TradingState GPU_METRICS text=date hotfix #124b — fast-follow on
-# v0.36.71 cleanup-1; one-line cast in queries.py:38 with sibling-search).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.78
+# (Phase 5 — codebase + docs consolidation; PR-A…PR-F unified-design campaign:
+# Render decommission, structure-debt split, CollectorResult Big Bang, test
+# audit + green-gate, and the docs consolidation that cut this version).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.72"
+VERSION = "v0.36.78"
