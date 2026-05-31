@@ -383,7 +383,24 @@ def test_resolve_pending_outcomes_skips_future_window_rows(tmp_path):
     test is a pure SQL-filter check.
     """
     from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
     from src.attribution.logger import resolve_pending_outcomes
+
+    # #128 T4: seed RELATIVE to the SAME clock the resolver reads. The resolver
+    # computes its cutoff as `datetime.now(ET) - timedelta(days=8)` (logger.py)
+    # and filters `scan_timestamp <= cutoff` as an ISO-string comparison. Seeding
+    # against that same `datetime.now(ET)` instant makes the boundary-edge row
+    # land EXACTLY on the cutoff regardless of calendar date or time-of-day.
+    #
+    # Previously the seeds used `datetime.now().date()` (a bare LOCAL date) and
+    # appended a fixed "T10:00:00" wall-time, while the resolver compared against
+    # an ET-aware `now`. When the suite ran before ~10:00 the boundary-edge ISO
+    # string (today-8d at 10:00, no offset) sorted AFTER the cutoff (now-8d with
+    # a -04:00/-05:00 offset) and was wrongly skipped — the Class-A date-boundary
+    # flake. Anchoring on `now(ET)` (offset-aware, same source) removes both the
+    # date and the time-of-day degree of freedom without touching src/.
+    et = ZoneInfo("America/New_York")
+    now_et = datetime.now(et)
 
     db = str(tmp_path / "future_window.db")
     conn = sqlite3.connect(db)
@@ -394,11 +411,16 @@ def test_resolve_pending_outcomes_skips_future_window_rows(tmp_path):
           ranker_only_outcome TEXT, ranker_only_pnl_pct REAL
         );
     """)
-    today = datetime.now().date()
     seeds = [
-        ("old-resolvable", (today - timedelta(days=30)).isoformat() + "T10:00:00"),
-        ("fresh-future",   today.isoformat() + "T10:00:00"),
-        ("boundary-edge",  (today - timedelta(days=8)).isoformat() + "T10:00:00"),
+        # 30 days before the cutoff -> comfortably elapsed -> selected.
+        ("old-resolvable", (now_et - timedelta(days=30)).isoformat()),
+        # exactly `now` -> window ends 8 days from now -> future -> skipped.
+        ("fresh-future",   now_et.isoformat()),
+        # one second past the 8-day cutoff (now-8d minus 1s) -> elapsed ->
+        # selected. Using now-8d-1s rather than exactly now-8d keeps the row
+        # strictly <= cutoff even though a few microseconds elapse between this
+        # `now_et` and the resolver's own `datetime.now(ET)` call.
+        ("boundary-edge",  (now_et - timedelta(days=8, seconds=1)).isoformat()),
     ]
     for attr_id, ts in seeds:
         conn.execute(

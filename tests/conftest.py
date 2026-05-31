@@ -478,22 +478,38 @@ _POLICY_CLOCK_QUIET = datetime.datetime(2026, 6, 1, 3, 0, tzinfo=ZoneInfo("Ameri
 
 
 def _pin_policy_clock(monkeypatch, when):
-    """Pin both policy time sources to `when`. Returns nothing; reverts via monkeypatch."""
+    """Pin all notification time sources to `when`. Reverts via monkeypatch.
+
+    Covers three seams:
+      - policy._now_et_provider          (quiet-hours routing in should_dispatch)
+      - telegram._now_et_for_safe_send   (the now_et safe_send passes to policy)
+      - telegram_commands._now_et_provider (#128 T4: day-of-week / time-of-day
+        branches in check_action_reminders + the _cmd_* handlers). The default
+        daytime instant (_POLICY_CLOCK_DAYTIME) is a WEEKDAY (Mon 2026-06-01),
+        so the Sunday-conditional reminder branches deterministically do NOT
+        fire — killing the Class-A "Sunday flake".
+    """
     import src.notifications.policy as _policy
     import src.notifications.telegram as _telegram
+    import src.notifications.telegram_commands as _telegram_commands
 
     monkeypatch.setattr(_policy, "_now_et_provider", lambda: when)
     monkeypatch.setattr(_telegram, "_now_et_for_safe_send", lambda: when)
+    monkeypatch.setattr(_telegram_commands, "_now_et_provider", lambda: when)
 
 
 @pytest.fixture(autouse=True)
 def _pin_policy_clock_daytime(monkeypatch):
-    """Autouse: pin the notification policy clock to a fixed DAYTIME instant.
+    """Autouse: pin the notification clocks to a fixed DAYTIME WEEKDAY instant.
 
     Makes notification/alert tests independent of wall-clock time-of-day (#128
-    T1). Tests needing quiet-hours behavior use the freeze_quiet_hours fixture,
-    whose own _pin_policy_clock call overrides this one at function scope.
-    Tests that pass an explicit datetime to should_dispatch are unaffected.
+    T1) AND day-of-week (#128 T4 — extends the pin to
+    telegram_commands._now_et_provider so the Sunday-gated action reminders are
+    deterministic; _POLICY_CLOCK_DAYTIME is Mon 2026-06-01). Tests needing
+    quiet-hours behavior use the freeze_quiet_hours fixture, whose own
+    _pin_policy_clock call overrides this one at function scope. Tests that pass
+    an explicit datetime to should_dispatch / resolve_pending_outcomes, or that
+    pin telegram_commands._now_et_provider themselves, are unaffected.
     """
     _pin_policy_clock(monkeypatch, _POLICY_CLOCK_DAYTIME)
 
