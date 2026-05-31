@@ -281,6 +281,7 @@ def pytest_sessionfinish(session, exitstatus):
         print("\n".join(report))
 
 
+import datetime
 import shutil
 import sqlite3
 import subprocess
@@ -289,6 +290,7 @@ import time
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -452,6 +454,60 @@ def _reset_enricher_rate_limit_state():
             _enr._last_request_time.clear()
         except Exception:
             pass
+
+
+# Test-Determinism #128 T1 — deterministic policy clock.
+#
+# The notification policy gate (src/notifications/policy.py) routes events to
+# digest/mute during quiet hours. safe_send (src/notifications/telegram.py)
+# reads the time via telegram._now_et_for_safe_send() and passes it to
+# should_dispatch; should_dispatch itself falls back to policy._now_et_provider()
+# when now_et is None. Both time sources read real wall-clock ET in production,
+# which made any test that drove safe_send (e.g. the governor/auditor disabled
+# alerts) silently route to the digest queue at night — failing because the
+# SQLite test fixtures don't provision notifications_digest_queue. This is the
+# Class-A "night-flake" root cause in docs/audits/2026-05-30-test-determinism.
+#
+# _pin_policy_clock_daytime (autouse) pins BOTH time sources to a fixed DAYTIME
+# instant (14:00 ET, outside the default 22:00-06:00 quiet window) so alert
+# tests are time-deterministic. Tests that DO exercise the quiet-hours->digest
+# branch opt into freeze_quiet_hours, which re-pins to 03:00 ET.
+
+_POLICY_CLOCK_DAYTIME = datetime.datetime(2026, 6, 1, 14, 0, tzinfo=ZoneInfo("America/New_York"))
+_POLICY_CLOCK_QUIET = datetime.datetime(2026, 6, 1, 3, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def _pin_policy_clock(monkeypatch, when):
+    """Pin both policy time sources to `when`. Returns nothing; reverts via monkeypatch."""
+    import src.notifications.policy as _policy
+    import src.notifications.telegram as _telegram
+
+    monkeypatch.setattr(_policy, "_now_et_provider", lambda: when)
+    monkeypatch.setattr(_telegram, "_now_et_for_safe_send", lambda: when)
+
+
+@pytest.fixture(autouse=True)
+def _pin_policy_clock_daytime(monkeypatch):
+    """Autouse: pin the notification policy clock to a fixed DAYTIME instant.
+
+    Makes notification/alert tests independent of wall-clock time-of-day (#128
+    T1). Tests needing quiet-hours behavior use the freeze_quiet_hours fixture,
+    whose own _pin_policy_clock call overrides this one at function scope.
+    Tests that pass an explicit datetime to should_dispatch are unaffected.
+    """
+    _pin_policy_clock(monkeypatch, _POLICY_CLOCK_DAYTIME)
+
+
+@pytest.fixture
+def freeze_quiet_hours(monkeypatch):
+    """Opt-in: pin the notification policy clock to quiet-hours (03:00 ET).
+
+    Use in tests that exercise the quiet-hours -> digest routing branch so the
+    digest path is reachable deterministically (#128 T1). Overrides the autouse
+    daytime pin for the duration of the test.
+    """
+    _pin_policy_clock(monkeypatch, _POLICY_CLOCK_QUIET)
+    return _POLICY_CLOCK_QUIET
 
 
 @pytest.fixture(autouse=True)
