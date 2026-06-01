@@ -170,9 +170,6 @@ class TestSelfBlindingDataCollector:
         count = collect_training_examples_from_closed_trades()
         assert count == 0
 
-    @pytest.mark.skip(reason="tracked-upstream-bug (#1192): order-dependent test-isolation "
-                      "leak — passes in isolation, fails only in full-suite ordering via "
-                      "process-global state leaked by an earlier test; not a product bug. See #1192.")
     @patch("src.training.data_collector.generate_training_example")
     @patch("src.training.data_collector.load_config")
     @patch("src.training.data_collector.init_training_tables")

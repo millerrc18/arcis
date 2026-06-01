@@ -19,6 +19,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -92,8 +93,12 @@ def _operator_confirm_row(timestamp: str) -> dict:
     }
 
 
-# Recent timestamps well within all three windows.
-_TS_RECENT = "2026-05-06T10:00:00+00:00"
+# Recent timestamp well within all three windows. #128 T6: must be NOW-relative —
+# a hardcoded literal silently ages out of the 1d window once wall-clock passes it,
+# making test_route_excludes_operator_confirm_rows fail in any run dated >1d after
+# the literal (the order-independent half of the #1192 flake; kin #12). 6h ago is
+# safely inside 1d/7d/30d regardless of the calendar date the suite runs on.
+_TS_RECENT = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
 
 
 # ── Test 1: empty table → 200 + canonical zero shape ─────────────────────────
@@ -159,10 +164,6 @@ class TestRouteResponseMatchesKpisComputeOutput:
 # ── Test 3: operator_confirm rows excluded ────────────────────────────────────
 
 class TestRouteExcludesOperatorConfirmRows:
-    @pytest.mark.skip(reason="tracked-upstream-bug (#1192): order-dependent test-isolation "
-                      "leak (also kin #12 hardcoded-timestamp) — passes in isolation, fails "
-                      "only in full-suite ordering; '1d' promote-count depends on shared state/"
-                      "timestamps. Real fix: now-relative seed timestamps. See #1192.")
     def test_route_excludes_operator_confirm_rows(self):
         with tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False) as f:
             db_path = f.name

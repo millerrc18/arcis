@@ -456,6 +456,116 @@ def _reset_enricher_rate_limit_state():
             pass
 
 
+# Test-Determinism #128 T6 — restore reimported src.training / lifecycle-bootstrap
+# modules so a stale module object can't defeat a later test's @patch.
+#
+# Several tests pop-and-reimport (or importlib.reload) modules in the
+# src.training package and src.simulation.lifecycle.bootstrap, e.g.
+#   tests/simulation/lifecycle/test_trainer_stub.py:89-96
+#       sys.modules.pop("src.training.trainer"/"training_stop"/"training_control")
+#       then importlib.import_module("src.training.trainer")
+#   tests/simulation/lifecycle/test_bootstrap.py:60-62
+#       importlib.reload(src.simulation.lifecycle.bootstrap)
+# A raw sys.modules.pop()/reload() is NOT undone by monkeypatch, so after such a
+# test sys.modules["src.training.trainer"] is a DIFFERENT module object than the
+# one tests/test_trainer.py bound at collection time via
+#   from src.training.trainer import should_train
+# When test_trainer.py then runs, @patch("src.training.trainer.load_config", ...)
+# patches the NEW module's namespace, but the already-bound should_train reads
+# load_config / get_training_split_viability from its OLD __globals__ — so the
+# patch is silently VACUOUS and the real (config-enabled, holdout-empty) path
+# runs. Symptom (verify-by-mutation, fixed-order: test_trainer_stub THEN
+# test_trainer):
+#   test_should_train_true_when_threshold_met -> trigger False (real viability ran)
+#   test_should_train_false_when_disabled     -> reason "holdout empty" not "disabled"
+# tests/test_self_blinding.py exhibits the same family via src.training.data_collector.
+# All three PASS in isolation, FAIL only after a reimporting test runs first
+# (the #1192 Class-C "process-global leaked by an earlier test" root cause).
+#
+# Fix at the SOURCE of the leak's blast radius: snapshot the canonical module
+# objects once (the clean import already present in sys.modules at session start)
+# and, after each test, restore any src.training.* / bootstrap entry whose
+# identity changed. This is the conftest autouse snapshot/restore pattern the
+# plan prescribes (precedent: _reset_enricher_rate_limit_state above). The
+# reimporting tests still see their fresh module DURING their own run (we restore
+# only AFTER yield), so their behavior is unchanged.
+@pytest.fixture(scope="session")
+def _training_module_snapshot():
+    """Canonical (clean) module objects for the reimport-prone training modules."""
+    names = [
+        "src.training.trainer",
+        "src.training.training_stop",
+        "src.training.training_control",
+        "src.training.data_collector",
+        "src.simulation.lifecycle.bootstrap",
+    ]
+    # Import each so the snapshot holds the canonical object even if no earlier
+    # test imported it yet; failures (optional deps) are tolerated.
+    snapshot = {}
+    import importlib as _il
+    for name in names:
+        try:
+            snapshot[name] = _il.import_module(name)
+        except Exception:
+            pass
+    return snapshot
+
+
+@pytest.fixture(autouse=True)
+def _restore_training_modules(_training_module_snapshot):
+    """Restore canonical src.training / lifecycle-bootstrap modules after each test.
+
+    Neutralizes a leaked stale module object (left by a pop+reimport or reload in
+    an earlier test) that would otherwise make a later test's @patch vacuous
+    (#128 T6 / #1192 Class-C; test_trainer + test_self_blinding).
+    """
+    yield
+    for name, canonical in _training_module_snapshot.items():
+        if sys.modules.get(name) is not canonical:
+            sys.modules[name] = canonical
+
+
+# Test-Determinism #128 T6 — clear the /api/cto-report response memo per test.
+#
+# src/api/cloud_routes/analytics.py keeps a module-level `_cto_cache: dict`
+# (analytics.py:38) memoizing the /api/cto-report response by `days` for
+# _CTO_CACHE_TTL_SECONDS (300s). The FIRST cto-report hit in a process fills
+# `_cto_cache[days]`; within the 5-minute TTL every later hit for the same
+# `days` returns the cached payload and never re-queries the (mock) runtime.
+# tests/test_dashboard_reconciliation.py::test_all_endpoints_emit_meta hits
+# /api/cto-report with the default fixture (closed_count=5), filling the memo;
+# then test_closed_count_reconciles seeds closed_count=7 and hits the same
+# endpoint — but gets the stale 5-trade payload back, so
+# cto._meta.trade_summary.n=5 != shadow._meta.n=7. Passes in isolation (memo
+# empty), fails in full-suite ordering once any earlier test populated it.
+# This is the #1192 Class-C "process-global leaked by an earlier test" root
+# cause for test_closed_count_reconciles (confirmed: a full fixed-order run of
+# tests/ surfaces exactly this one failure; clearing the memo per test fixes
+# it). The memo has no production reset hook (it is TTL-only), so we clear the
+# dict directly — same precedent as _reset_enricher_rate_limit_state above,
+# which clears src.data_enrichment.enricher._last_request_time per test.
+@pytest.fixture(autouse=True)
+def _reset_cto_report_cache():
+    """Clear src.api.cloud_routes.analytics._cto_cache before AND after each test.
+
+    Prevents a stale /api/cto-report response (memoized for 300s by `days`)
+    from an earlier test leaking into a later test that seeds a different
+    closed-trade count (#128 T6 / #1192 Class-C order-dependent isolation leak;
+    test_dashboard_reconciliation::test_closed_count_reconciles).
+    """
+    try:
+        from src.api.cloud_routes import analytics as _an
+        _an._cto_cache.clear()
+    except Exception:
+        _an = None
+    yield
+    if _an is not None:
+        try:
+            _an._cto_cache.clear()
+        except Exception:
+            pass
+
+
 # Test-Determinism #128 T1 — deterministic policy clock.
 #
 # The notification policy gate (src/notifications/policy.py) routes events to
