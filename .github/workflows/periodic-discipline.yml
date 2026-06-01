@@ -261,7 +261,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: periodic-discipline-audit-skills-${{ github.run_id }}
           path: data/periodic-discipline/reports/*.json
@@ -459,7 +459,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: periodic-discipline-test-tools-${{ github.run_id }}
           path: data/periodic-discipline/reports/*.json
