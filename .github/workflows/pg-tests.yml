@@ -71,7 +71,7 @@ jobs:
         with:
           python-version: '3.12'
           # setup-python's built-in cache:'pip' caches the pip DOWNLOAD cache
-          # (~/.cache/pip). Complementary to the actions/cache@v4 step below
+          # (~/.cache/pip). Complementary to the actions/cache@v5 step below
           # which caches the INSTALLED packages (env.pythonLocation) — the
           # two together give cold-miss ~60-90s + warm-hit ~5s.
           cache: 'pip'
@@ -88,7 +88,7 @@ jobs:
         # are not installed in this CI job, so hashing them would force
         # unnecessary cold-cache rebuilds.
         id: pkg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.pythonLocation }}
           key: ${{ runner.os }}-python3.12-pkgs-${{ hashFiles('requirements.txt') }}
@@ -220,7 +220,7 @@ jobs:
         # share the same cache entry when their requirements.txt hash
         # matches. cache: 'pip' above + this cache: warm-hit ~5s install.
         id: pkg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.pythonLocation }}
           key: ${{ runner.os }}-python3.12-pkgs-${{ hashFiles('requirements.txt') }}
