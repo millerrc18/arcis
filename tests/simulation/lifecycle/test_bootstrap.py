@@ -47,12 +47,13 @@ def test_assert_safe_db_env_passes_on_safe_env(monkeypatch):
     assert assert_safe_db_env() is None
 
 
-def test_import_scrubs_and_pins_safe_env(monkeypatch):
-    """Importing the bootstrap module rewrites os.environ to the safe state.
+def test_import_does_not_scrub_env(monkeypatch):
+    """Importing bootstrap must NOT mutate os.environ (#128 / T5).
 
-    Seeds a PROD DATABASE_URL + ARCIS_DB_PATH first, then forces a fresh
-    import so the module-level _scrub_environment() runs against that env.
-    Override-wins: the prod DATABASE_URL is overwritten with the 5434 URL.
+    The scrub was relocated out of module-level into scoped_scrub(); a bare
+    (re)import must leave a seeded prod DATABASE_URL + ARCIS_DB_PATH untouched,
+    so importing the simulator can never freeze src.config.DB_PATH=None or leak
+    the :5434 gate env into unrelated tests.
     """
     monkeypatch.setenv("DATABASE_URL", PROD_DSN)
     monkeypatch.setenv("ARCIS_DB_PATH", "C:/some/prod.db")
@@ -61,11 +62,32 @@ def test_import_scrubs_and_pins_safe_env(monkeypatch):
 
     importlib.reload(bootstrap)
 
-    assert os.environ["DATABASE_URL"] == SIM_DSN
-    assert "ARCIS_DB_PATH" not in os.environ
-    assert os.environ["ALPACA_PAPER_TRADE"] == "true"
-    assert os.environ["ARCIS_DISABLE_DOTENV"] == "1"
-    assert os.environ["PYTHONHASHSEED"] == "0"
+    assert os.environ["DATABASE_URL"] == PROD_DSN
+    assert os.environ["ARCIS_DB_PATH"] == "C:/some/prod.db"
+
+
+def test_scoped_scrub_pins_safe_env_then_restores(monkeypatch):
+    """scoped_scrub() pins the safe state DURING the block, restores it after.
+
+    Seeds a PROD DATABASE_URL + ARCIS_DB_PATH, enters scoped_scrub(): inside,
+    the prod DATABASE_URL is overwritten with the 5434 URL, ARCIS_DB_PATH is
+    popped, and paper/dotenv/hashseed are pinned. On exit os.environ is fully
+    restored to the seeded prod state (no :5434 leak).
+    """
+    from src.simulation.lifecycle.bootstrap import scoped_scrub
+
+    monkeypatch.setenv("DATABASE_URL", PROD_DSN)
+    monkeypatch.setenv("ARCIS_DB_PATH", "C:/some/prod.db")
+
+    with scoped_scrub():
+        assert os.environ["DATABASE_URL"] == SIM_DSN
+        assert "ARCIS_DB_PATH" not in os.environ
+        assert os.environ["ALPACA_PAPER_TRADE"] == "true"
+        assert os.environ["ARCIS_DISABLE_DOTENV"] == "1"
+        assert os.environ["PYTHONHASHSEED"] == "0"
+
+    assert os.environ["DATABASE_URL"] == PROD_DSN
+    assert os.environ["ARCIS_DB_PATH"] == "C:/some/prod.db"
 
 
 def test_scrubbed_env_carries_safe_url_and_no_prod(monkeypatch):

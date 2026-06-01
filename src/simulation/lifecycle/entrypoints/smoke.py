@@ -44,7 +44,7 @@ from datetime import datetime
 import psycopg2
 
 from src.simulation.lifecycle import _leak_detector
-from src.simulation.lifecycle.bootstrap import SIM_DATABASE_URL
+from src.simulation.lifecycle.bootstrap import SIM_DATABASE_URL, scoped_scrub
 from src.simulation.lifecycle.clock import ET
 from src.simulation.lifecycle.oracle import InvariantResult
 from src.simulation.lifecycle.prod_guard import install_prod_guard
@@ -92,23 +92,30 @@ def _truncate_smoke_tables() -> None:
 
 
 def run_smoke() -> SmokeResult:
-    """Run the short-scenario smoke run; return a NON-authoritative verdict."""
+    """Run the short-scenario smoke run; return a NON-authoritative verdict.
+
+    The bootstrap env scrub is applied via ``scoped_scrub()`` for the duration
+    of THIS run only (pins the :5434 gate env so the organic scan path routes
+    connect_db to the test PG) and fully restored on exit — it is NOT an import
+    side-effect, so it never leaks into the rest of the suite (#128 / T5).
+    """
     install_prod_guard()
-    baseline = _leak_detector.snapshot_backends(SIM_DATABASE_URL, application_name_filter=None)
-    _truncate_smoke_tables()
-    conn = psycopg2.connect(SIM_DATABASE_URL)
-    conn.autocommit = True
-    try:
-        runner = ScenarioRunner(conn=conn, start=_SMOKE_START, sim_dsn=SIM_DATABASE_URL)
-        scenario = runner.run(days=_SMOKE_DAYS)
-    finally:
-        conn.rollback()
-        conn.close()
-        after = _leak_detector.snapshot_backends(SIM_DATABASE_URL, application_name_filter=None)
-        LOG.info(
-            "[smoke] conn-leak diagnostic:\n%s",
-            _leak_detector.format_delta(baseline, after),
-        )
+    with scoped_scrub():
+        baseline = _leak_detector.snapshot_backends(SIM_DATABASE_URL, application_name_filter=None)
+        _truncate_smoke_tables()
+        conn = psycopg2.connect(SIM_DATABASE_URL)
+        conn.autocommit = True
+        try:
+            runner = ScenarioRunner(conn=conn, start=_SMOKE_START, sim_dsn=SIM_DATABASE_URL)
+            scenario = runner.run(days=_SMOKE_DAYS)
+        finally:
+            conn.rollback()
+            conn.close()
+            after = _leak_detector.snapshot_backends(SIM_DATABASE_URL, application_name_filter=None)
+            LOG.info(
+                "[smoke] conn-leak diagnostic:\n%s",
+                _leak_detector.format_delta(baseline, after),
+            )
     results = list(scenario.final_results)
     report = VerdictReporter(tier="smoke").render(results)
     return SmokeResult(

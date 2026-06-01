@@ -1,19 +1,26 @@
 """Tests for the two lifecycle-simulator run entrypoints (T14, #97).
 
-Importing ``src.simulation.lifecycle.bootstrap`` FIRST pins the safe env before
-anything else touches a DB. There are two entrypoints:
+``src.simulation.lifecycle.bootstrap`` exposes ``_scrub_environment()`` that the
+entrypoints invoke (snapshot → scrub → run → restore) so the simulator targets
+the safe test PG only DURING a run, never as an import side-effect. There are
+two entrypoints:
 
-  * ``run_smoke()`` — the fast CI-per-PR tier. Runs end-to-end on a TEMPORARY
-    SQLite DB (NO Docker / NO 5434 PG / NO GPU), a few sim-days, a light fault
-    set, and returns a ``SmokeResult`` whose rendered report labels the
-    integrity results "non-authoritative (SQLite)".
+  * ``run_smoke()`` — the fast CI-per-PR tier. Runs end-to-end against the
+    ephemeral 5434 test PG via the cutover gate (DATABASE_URL=:5434 +
+    ARCIS_PG_CUTOVER_ENABLED=1, both pinned by the scoped bootstrap scrub), a
+    few sim-days, a light fault set, and returns a ``SmokeResult`` whose rendered
+    report labels the integrity results "non-authoritative (smoke tier)" — the
+    historical "SQLite" wording is retained for label compatibility, but the
+    backing store is the 5434 PG (see entrypoints/smoke.py).
   * ``run_full_gate()`` — the authoritative nightly tier. Provisions the
     ephemeral 5434 PG, bootstraps the schema, runs many sim-days + all faults,
     and returns the AUTHORITATIVE verdict. It is guarded to run only when the
     5434 PG is reachable; on a bare-metal CI box without it, the test skips
     cleanly.
 
-Both entrypoints install the prod guard and bootstrap-first.
+Both entrypoints install the prod guard and run under the scoped bootstrap
+scrub (which is undone after the run, preserving the conftest env-isolation
+contract).
 
 T14 additions: verify organic runner wiring (provenance_passed, organic_open_rows
 populated) and package docstring STABLE wording (T10/T11/T12 deferred disclosure).
@@ -44,21 +51,18 @@ def _pg_5434_up() -> bool:
 # ── smoke: SQLite, no Docker, integrity NON-authoritative ──────────────────
 
 
-@pytest.mark.skip(reason="tracked-upstream-bug (#1192): run_smoke drives the full organic-runner lifecycle (scan->recommend->log) and fails in the per-PR suite because the lifecycle bootstrap's import-time env-scrub leaves connect_db with a None db_path (connect_db(None) TypeError) — a test-isolation defect, not a product bug. The authoritative PG tier (run_full_gate) is covered nightly by lifecycle-full-gate; the smoke tier needs the env-scrub isolation fix. See #1192.")
-def test_run_smoke_runs_on_sqlite_no_docker():
+def test_run_smoke_runs_on_pg_via_cutover_gate():
     result = run_smoke()
     assert result.verdict in (Verdict.STABLE, Verdict.DEGRADED, Verdict.UNSTABLE)
     assert result.tier == "smoke"
 
 
-@pytest.mark.skip(reason="tracked-upstream-bug (#1192): run_smoke drives the full organic-runner lifecycle (scan->recommend->log) and fails in the per-PR suite because the lifecycle bootstrap's import-time env-scrub leaves connect_db with a None db_path (connect_db(None) TypeError) — a test-isolation defect, not a product bug. The authoritative PG tier (run_full_gate) is covered nightly by lifecycle-full-gate; the smoke tier needs the env-scrub isolation fix. See #1192.")
 def test_run_smoke_report_labels_integrity_non_authoritative():
     result = run_smoke()
     assert "non-authoritative" in result.report.lower()
     assert "SQLite" in result.report
 
 
-@pytest.mark.skip(reason="tracked-upstream-bug (#1192): run_smoke drives the full organic-runner lifecycle (scan->recommend->log) and fails in the per-PR suite because the lifecycle bootstrap's import-time env-scrub leaves connect_db with a None db_path (connect_db(None) TypeError) — a test-isolation defect, not a product bug. The authoritative PG tier (run_full_gate) is covered nightly by lifecycle-full-gate; the smoke tier needs the env-scrub isolation fix. See #1192.")
 def test_run_smoke_returns_invariant_results():
     result = run_smoke()
     # The smoke run drives the oracle, so it produces invariant results.
