@@ -18,9 +18,9 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.79
-# (Test-determinism + isolation cleanup, task 128: deterministic policy-clock
-# seam, registry-driven digest-queue table, Class-A/C de-flake, lifecycle
-# env-scrub relocation; full suite kept deterministic via -p no:randomly).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.80
+# (HealthProbe/TradingState timezone + heartbeat-path hotfix: ET-local log/audit
+# timestamps no longer mis-tagged UTC; Dashboard/Ollama use port liveness instead
+# of nonexistent stdout heartbeat files — fixes the live-monitor under-report).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.79"
+VERSION = "v0.36.80"

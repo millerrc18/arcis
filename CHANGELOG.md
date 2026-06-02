@@ -4,6 +4,49 @@
 
 ## [Unreleased]
 
+## [v0.36.80] — 2026-06-02 — HealthProbe/TradingState timezone + heartbeat-path hotfix
+
+Fixes three timezone/path defects in the observability tools (`healthprobe` + `tradingstate`)
+that made HealthProbe **under-report**, surfaced by a live health check on 2026-06-02 (the
+probe reported "0 recent errors" + "DEGRADED" while the system was actually healthy with a
+live error loop firing every ~66s).
+
+### Fixed
+
+- **HealthProbe error-recency timezone** (`src/tools/healthprobe/checks.py`): `arcis.log`
+  timestamps are ET wall-clock (naive) but were tagged `timezone.utc` before the 15-minute
+  window comparison. During EDT (UTC−4) every real entry landed ~4h outside the window, so
+  `recent_error_count` always reported 0 even while errors fired continuously. The parsed
+  timestamps are now interpreted in `America/New_York`. The benign tz-aware heartbeat path
+  (`data/watchdog.txt`, written with a `-04:00` offset) is unchanged.
+- **HealthProbe heartbeat sources** (`src/tools/healthprobe/core.py`): `ArcisDashboard` and
+  `ArcisOllamaWatchdog` pointed `_HEARTBEAT_SOURCES` at `logs/dashboard-stdout.log` and
+  `logs/ollama_watchdog.out.log`, neither of which exists → false `STALE(file_missing)` →
+  false `DEGRADED` for two healthy services. There is no dashboard heartbeat file, and the
+  only ollama-watchdog log is written event-only (mtime days-stale when healthy), so neither
+  is a valid freshness source. Both services now rely on their existing port-listening
+  liveness probe; only `ArcisWatchLoop` retains a genuine ISO heartbeat. Error-recency
+  scanning is likewise scoped to `arcis.log` (the only real log target).
+- **TradingState audit-freshness timezone** (`src/tools/tradingstate/core.py`):
+  `audit_reports.created_at` is written by the auditor as `datetime.now(America/New_York)`
+  (registry type TEXT, tz-aware ISO in normal operation). When a **naive** value reaches the
+  staleness check (a naive `timestamp` column or an offset-less ISO string), it was tagged
+  `timezone.utc`, inflating the age ~4h during EDT and reporting a fresh governor verdict as
+  `stale=True` (ties to the two-layer-staleness false-halt class). Naive values are now
+  interpreted in `America/New_York`; the tz-aware path and the corrupt-string fail-loud path
+  are unchanged.
+
+### Tests
+
+- `tests/tools/test_healthprobe_integration.py`: added `TestRecentErrorTimezone` (ET-local
+  error 5 min ago counts; 30 min ago does not) and rewrote `TestHeartbeatFilenameMapping` to
+  assert Dashboard/Ollama use port liveness (heartbeat `None`) with no stdout files present,
+  and that a down port still yields DEGRADED.
+- `tests/tools/test_tradingstate_integration.py`: added `TestAuditCreatedAtTimezone`
+  (naive-ET datetime + naive-ET ISO string near the 36h boundary stay fresh; genuinely-old
+  stays stale; tz-aware path unaffected).
+- Each fix carries a verify-by-mutation case proven to fail on the pre-fix code.
+
 ## [v0.36.79] — 2026-06-01 — Test-determinism + isolation cleanup (task 128)
 
 Test-determinism + isolation cleanup per `docs/audits/2026-05-30-test-determinism/plan.md`.

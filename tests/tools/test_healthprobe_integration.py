@@ -95,6 +95,25 @@ def _iso_ts(dt: datetime) -> str:
     return dt.isoformat()
 
 
+def _now_et():
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("America/New_York"))
+
+
+def _log_ts(dt: datetime) -> str:
+    """Render a datetime in the REAL arcis.log leading-timestamp format.
+
+    Format: 'YYYY-MM-DD HH:MM:SS,mmm' — Python logging's default asctime: comma
+    separator + 3-DIGIT millis (NOT 6-digit micros). _check_recent_errors must
+    parse THIS real production format; widening to 6-digit micros here would mask
+    the 23-vs-26-char slice bug (the leading timestamp is 23 chars, so a 26-char
+    slice grabbed trailing ' [' and strptime raised on every real line). Fixed
+    2026-06-02 via a seconds-precision regex parse.
+    """
+    return dt.strftime("%Y-%m-%d %H:%M:%S,") + f"{dt.microsecond // 1000:03d}"
+
+
 # ── (a) ALL HEALTHY ──────────────────────────────────────────────────────────
 
 
@@ -502,49 +521,40 @@ def test_heartbeat_path_is_directory_returns_not_a_file(tmp_path):
 
 
 class TestHeartbeatFilenameMapping:
-    """(k) Verify _HEARTBEAT_SOURCES maps services to ACTUAL NSSM-produced filenames.
+    """(k) Verify Dashboard + Ollama use PORT liveness, not a nonexistent heartbeat file.
 
-    NSSM writes:
-      ArcisDashboard    -> dashboard-stdout.log
-      ArcisOllamaWatchdog -> ollama_watchdog.out.log
-
-    Old wrong names were:
-      arcis-dashboard.log
-      arcis-ollama-watchdog.log
-
-    Verify-by-mutation proof in test_heartbeat_filename_mapping_reverts_to_degraded_with_old_names.
+    Bug (2026-06-02): _HEARTBEAT_SOURCES pointed ArcisDashboard at
+    logs/dashboard-stdout.log and ArcisOllamaWatchdog at logs/ollama_watchdog.out.log,
+    neither of which exists. That produced false STALE(file_missing) -> false
+    DEGRADED for two healthy services. There is NO dashboard heartbeat file, and
+    the only ollama-watchdog log is written event-only (mtime days-stale when
+    healthy), so neither is a valid freshness source. The fix removes both from
+    _HEARTBEAT_SOURCES (heartbeat_fresh -> None) and relies on their existing
+    port-listening probe. Only ArcisWatchLoop keeps a real ISO heartbeat.
     """
 
-    def _make_logs_dir(self, tmp_path: Path, *, fresh: bool):
-        """Create logs dir with CORRECT new filenames at either fresh or stale mtimes."""
-        logs_dir = tmp_path / "logs"
-        logs_dir.mkdir(exist_ok=True)
-        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+    def test_dashboard_and_ollama_have_no_heartbeat_source(self):
+        """(k0) Static contract: _HEARTBEAT_SOURCES has ONLY ArcisWatchLoop.
 
-        if fresh:
-            # Write correct new filenames with fresh content (mtime = now)
-            (logs_dir / "dashboard-stdout.log").write_text("alive", encoding="utf-8")
-            (logs_dir / "ollama_watchdog.out.log").write_text("alive", encoding="utf-8")
-        else:
-            # Write ONLY old wrong filenames (so correct names are absent -> stale)
-            import time
-            old_ts = 9999  # epoch seconds — unambiguously stale
-            (logs_dir / "arcis-dashboard.log").write_text("old", encoding="utf-8")
-            (logs_dir / "arcis-ollama-watchdog.log").write_text("old", encoding="utf-8")
-            # Backdate their mtime to be clearly stale
-            for name in ("arcis-dashboard.log", "arcis-ollama-watchdog.log"):
-                p = logs_dir / name
-                import os
-                os.utime(p, (old_ts, old_ts))
+        Verify-by-mutation: re-add ArcisDashboard/ArcisOllamaWatchdog (pointing at
+        nonexistent stdout logs) and this assertion fails — guarding against the
+        false-DEGRADED regression returning.
+        """
+        from src.tools.healthprobe.core import _HEARTBEAT_SOURCES
 
-        return logs_dir
+        assert set(_HEARTBEAT_SOURCES) == {"ArcisWatchLoop"}, (
+            f"_HEARTBEAT_SOURCES must contain ONLY ArcisWatchLoop, got "
+            f"{sorted(_HEARTBEAT_SOURCES)}. Dashboard/Ollama have no valid heartbeat "
+            "file — they must rely on port liveness."
+        )
 
-    def test_correct_filenames_yield_ok_verdict(self, tmp_path):
-        """(k1) CORRECT new filenames present at fresh mtime -> verdict OK for ArcisDashboard and ArcisOllamaWatchdog.
+    def test_dashboard_ollama_ok_via_port_with_no_heartbeat_files(self, tmp_path):
+        """(k1) Healthy Dashboard + Ollama (RUNNING + port listening) -> OK even with
+        NO dashboard-stdout.log / ollama_watchdog.out.log present.
 
-        Verify-by-mutation: change _HEARTBEAT_SOURCES to use old names ->
-        dashboard-stdout.log/ollama_watchdog.out.log not found -> heartbeat_fresh=False -> DEGRADED.
-        Test MUST fail when names are wrong.
+        Verify-by-mutation: restore the old _HEARTBEAT_SOURCES entries (nonexistent
+        files) -> heartbeat_fresh=False -> DEGRADED -> these OK assertions fail.
+        This is the regression that under-reported healthy services as DEGRADED.
         """
         from src.tools.processmanager.nssm import ServiceState
 
@@ -552,7 +562,14 @@ class TestHeartbeatFilenameMapping:
         hb = tmp_path / "watchdog.txt"
         hb.write_text(_iso_ts(_now_utc()), encoding="utf-8")
 
-        logs_dir = self._make_logs_dir(tmp_path, fresh=True)
+        # logs dir contains ONLY arcis.log — the misleading per-service stdout
+        # files deliberately do NOT exist.
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
+        assert not (logs_dir / "dashboard-stdout.log").exists()
+        assert not (logs_dir / "ollama_watchdog.out.log").exists()
+
         fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
         fn = _build_check(log, fake_cfg)
 
@@ -563,31 +580,34 @@ class TestHeartbeatFilenameMapping:
         dash = result["services"]["ArcisDashboard"]
         ollama = result["services"]["ArcisOllamaWatchdog"]
 
-        assert dash["heartbeat_fresh"] is True, (
-            f"ArcisDashboard heartbeat_fresh expected True, got {dash['heartbeat_fresh']!r}. "
-            f"reason={dash['heartbeat_reason']!r}. "
-            "NSSM writes 'dashboard-stdout.log' — _HEARTBEAT_SOURCES must reference that name."
+        assert dash["heartbeat_fresh"] is None, (
+            f"ArcisDashboard heartbeat_fresh expected None (no heartbeat file — port "
+            f"liveness only), got {dash['heartbeat_fresh']!r}."
         )
-        assert dash["verdict"] == "OK", f"ArcisDashboard verdict: {dash['verdict']!r}"
+        assert dash["heartbeat_reason"] is None
+        assert dash["port_listening"] is True
+        assert dash["verdict"] == "OK", (
+            f"ArcisDashboard should be OK (RUNNING + port listening, no heartbeat "
+            f"required), got {dash['verdict']!r}."
+        )
 
-        assert ollama["heartbeat_fresh"] is True, (
-            f"ArcisOllamaWatchdog heartbeat_fresh expected True, got {ollama['heartbeat_fresh']!r}. "
-            f"reason={ollama['heartbeat_reason']!r}. "
-            "NSSM writes 'ollama_watchdog.out.log' — _HEARTBEAT_SOURCES must reference that name."
+        assert ollama["heartbeat_fresh"] is None, (
+            f"ArcisOllamaWatchdog heartbeat_fresh expected None (port liveness only), "
+            f"got {ollama['heartbeat_fresh']!r}."
         )
+        assert ollama["heartbeat_reason"] is None
+        assert ollama["port_listening"] is True
         assert ollama["verdict"] == "OK", f"ArcisOllamaWatchdog verdict: {ollama['verdict']!r}"
 
-    def test_heartbeat_filename_mapping_reverts_to_degraded_with_old_names(self, tmp_path):
-        """(k2) VERIFY-BY-MUTATION proof: old filenames only -> DEGRADED for both services.
+    def test_dashboard_down_when_port_not_listening(self, tmp_path):
+        """(k2) Port-liveness still catches a real failure: Dashboard port down -> DEGRADED.
 
-        This test creates ONLY the old wrong filenames (arcis-dashboard.log,
-        arcis-ollama-watchdog.log) at stale mtimes, while the correct new filenames
-        are absent. After the fix, _HEARTBEAT_SOURCES reads the new names ->
-        file_missing -> heartbeat_fresh=False -> DEGRADED.
+        Proves the fix did not blind the probe — removing the (bogus) heartbeat
+        source must not make the service unconditionally OK. With the port not
+        listening (and state RUNNING), the verdict must be DEGRADED.
 
-        If this test passes: the fix correctly ignores old filenames.
-        If this test fails: either the code still uses old names (not fixed) or
-        the new files were accidentally created (test setup error).
+        Verify-by-mutation: drop ArcisDashboard from _PORT_SOURCES too ->
+        port_listening=None -> verdict OK -> this assertion fails.
         """
         from src.tools.processmanager.nssm import ServiceState
 
@@ -595,37 +615,27 @@ class TestHeartbeatFilenameMapping:
         hb = tmp_path / "watchdog.txt"
         hb.write_text(_iso_ts(_now_utc()), encoding="utf-8")
 
-        logs_dir = self._make_logs_dir(tmp_path, fresh=False)
-
-        # Confirm: new filenames must NOT exist (test setup invariant)
-        assert not (logs_dir / "dashboard-stdout.log").exists(), (
-            "Test setup error: dashboard-stdout.log must not exist for mutation test"
-        )
-        assert not (logs_dir / "ollama_watchdog.out.log").exists(), (
-            "Test setup error: ollama_watchdog.out.log must not exist for mutation test"
-        )
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "arcis.log").write_text("", encoding="utf-8")
 
         fake_cfg = _make_fake_cfg(tmp_path, heartbeat_path=hb, logs_runtime=logs_dir)
         fn = _build_check(log, fake_cfg)
 
+        def fake_check_port(port, host="127.0.0.1"):
+            # Dashboard cloud_api port (8000) fails; everything else listens.
+            return port != 8000
+
         with patch("src.tools.healthprobe.checks.nssm_status", return_value=ServiceState.RUNNING):
-            with patch("src.tools.healthprobe.checks._check_port", return_value=True):
+            with patch("src.tools.healthprobe.checks._check_port", side_effect=fake_check_port):
                 result = fn()
 
         dash = result["services"]["ArcisDashboard"]
-        ollama = result["services"]["ArcisOllamaWatchdog"]
-
-        assert dash["heartbeat_fresh"] is False, (
-            f"ArcisDashboard: expected heartbeat_fresh=False when only old filenames present, "
-            f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
+        assert dash["port_listening"] is False
+        assert dash["verdict"] == "DEGRADED", (
+            f"ArcisDashboard with port not listening should be DEGRADED, got "
+            f"{dash['verdict']!r}. Port-liveness must still gate the verdict."
         )
-        assert dash["verdict"] == "DEGRADED", f"ArcisDashboard should be DEGRADED: {dash['verdict']!r}"
-
-        assert ollama["heartbeat_fresh"] is False, (
-            f"ArcisOllamaWatchdog: expected heartbeat_fresh=False when only old filenames present, "
-            f"got True. _HEARTBEAT_SOURCES is still pointing at old filename."
-        )
-        assert ollama["verdict"] == "DEGRADED", f"ArcisOllamaWatchdog should be DEGRADED: {ollama['verdict']!r}"
 
 
 # ── (l) TestStaleThresholdNoiseFloor ─────────────────────────────────────────
@@ -740,4 +750,69 @@ class TestStaleThresholdNoiseFloor:
         assert wl["heartbeat_fresh"] is True, (
             f"Exactly 900s old should be fresh (strict >), got fresh={wl['heartbeat_fresh']!r}, "
             f"reason={wl['heartbeat_reason']!r}"
+        )
+
+
+# ── (m) TestRecentErrorTimezone — Bug #1: ET-local log timestamps ─────────────
+
+
+class TestRecentErrorTimezone:
+    """(m) _check_recent_errors must interpret arcis.log timestamps as ET, not UTC.
+
+    arcis.log writes ET wall-clock timestamps (Python logging, local tz). The
+    pre-fix code tagged the parsed naive timestamp as timezone.utc, so during EDT
+    (UTC-4) every real entry landed ~4h outside the 15-min window -> the probe
+    reported recent_error_count=0 even while errors fired every ~66s. This made a
+    live error loop invisible (live-monitor finding 2026-06-02).
+    """
+
+    def _write_log(self, path: Path, entries: list[str]) -> None:
+        path.write_text("\n".join(entries) + "\n", encoding="utf-8")
+
+    def test_et_local_error_5min_ago_is_counted(self, tmp_path):
+        """(m1) An ET-local ERROR entry from 5 minutes ago -> recent_error_count == 1.
+
+        Verify-by-mutation: with the pre-fix `ts.replace(tzinfo=timezone.utc)`,
+        an ET wall-clock '5 min ago' is interpreted as UTC '5 min ago', i.e.
+        (during EDT) ~4h05m in the actual past relative to now() -> outside the
+        15-min window -> count == 0 -> this assertion FAILS. After interpreting
+        the timestamp as ET, it is genuinely 5 min old -> count == 1.
+        """
+        from src.tools.healthprobe.checks import _check_recent_errors
+
+        log = tmp_path / "arcis.log"
+        five_min_ago = _now_et() - timedelta(minutes=5)
+        entry = f"{_log_ts(five_min_ago)} [src.scheduler.watch] ERROR: live error loop"
+        self._write_log(log, [entry])
+
+        # Bypass logtail's own parsing by returning the raw entry from tail().
+        with patch("src.tools.logtail.tail", return_value=[entry]):
+            count = _check_recent_errors(log, window_minutes=15)
+
+        assert count == 1, (
+            f"Expected recent_error_count==1 for an ET-local error 5 min ago, got {count}. "
+            "If 0: log timestamps are being interpreted as UTC instead of ET, so EDT "
+            "entries fall ~4h outside the 15-min window (the under-report bug)."
+        )
+
+    def test_et_local_error_30min_ago_not_counted(self, tmp_path):
+        """(m2) An ET-local ERROR entry from 30 minutes ago -> recent_error_count == 0.
+
+        Guards against the fix over-counting: a genuinely-old (30 min) entry must
+        still fall outside the 15-min window once the frame is correct. Proves the
+        window comparison is still real (not weakened to always-count).
+        """
+        from src.tools.healthprobe.checks import _check_recent_errors
+
+        log = tmp_path / "arcis.log"
+        thirty_min_ago = _now_et() - timedelta(minutes=30)
+        entry = f"{_log_ts(thirty_min_ago)} [src.scheduler.watch] ERROR: old error"
+        self._write_log(log, [entry])
+
+        with patch("src.tools.logtail.tail", return_value=[entry]):
+            count = _check_recent_errors(log, window_minutes=15)
+
+        assert count == 0, (
+            f"Expected recent_error_count==0 for an ET-local error 30 min ago "
+            f"(outside 15-min window), got {count}."
         )

@@ -37,6 +37,13 @@ from src.tools.tradingstate.queries import (
 
 _STALE_THRESHOLD = timedelta(hours=36)
 
+# audit_reports.created_at is written by the auditor as
+# datetime.now(America/New_York).isoformat() (registry type TEXT). When a NAIVE
+# value reaches us (a naive 'timestamp' PG column, or an ISO string without an
+# offset), it represents ET wall-clock — interpret it in ET, NOT UTC, or during
+# EDT a fresh verdict reads ~4h old -> false stale (governor-verdict-freshness).
+_AUDIT_TZ = ZoneInfo("America/New_York")
+
 # Connection-level failures that trigger SQLite fallback.
 _PG_CONNECT_ERRORS = (psycopg2.OperationalError, DBHelperError)
 
@@ -76,11 +83,11 @@ def _build_audit_dict(audit_row: Optional[dict]) -> Optional[dict]:
                 "stale": True,
             }
         if created_at_dt.tzinfo is None:
-            created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+            created_at_dt = created_at_dt.replace(tzinfo=_AUDIT_TZ)
     else:
         created_at_dt = created_at
         if created_at_dt.tzinfo is None:
-            created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+            created_at_dt = created_at_dt.replace(tzinfo=_AUDIT_TZ)
 
     stale = (datetime.now(timezone.utc) - created_at_dt) > _STALE_THRESHOLD
 

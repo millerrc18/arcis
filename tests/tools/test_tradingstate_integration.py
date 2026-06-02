@@ -15,6 +15,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -921,3 +922,123 @@ class TestUndefinedTableStructuredError:
         # At minimum open_positions and most_recent_audit errors must appear
         assert "open_positions" in result["errors"]
         assert "most_recent_audit" in result["errors"]
+
+
+# ── Test class: audit-freshness timezone frame (Bug #3) ──────────────────────
+
+
+class TestAuditCreatedAtTimezone:
+    """audit_reports.created_at is ET wall-clock; staleness must compare in ET.
+
+    The auditor writes created_at = datetime.now(America/New_York).isoformat()
+    (registry type TEXT). When a NAIVE value reaches _build_audit_dict (a naive
+    'timestamp' PG column storing ET wall-clock, or an ISO string without an
+    offset), the pre-fix code tagged it timezone.utc. During EDT (UTC-4) that
+    shifts a fresh verdict ~4h into the past -> false stale=True
+    (governor-verdict-freshness corruption; ties to the two-layer-staleness
+    false-halt class). These tests feed NAIVE-ET inputs and assert the frame is
+    interpreted as ET, not UTC.
+    """
+
+    def test_naive_et_datetime_just_now_is_fresh(self):
+        """(tz1) A naive datetime equal to ET wall-clock 'now' -> stale=False.
+
+        Verify-by-mutation: pre-fix `created_at_dt.replace(tzinfo=timezone.utc)`
+        tags ET-now as UTC-now. During EDT that is ~4h in the actual past ->
+        4h < 36h so this single case still reads fresh — so we ALSO assert the
+        boundary case below where the 4h shift flips the verdict. Kept for
+        documentation of the common path.
+        """
+        from src.tools.tradingstate.core import _build_audit_dict
+
+        et = ZoneInfo("America/New_York")
+        naive_now_et = datetime.now(et).replace(tzinfo=None)
+        row = {
+            "audit_id": "a1",
+            "created_at": naive_now_et,
+            "overall_assessment": "STABLE",
+        }
+        out = _build_audit_dict(row)
+        assert out["stale"] is False
+
+    def test_naive_et_datetime_near_threshold_not_falsely_stale(self):
+        """(tz2) Naive-ET datetime 35h old -> stale=False (under 36h threshold).
+
+        This is the case that EXPOSES the bug. With the pre-fix UTC tagging,
+        during EDT the value is read ~4h older than reality: 35h + 4h = 39h > 36h
+        -> stale=True (FALSE positive). Interpreting the naive value as ET keeps
+        the true age at 35h < 36h -> stale=False. This assertion FAILS pre-fix.
+        """
+        from src.tools.tradingstate.core import _build_audit_dict
+
+        et = ZoneInfo("America/New_York")
+        thirty_five_h_ago = (datetime.now(et) - timedelta(hours=35)).replace(tzinfo=None)
+        row = {
+            "audit_id": "a2",
+            "created_at": thirty_five_h_ago,
+            "overall_assessment": "STABLE",
+        }
+        out = _build_audit_dict(row)
+        assert out["stale"] is False, (
+            "A 35h-old naive-ET audit row must be fresh (< 36h). If stale=True, the "
+            "naive timestamp is being read as UTC, adding a spurious ~4h (EDT) offset "
+            "-> false governor-verdict-staleness."
+        )
+
+    def test_naive_et_iso_string_near_threshold_not_falsely_stale(self):
+        """(tz3) Naive-ET ISO STRING (no offset) 35h old -> stale=False.
+
+        Covers the SQLite/TEXT str-path (the isoformat()-without-offset shape).
+        Pre-fix line 79 tagged the parsed naive datetime UTC -> same ~4h EDT
+        inflation -> false stale=True. This assertion FAILS pre-fix.
+        """
+        from src.tools.tradingstate.core import _build_audit_dict
+
+        et = ZoneInfo("America/New_York")
+        thirty_five_h_ago = (datetime.now(et) - timedelta(hours=35)).replace(tzinfo=None)
+        row = {
+            "audit_id": "a3",
+            "created_at": thirty_five_h_ago.isoformat(),  # naive ISO, no offset
+            "overall_assessment": "STABLE",
+        }
+        out = _build_audit_dict(row)
+        assert out["stale"] is False, (
+            "A 35h-old naive-ET ISO string must be fresh (< 36h). stale=True means "
+            "the parsed naive datetime was tagged UTC instead of ET."
+        )
+
+    def test_genuinely_old_audit_is_stale(self):
+        """(tz4) A 40h-old naive-ET audit -> stale=True (still beyond 36h).
+
+        Guards against the fix masking real staleness: the comparison must remain
+        real (not weakened so nothing is ever stale).
+        """
+        from src.tools.tradingstate.core import _build_audit_dict
+
+        et = ZoneInfo("America/New_York")
+        forty_h_ago = (datetime.now(et) - timedelta(hours=40)).replace(tzinfo=None)
+        row = {
+            "audit_id": "a4",
+            "created_at": forty_h_ago,
+            "overall_assessment": "STABLE",
+        }
+        out = _build_audit_dict(row)
+        assert out["stale"] is True, "A 40h-old audit must still be stale (> 36h)."
+
+    def test_tzaware_audit_unaffected(self):
+        """(tz5) A tz-aware created_at (the normal prod path) -> stale reflects real age.
+
+        The auditor's real output is tz-aware ISO (`-04:00`). Confirm the fix does
+        not regress the tz-aware path: a freshly tz-aware value is fresh.
+        """
+        from src.tools.tradingstate.core import _build_audit_dict
+
+        et = ZoneInfo("America/New_York")
+        aware_now = datetime.now(et)  # tz-aware, has -04:00/-05:00 offset
+        row = {
+            "audit_id": "a5",
+            "created_at": aware_now.isoformat(),
+            "overall_assessment": "STABLE",
+        }
+        out = _build_audit_dict(row)
+        assert out["stale"] is False
