@@ -18,10 +18,11 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.81
-# (Watch-loop startup schema-ensure is now Postgres-aware: post-cutover the prod
-# PG registry schema self-heals on startup instead of only the SQLite schema —
-# fixes the post-wipe drift that left notifications_digest_queue/notifications_sent
-# absent and put the watch loop in a ~66s ERROR loop).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.82
+# (#129 forward-fix: the v0.36.81 PG self-heal halted the watch loop on the
+# split-ownership prod schema — ALTER/INDEX on tables owned by role 'halcyon'
+# raised "must be owner" → fatal "cannot continue" → startup crash-loop. The
+# self-heal now SKIPS that benign InsufficientPrivilege like startup_checks,
+# instead of halting. Prod was rolled back to v0.36.80 during the incident.)
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.81"
+VERSION = "v0.36.82"
