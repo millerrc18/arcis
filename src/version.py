@@ -18,9 +18,9 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.78
-# (Phase 5 — codebase + docs consolidation; PR-A…PR-F unified-design campaign:
-# Render decommission, structure-debt split, CollectorResult Big Bang, test
-# audit + green-gate, and the docs consolidation that cut this version).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.79
+# (Test-determinism + isolation cleanup, task 128: deterministic policy-clock
+# seam, registry-driven digest-queue table, Class-A/C de-flake, lifecycle
+# env-scrub relocation; full suite kept deterministic via -p no:randomly).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.78"
+VERSION = "v0.36.79"
