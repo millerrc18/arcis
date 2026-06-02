@@ -18,9 +18,10 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.80
-# (HealthProbe/TradingState timezone + heartbeat-path hotfix: ET-local log/audit
-# timestamps no longer mis-tagged UTC; Dashboard/Ollama use port liveness instead
-# of nonexistent stdout heartbeat files — fixes the live-monitor under-report).
+# Update when cutting a release. Latest CHANGELOG header: v0.36.81
+# (Watch-loop startup schema-ensure is now Postgres-aware: post-cutover the prod
+# PG registry schema self-heals on startup instead of only the SQLite schema —
+# fixes the post-wipe drift that left notifications_digest_queue/notifications_sent
+# absent and put the watch loop in a ~66s ERROR loop).
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.80"
+VERSION = "v0.36.81"

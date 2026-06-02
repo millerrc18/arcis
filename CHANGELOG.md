@@ -4,6 +4,40 @@
 
 ## [Unreleased]
 
+## [v0.36.81] — 2026-06-02 — Watch-loop startup schema-ensure is Postgres-aware (PG self-heal)
+
+Makes the watch loop's startup schema-ensure self-heal the **Postgres** registry
+schema after a wipe, closing the post-cutover drift class that put the live loop
+in a ~66s ERROR loop on 2026-06-02 (`notifications_digest_queue` +
+`notifications_sent` absent on the prod PG, fixed manually at the time).
+
+### Fixed
+
+- **Watch-loop PG schema self-heal** (`src/scheduler/watch.py`,
+  `WatchLoop._ensure_all_tables`): post-cutover the loop runs against PG 5433
+  (`DATABASE_URL` set), but the startup ensure called **only** the SQLite path
+  (`src.schema.sqlite.create_all_tables(DB_PATH)`), so the PG schema was never
+  registry-synced by the running system — after the post-#124 prod wipe it
+  drifted and the loop errored continuously. The ensure now mirrors
+  `connect_db`'s PG-mode predicate (a postgres-scheme `DATABASE_URL`) and, before
+  the existing SQLite ensure, idempotently ensures the registry schema on PG via
+  `src.schema.postgres.create_all_tables(..., connect_timeout=5,
+  lock_timeout_ms=10000)`. The PG ensure runs inside the **same** `try/except` as
+  the SQLite ensure, so a PG-ensure failure follows the existing fatal contract
+  (critical log + Telegram + `sys.exit(1)` → NSSM restart-retry); the fast
+  connect/lock timeouts make a down/locked PG fail fast rather than hang the
+  loop. The SQLite ensure, `ensure_columns`, docs population, and the halt block
+  are unchanged.
+
+### Tests
+
+- `tests/scheduler/test_watch_schema_ensure.py`: verify-by-mutation against the
+  5434 **test** PG — drops `notifications_digest_queue`, runs
+  `_ensure_all_tables()` with `DATABASE_URL` pointed at 5434, and asserts the
+  table is re-created. Reverting the fix leaves the table dropped (assertion
+  fails), proving the test bites. Guards on `:5434` and skips when
+  `TEST_DATABASE_URL` is unset so it never touches prod 5433.
+
 ## [v0.36.80] — 2026-06-02 — HealthProbe/TradingState timezone + heartbeat-path hotfix
 
 Fixes three timezone/path defects in the observability tools (`healthprobe` + `tradingstate`)
