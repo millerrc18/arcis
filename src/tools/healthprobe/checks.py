@@ -13,6 +13,12 @@ import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
+
+# arcis.log timestamps are emitted by Python logging in the host's local wall
+# clock, which on this deployment is America/New_York (ET). They are naive
+# (no offset). Interpret them in ET before any window comparison.
+_LOG_TZ = ZoneInfo("America/New_York")
 
 from src.tools._subprocess import NssmMissingError
 from src.tools.processmanager.nssm import NssmCommandFailedError, ServiceState, nssm_status
@@ -114,7 +120,10 @@ def _check_recent_errors(log_path: Path, window_minutes: int = 15) -> int:
         ts_str = ts_str.replace(",", ".")
         try:
             ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S.%f")
-            ts = ts.replace(tzinfo=timezone.utc)
+            # Log timestamps are ET wall-clock (naive). Tag them ET — NOT UTC —
+            # or during EDT every entry lands ~4h outside the window and the
+            # probe under-reports recent errors as 0 (live-monitor bug 2026-06-02).
+            ts = ts.replace(tzinfo=_LOG_TZ)
             if ts.timestamp() >= cutoff:
                 count += 1
         except (ValueError, IndexError):

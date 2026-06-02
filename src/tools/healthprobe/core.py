@@ -34,10 +34,17 @@ _DEFAULT_STALENESS: dict[str, int] = {
     "ArcisDashboard": 300,
 }
 
+# Heartbeat sources: ONLY ArcisWatchLoop has a genuine, continuously-rewritten
+# heartbeat (data/watchdog.txt, ISO every ~60s). ArcisDashboard has NO heartbeat
+# file at all, and the only Ollama-watchdog log (ollama-watchdog.log) is written
+# event-only (on restart) — its mtime is days-stale even when healthy, so using
+# it as a 30s-staleness heartbeat would falsely report STALE -> DEGRADED.
+# Both healthy-but-fileless services are instead covered by their port-listening
+# liveness probe in _PORT_SOURCES (Dashboard -> cloud_api port, Ollama -> 11434).
+# Pre-fix these pointed at logs/dashboard-stdout.log and logs/ollama_watchdog.out.log,
+# which do not exist -> false STALE(file_missing) -> false DEGRADED (bug 2026-06-02).
 _HEARTBEAT_SOURCES: dict[str, tuple] = {
     "ArcisWatchLoop": (lambda cfg: cfg.paths.watchdog_heartbeat, "iso"),
-    "ArcisDashboard": (lambda cfg: cfg.paths.logs_runtime / "dashboard-stdout.log", "mtime"),
-    "ArcisOllamaWatchdog": (lambda cfg: cfg.paths.logs_runtime / "ollama_watchdog.out.log", "mtime"),
 }
 
 _PORT_SOURCES: dict[str, object] = {
@@ -46,10 +53,12 @@ _PORT_SOURCES: dict[str, object] = {
     "ArcisOllamaWatchdog": lambda cfg: cfg.ports.ollama,
 }
 
+# Error-recency scan applies only to arcis.log (the shared watch-loop log).
+# ArcisDashboard and ArcisOllamaWatchdog do not write to arcis.log, and the
+# per-service stdout files referenced pre-fix did not exist (silently suppressed
+# to 0, a misleading "0 recent errors"). Scope error-recency to the WatchLoop.
 _LOG_SOURCES: dict[str, object] = {
     "ArcisWatchLoop": lambda cfg: cfg.paths.logs_runtime / "arcis.log",
-    "ArcisDashboard": lambda cfg: cfg.paths.logs_runtime / "dashboard-stdout.log",
-    "ArcisOllamaWatchdog": lambda cfg: cfg.paths.logs_runtime / "ollama_watchdog.out.log",
 }
 
 
