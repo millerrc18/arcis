@@ -11,9 +11,9 @@ Verify-by-mutation regression test for the post-cutover PG-schema-drift class
 loop's startup schema-ensure called ONLY the SQLite path, so a dropped table
 on the live PG (observed 2026-06-02: notifications_digest_queue +
 notifications_sent absent → ~66s ERROR loop) was never re-created by the
-running system. The fix makes _ensure_all_tables Postgres-aware: when a
-postgres-scheme DATABASE_URL is configured it idempotently ensures the
-registry schema on PG too.
+running system. The fix makes _ensure_all_tables Postgres-aware: when the
+cutover gate is on AND a postgres-scheme DATABASE_URL is configured (mirroring
+connect_db, db.py:621-623) it idempotently ensures the registry schema on PG too.
 
 The test DROPs a registry table on the 5434 test PG, runs the ensure with
 DATABASE_URL pointed at 5434, and asserts the table is back. Reverting the
@@ -70,6 +70,9 @@ def test_ensure_all_tables_selfheals_postgres_schema(tmp_path, monkeypatch):
         # (watch.DB_PATH is bound to the real prod sqlite at import) so the test
         # stays fully hermetic.
         monkeypatch.setenv("DATABASE_URL", test_database_url)
+        # Match connect_db's routing: the PG self-heal runs only when BOTH the
+        # cutover gate is on AND DATABASE_URL is postgres (db.py:621-623).
+        monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
         monkeypatch.setattr(
             "src.scheduler.watch.DB_PATH", str(tmp_path / "hf3_selfheal.sqlite3")
         )

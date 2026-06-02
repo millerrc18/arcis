@@ -8,8 +8,8 @@ file paths from the REAL ArcisConfig. The contract is that:
   1. Each configured service name resolves to a non-None path getter.
   2. The watchdog_heartbeat path comes from cfg.paths.watchdog_heartbeat (not
      hard-coded), so a config drift would be caught.
-  3. The "mtime" mode services (OllamaWatchdog, Dashboard) resolve filenames
-     that contain the expected stem (ollama_watchdog.out.log, dashboard-stdout.log).
+  3. ArcisDashboard and ArcisOllamaWatchdog have NO heartbeat source (no real
+     heartbeat file exists) -- they are port-monitored via _PORT_SOURCES (v0.36.80).
   4. The _verdict_matrix maps (STOPPED, *, *) -> DOWN reliably.
 
 These are non-vacuous because they drive the REAL config loading path and
@@ -17,9 +17,8 @@ the REAL dict lookups in core.py — not mocks. Non-vacuity proved by:
   1. Renamed cfg.paths.watchdog_heartbeat -> cfg.paths.bogus_hb in a scratch
      edit of the lambda in core.py: test_watchloop_heartbeat_path_matches_config
      FAILED (AttributeError / path mismatch).
-  2. Changed _HEARTBEAT_SOURCES["ArcisOllamaWatchdog"] getter to return
-     cfg.paths.logs_runtime / "wrong.log": test_ollama_log_filename_correct FAILED
-     (AssertionError: 'ollama_watchdog.out.log' not in 'wrong.log').
+  2. Re-adding a heartbeat source for ArcisDashboard/ArcisOllamaWatchdog (the
+     false-STALE regression v0.36.80 removed) fails test_*_has_no_heartbeat_source.
   3. Changed _service_verdict STOPPED branch to return "DEGRADED":
      test_verdict_stopped_service_is_down FAILED (AssertionError: 'DEGRADED' != 'DOWN').
 All src/ mutations reverted with `git checkout` before committing.
@@ -51,41 +50,43 @@ def test_watchloop_heartbeat_path_matches_config():
     assert mode == "iso", f"WatchLoop heartbeat mode must be 'iso', got {mode!r}"
 
 
-def test_ollama_log_filename_correct():
-    """_HEARTBEAT_SOURCES['ArcisOllamaWatchdog'] derives a path ending in ollama_watchdog.out.log.
+def test_ollama_has_no_heartbeat_source_uses_port():
+    """ArcisOllamaWatchdog has NO heartbeat source -- it is port-monitored (ports.ollama).
 
-    Non-vacuity: changing the filename in the getter to 'wrong.log' causes
-    this test to FAIL with AssertionError on the name check.
+    v0.36.80: the prior 'ollama_watchdog.out.log' heartbeat target does not
+    exist (real files are ollama-daemon.out / ollama-watchdog.log, both
+    event-only and days-stale when healthy), so a heartbeat-mtime check produced
+    a false STALE/DEGRADED. Ollama liveness is its listening port, not a
+    heartbeat file. Non-vacuity: re-adding a heartbeat source for this service
+    (the regression v0.36.80 removed) fails the first assert.
     """
-    from src.tools._config import load_arcis_config
-    from src.tools.healthprobe.core import _HEARTBEAT_SOURCES
+    from src.tools.healthprobe.core import _HEARTBEAT_SOURCES, _PORT_SOURCES
 
-    cfg = load_arcis_config()
-    getter, mode = _HEARTBEAT_SOURCES["ArcisOllamaWatchdog"]
-    derived_path = getter(cfg)
-
-    assert derived_path.name == "ollama_watchdog.out.log", (
-        f"Ollama heartbeat path has wrong filename: {derived_path.name!r}"
+    assert "ArcisOllamaWatchdog" not in _HEARTBEAT_SOURCES, (
+        "ArcisOllamaWatchdog must NOT have a heartbeat source (no real heartbeat "
+        "file exists); it is port-monitored"
     )
-    assert mode == "mtime", f"Ollama heartbeat mode must be 'mtime', got {mode!r}"
+    assert _PORT_SOURCES.get("ArcisOllamaWatchdog") is not None, (
+        "ArcisOllamaWatchdog liveness must come from a port getter"
+    )
 
 
-def test_dashboard_log_filename_correct():
-    """_HEARTBEAT_SOURCES['ArcisDashboard'] derives a path ending in dashboard-stdout.log.
+def test_dashboard_has_no_heartbeat_source_uses_port():
+    """ArcisDashboard has NO heartbeat source -- it is port-monitored (ports.cloud_api).
 
-    Non-vacuity: changing the filename in the getter causes an AssertionError.
+    v0.36.80: there is no dashboard heartbeat file at all; liveness is the HTTP
+    port, not a (nonexistent) 'dashboard-stdout.log' mtime. Non-vacuity: re-adding
+    a heartbeat source for this service fails the first assert.
     """
-    from src.tools._config import load_arcis_config
-    from src.tools.healthprobe.core import _HEARTBEAT_SOURCES
+    from src.tools.healthprobe.core import _HEARTBEAT_SOURCES, _PORT_SOURCES
 
-    cfg = load_arcis_config()
-    getter, mode = _HEARTBEAT_SOURCES["ArcisDashboard"]
-    derived_path = getter(cfg)
-
-    assert derived_path.name == "dashboard-stdout.log", (
-        f"Dashboard heartbeat path has wrong filename: {derived_path.name!r}"
+    assert "ArcisDashboard" not in _HEARTBEAT_SOURCES, (
+        "ArcisDashboard must NOT have a heartbeat source (no heartbeat file "
+        "exists); it is port-monitored"
     )
-    assert mode == "mtime", f"Dashboard heartbeat mode must be 'mtime', got {mode!r}"
+    assert _PORT_SOURCES.get("ArcisDashboard") is not None, (
+        "ArcisDashboard liveness must come from a port getter"
+    )
 
 
 def test_verdict_stopped_service_is_down():

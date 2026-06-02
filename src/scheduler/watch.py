@@ -1561,13 +1561,15 @@ class WatchLoop(HandlerRegistryMixin):
             # (DATABASE_URL set), but only the SQLite schema was ensured here —
             # so a wiped/drifted PG schema never re-synced from the registry
             # (2026-06-02 notifications_digest_queue/notifications_sent ERROR
-            # loop). Mirror connect_db's PG-mode predicate (postgres-scheme
-            # DATABASE_URL) and ensure the registry schema on PG via the
-            # idempotent path. Inside the same try so a PG-ensure failure
-            # follows the existing fatal contract; fast timeouts so a
-            # down/locked PG fails fast instead of hanging the loop.
+            # loop). Mirror connect_db's PG routing EXACTLY (db.py:621-623): PG is
+            # the live store only when the cutover gate is ON *and* DATABASE_URL is
+            # postgres. Gating on BOTH avoids halting the loop on a PG hiccup when
+            # it is actually running on SQLite (gate off). Idempotent path; inside
+            # the same try so a PG-ensure failure follows the existing fatal
+            # contract; fast timeouts so a down/locked PG fails fast.
+            _pg_gate = os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
             _pg_url = os.environ.get("DATABASE_URL", "").strip()
-            if _pg_url.startswith("postgres"):
+            if _pg_gate and _pg_url.startswith("postgres"):
                 from src.schema.postgres import create_all_tables as _pg_create_all_tables
                 _added = _pg_create_all_tables(_pg_url, connect_timeout=5, lock_timeout_ms=10000)
                 logger.info("[WATCH] Postgres registry schema verified/created (%d column(s) added)", len(_added))
