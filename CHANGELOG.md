@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [v0.36.82] — 2026-06-02 — Forward-fix: PG self-heal must skip non-owned tables, not halt (#129)
+
+v0.36.81's PG self-heal crash-looped the watch loop on startup against the live
+**split-ownership** prod schema (#92). Restarting onto v0.36.81 (pre-market
+2026-06-02) was the first real restart since the hotfix merged, and it exposed a
+latent fatal bug: `create_all_tables` issues `ALTER` / `CREATE INDEX` on tables
+owned by role `halcyon` (e.g. `recommendations`), which `halcyon_app` cannot
+modify → `psycopg2.errors.InsufficientPrivilege: must be owner of table …` →
+the existing fatal `[WATCH] SCHEMA CREATION FAILED … cannot continue` → `sys.exit(1)`
+→ NSSM relaunch every ~60–90 s, heartbeat frozen. Deployed code was rolled back
+to v0.36.80 to restore service; this release is the forward-fix.
+
+### Fixed
+
+- **Watch-loop PG self-heal no longer halts on benign cross-role ownership**
+  (`src/scheduler/watch.py` `_ensure_all_tables`). The Postgres self-heal call now
+  catches `psycopg2.errors.InsufficientPrivilege` and **skips** it (logged as
+  "tables owned by another role skipped (expected)") — mirroring
+  `src/startup_checks.py:337`. Phase-1 `CREATE TABLE IF NOT EXISTS` already
+  commits first, so the self-heal still provisions any genuinely-missing table
+  (its purpose); only the no-op `ALTER`/`INDEX` on owner-managed tables is skipped.
+  A genuinely-unreachable PG still raises `OperationalError`, which keeps the
+  fail-fast fatal contract (the watch loop cannot run without its sole write target).
+  Verify-by-mutation test added in `tests/scheduler/test_watch_schema_ensure.py`.
+
 ## [v0.36.81] — 2026-06-02 — Watch-loop startup schema-ensure is Postgres-aware (PG self-heal)
 
 Makes the watch loop's startup schema-ensure self-heal the **Postgres** registry

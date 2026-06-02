@@ -1571,8 +1571,25 @@ class WatchLoop(HandlerRegistryMixin):
             _pg_url = os.environ.get("DATABASE_URL", "").strip()
             if _pg_gate and _pg_url.startswith("postgres"):
                 from src.schema.postgres import create_all_tables as _pg_create_all_tables
-                _added = _pg_create_all_tables(_pg_url, connect_timeout=5, lock_timeout_ms=10000)
-                logger.info("[WATCH] Postgres registry schema verified/created (%d column(s) added)", len(_added))
+                import psycopg2
+                try:
+                    _added = _pg_create_all_tables(_pg_url, connect_timeout=5, lock_timeout_ms=10000)
+                    logger.info("[WATCH] Postgres registry schema verified/created (%d column(s) added)", len(_added))
+                except psycopg2.errors.InsufficientPrivilege as _own_exc:
+                    # #129 forward-fix: post-cutover the PG has a SPLIT-OWNERSHIP schema
+                    # (#92) — tables like 'recommendations' are owned by role 'halcyon',
+                    # so ALTER / CREATE INDEX issued by 'halcyon_app' raise
+                    # "must be owner of table ...". This is EXPECTED and benign: Phase-1
+                    # CREATE TABLE IF NOT EXISTS already committed (any genuinely-missing
+                    # table — the self-heal's actual purpose — is provisioned), and the
+                    # non-owned tables are managed by their owner. SKIP, do NOT halt.
+                    # Mirrors startup_checks.py:337. A genuinely-unreachable PG raises
+                    # psycopg2.OperationalError instead, which still propagates to the
+                    # fatal contract below — fail-fast on a down write-target is preserved.
+                    logger.info(
+                        "[WATCH] Postgres schema: tables owned by another role skipped (expected): %s",
+                        _own_exc,
+                    )
             create_all_tables(DB_PATH)
             ensure_columns(DB_PATH)
             logger.info("[WATCH] All SQLite tables verified/created")

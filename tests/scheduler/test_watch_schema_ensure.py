@@ -93,3 +93,49 @@ def test_ensure_all_tables_selfheals_postgres_schema(tmp_path, monkeypatch):
         )
     finally:
         conn.close()
+
+
+def test_ensure_all_tables_skips_non_owned_pg_tables_without_halting(tmp_path, monkeypatch, caplog):
+    """#129 forward-fix: a 'must be owner' (psycopg2 InsufficientPrivilege) from the
+    PG self-heal is EXPECTED under the #92 split-ownership schema and must be SKIPPED,
+    never halt the watch loop.
+
+    Verify-by-mutation: v0.36.81 let InsufficientPrivilege fall through to the fatal
+    '[WATCH] SCHEMA CREATION FAILED ... cannot continue' → sys.exit(1) → crash loop
+    (2026-06-02 pre-market incident). Removing the new try/except in _ensure_all_tables
+    makes this test fail with SystemExit.
+
+    Hermetic: the PG create_all_tables is mocked to raise BEFORE any connection, so no
+    database is touched (the postgres-scheme DSN targets :5434, never prod :5433).
+    """
+    import logging
+    import psycopg2
+    from src.scheduler.watch import WatchLoop
+
+    # Cutover gate ON + postgres DATABASE_URL → the PG self-heal branch executes.
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://halcyon_app:x@127.0.0.1:5434/halcyon")
+
+    def _raise_must_be_owner(*a, **k):
+        raise psycopg2.errors.InsufficientPrivilege("must be owner of table recommendations")
+
+    # Patch the SOURCE module attr — _ensure_all_tables does a call-time
+    # `from src.schema.postgres import create_all_tables`, so it binds the patch.
+    monkeypatch.setattr("src.schema.postgres.create_all_tables", _raise_must_be_owner)
+    # Keep the downstream SQLite ensure hermetic on a temp file (watch.DB_PATH is
+    # bound to the real prod sqlite at import).
+    monkeypatch.setattr("src.scheduler.watch.DB_PATH", str(tmp_path / "ownskip.sqlite3"))
+    monkeypatch.setattr(
+        "src.data_collection.docs_collector.populate_research_docs",
+        lambda *a, **k: {"inserted": 0},
+    )
+    monkeypatch.setattr("src.notifications.telegram.send_telegram", lambda *a, **k: None)
+
+    with caplog.at_level(logging.INFO):
+        # Must NOT raise SystemExit. Pre-fix: InsufficientPrivilege → fatal → sys.exit(1).
+        WatchLoop._ensure_all_tables()
+
+    # The ownership error was skipped (not fatal) and logged as expected.
+    assert any(
+        "owned by another role skipped" in r.getMessage() for r in caplog.records
+    ), "expected the 'skipped (expected)' skip log; ownership error was not handled as benign"
