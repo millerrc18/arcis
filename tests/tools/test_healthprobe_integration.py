@@ -102,12 +102,16 @@ def _now_et():
 
 
 def _log_ts(dt: datetime) -> str:
-    """Render a datetime in the arcis.log leading-timestamp format.
+    """Render a datetime in the REAL arcis.log leading-timestamp format.
 
-    Format: 'YYYY-MM-DD HH:MM:SS,ffffff' (Python logging comma-separated millis,
-    widened to micros to match _check_recent_errors' 26-char slice).
+    Format: 'YYYY-MM-DD HH:MM:SS,mmm' — Python logging's default asctime: comma
+    separator + 3-DIGIT millis (NOT 6-digit micros). _check_recent_errors must
+    parse THIS real production format; widening to 6-digit micros here would mask
+    the 23-vs-26-char slice bug (the leading timestamp is 23 chars, so a 26-char
+    slice grabbed trailing ' [' and strptime raised on every real line). Fixed
+    2026-06-02 via a seconds-precision regex parse.
     """
-    return dt.strftime("%Y-%m-%d %H:%M:%S,%f")
+    return dt.strftime("%Y-%m-%d %H:%M:%S,") + f"{dt.microsecond // 1000:03d}"
 
 
 # ── (a) ALL HEALTHY ──────────────────────────────────────────────────────────

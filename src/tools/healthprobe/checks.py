@@ -9,6 +9,7 @@ Tests: tests/tools/test_healthprobe_integration.py
 
 from __future__ import annotations
 
+import re
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,10 @@ from zoneinfo import ZoneInfo
 # clock, which on this deployment is America/New_York (ET). They are naive
 # (no offset). Interpret them in ET before any window comparison.
 _LOG_TZ = ZoneInfo("America/New_York")
+# Leading 'YYYY-MM-DD HH:MM:SS' of a log line (seconds precision; the comma- or
+# period-separated millis/micros fragment is intentionally ignored so the parse
+# is robust to both Python-logging comma-3-digit and ISO period-6-digit formats).
+_LOG_TS_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 
 from src.tools._subprocess import NssmMissingError
 from src.tools.processmanager.nssm import NssmCommandFailedError, ServiceState, nssm_status
@@ -112,21 +117,26 @@ def _check_recent_errors(log_path: Path, window_minutes: int = 15) -> int:
     count = 0
 
     for entry in entries:
-        # Extract leading timestamp from first line of each entry
+        # Extract the leading 'YYYY-MM-DD HH:MM:SS' (seconds precision is plenty
+        # for a minutes-wide window). A fixed-width slice is brittle: real
+        # arcis.log uses Python logging's comma + 3-digit millis ('...03,072' =
+        # 23 chars), so the prior 26-char slice grabbed trailing ' [' and
+        # strptime raised on EVERY real line -> recent_error_count stuck at 0
+        # (the second half of the live-monitor bug 2026-06-02). Match to seconds
+        # via regex and ignore the comma/period millis fragment entirely.
         first_line = entry.split("\n")[0] if "\n" in entry else entry
-        # Format: 'YYYY-MM-DD HH:MM:SS.ffffff ...' OR 'YYYY-MM-DD HH:MM:SS,...'
-        ts_str = first_line[:26]
-        # Normalize comma to period for microseconds (Python logging uses comma)
-        ts_str = ts_str.replace(",", ".")
-        try:
-            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S.%f")
-            # Log timestamps are ET wall-clock (naive). Tag them ET — NOT UTC —
-            # or during EDT every entry lands ~4h outside the window and the
-            # probe under-reports recent errors as 0 (live-monitor bug 2026-06-02).
-            ts = ts.replace(tzinfo=_LOG_TZ)
-            if ts.timestamp() >= cutoff:
-                count += 1
-        except (ValueError, IndexError):
+        m = _LOG_TS_RE.match(first_line)
+        if not m:
             continue
+        try:
+            ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        # Log timestamps are ET wall-clock (naive). Tag them ET — NOT UTC — or
+        # during EDT every entry lands ~4h outside the window and the probe
+        # under-reports recent errors as 0 (live-monitor bug 2026-06-02).
+        ts = ts.replace(tzinfo=_LOG_TZ)
+        if ts.timestamp() >= cutoff:
+            count += 1
 
     return count
