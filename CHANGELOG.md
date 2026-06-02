@@ -4,6 +4,33 @@
 
 ## [Unreleased]
 
+## [v0.36.83] — 2026-06-02 — Cleanup-2: drawdown 30-day window (#51) + dangling-FK root-cause (#77)
+
+The last two Phase-4 hotfix-backlog items.
+
+### Fixed
+
+- **Drawdown circuit-breaker now evaluates a 30-day rolling window (#51)**
+  (`src/evaluation/auditor.py`). The deterministic drawdown check (`_check_drawdown`)
+  was fed the `days=1` audit snapshot, but its `_DRAWDOWN_MIN_SAMPLE = 50` guard is
+  unreachable in a single day's closes — so the CRITICAL drawdown flag effectively
+  never fired (an inert safety net). `_collect_deterministic_precheck_flags` now
+  generates a `days=30` `cto_report` for the drawdown check specifically (the audit
+  `cto_data` stays `days=1` for the LLM narrative + today's-trade checks).
+  Verify-by-mutation integration test added.
+
+### Investigated / documented
+
+- **Dangling-FK root cause (#77) — sim-artifact data, not a rec-flow bug; closed.**
+  The 18 `rejected_buying_power` shadow_trades whose `recommendation_id`s are absent
+  from `recommendations` all carry the synthetic placeholder id `rec-4` (ticker NVDA),
+  dated 5/27–5/28 — simulator/test rows that leaked into prod `shadow_trades` during
+  the green-gate testing window, NOT real rejected trades referencing pruned/missing
+  recommendations (real recs are UUIDs; `recommendations` is not pruned). The genuine
+  dangling-FK signal is 0; v0.36.41's validator exclusion already handles them; no
+  recurrence since sim was isolated to the 5434 test PG. The 18 cosmetic rows are left
+  in place (validator-excluded); root cause recorded, task closed.
+
 ## [v0.36.82] — 2026-06-02 — Forward-fix: PG self-heal must skip non-owned tables, not halt (#129)
 
 v0.36.81's PG self-heal crash-looped the watch loop on startup against the live

@@ -267,7 +267,15 @@ def _collect_deterministic_precheck_flags(db_path: str, cto_data: dict) -> list[
     _check_unknown_exit_ratio(flags, db_path)
     _check_bracket_coverage(flags, db_path)
     _check_reconciled_stale_volume(flags, db_path)
-    _check_drawdown(flags, cto_data)
+    # #51: drawdown is a rolling-window risk metric, not a one-day snapshot. The
+    # audit's cto_data is a days=1 report, but (a) max-drawdown over a single day
+    # is myopic and (b) the _DRAWDOWN_MIN_SAMPLE=50 guard is unreachable in one day
+    # — so the deterministic drawdown circuit-breaker effectively never fired.
+    # Evaluate it over a 30-day rolling window so the safety net is actually live.
+    # (cto_data stays days=1 for the LLM narrative + today's-trade checks below.)
+    from src.evaluation.cto_report import generate_cto_report
+    drawdown_data = generate_cto_report(days=30, db_path=db_path)
+    _check_drawdown(flags, drawdown_data)
     _check_model_win_rate(flags, cto_data)
     _check_regime_classification_flag(flags, db_path)
     return flags

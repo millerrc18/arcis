@@ -18,11 +18,11 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.82
-# (#129 forward-fix: the v0.36.81 PG self-heal halted the watch loop on the
-# split-ownership prod schema — ALTER/INDEX on tables owned by role 'halcyon'
-# raised "must be owner" → fatal "cannot continue" → startup crash-loop. The
-# self-heal now SKIPS that benign InsufficientPrivilege like startup_checks,
-# instead of halting. Prod was rolled back to v0.36.80 during the incident.)
+# Update when cutting a release. Latest CHANGELOG header: v0.36.83
+# (Cleanup-2 — last Phase-4 items. #51: the deterministic drawdown circuit-breaker
+# now evaluates a 30-day rolling window instead of the days=1 audit snapshot — the
+# _DRAWDOWN_MIN_SAMPLE=50 guard was unreachable in a single day, so the CRITICAL
+# drawdown flag never fired. #77: root-caused as 18 sim-placeholder rows (rec-4),
+# not a rec-flow bug — documented + closed; symptom already handled by v0.36.41.)
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.82"
+VERSION = "v0.36.83"
