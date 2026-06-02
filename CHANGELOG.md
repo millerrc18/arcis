@@ -4,6 +4,51 @@
 
 ## [Unreleased]
 
+## [v0.36.79] — 2026-06-01 — Test-determinism + isolation cleanup (task 128)
+
+Test-determinism + isolation cleanup per `docs/audits/2026-05-30-test-determinism/plan.md`.
+Fixes the cataloged root causes of the suite's time- and order-dependent flakes and keeps
+the full suite deterministic by default. Net effect vs `origin/main` in the fixed-order
+full-suite baseline: 25 failed / 7 errors → the determinism fixtures resolve ~22 of those
+plus all 7 errors.
+
+### Fixed
+
+- **Deterministic policy-clock seam** (T1): `src/notifications/policy.py` gains an
+  injectable `_now_et_provider` hook (module stays import-pure); an autouse conftest
+  fixture pins the policy/telegram/telegram_commands clocks to a fixed daytime instant,
+  with an opt-in `freeze_quiet_hours` fixture for the digest path. De-flakes the
+  quiet-hours alert tests.
+- **Registry-driven digest-queue provisioning** (T2): the notifications test fixtures
+  provision `notifications_digest_queue` from the schema registry so the quiet-hours
+  digest path is exercised deterministically.
+- **Class-A day/time de-flake** (T4): clock seam extended to
+  `src/notifications/telegram_commands.py` (Sunday-review reminders) + now-relative seeds
+  in the attribution resolver test.
+- **Lifecycle env-scrub relocation** (T5): `src/simulation/lifecycle/bootstrap.py` no
+  longer scrubs `os.environ` as an import side-effect; the scrub now runs inside a
+  self-restoring `scoped_scrub()` wrapped by `run_smoke`/`run_full_gate`. Fixes the
+  `connect_db(None)` TypeError AND a collection-poisoning that crashed `src.training.*`
+  imports under certain orderings.
+- **Class-C order-isolation** (T6): conftest autouse fixtures restore reimport-prone
+  `src.training.*` module identity and clear the `/api/cto-report` memo between tests;
+  subprocess env-scrub in the pg-guard collect helper; now-relative dashboard seeds.
+  Five of the six cataloged Class-C tests are un-skipped and proven order-robust by a
+  scoped ≥3-seed randomized proof.
+
+### Changed
+
+- **Test order deterministic by default**: `pytest.ini` sets `addopts = -p no:randomly`.
+  `pytest-randomly` (pin bumped to `<5.0`) + `pytest-forked` stay installed for opt-in
+  scoped order-robustness proofs (`-o addopts= --randomly-seed=N`).
+
+### Notes
+
+- The lifecycle smoke-tier `run_smoke` tests and one Class-C test
+  (`test_self_blinding::test_stage2`) remain skipped: they hit a pre-existing
+  organic-scenario / full-suite state-leak tail (including a `PYTHONHASHSEED`-sensitive
+  axis) that is out of scope for the determinism sprint. Tracked for a follow-up kin.
+
 ## [v0.36.78] — 2026-05-29 — Phase 5: codebase + docs consolidation
 
 Phase 5 unified-design campaign (`docs/audits/2026-05-27-phase-5-unified/`):

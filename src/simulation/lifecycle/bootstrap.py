@@ -1,29 +1,49 @@
-"""FIRST-import environment scrub for the lifecycle simulator.
+"""Environment scrub for the lifecycle simulator (scoped, NOT import-time).
 
-Importing this module (which the package __init__ does before anything else)
-rewrites os.environ so the simulator can NEVER reach the production Postgres.
+The simulator must NEVER reach the production Postgres. This module rewrites
+os.environ so the simulator targets the safe test PG on 127.0.0.1:5434, but
+the scrub is applied ONLY for the duration of a smoke/full run via the
+``scoped_scrub()`` context manager (snapshot → scrub → run → restore), NOT as
+an import side-effect.
 
-Incident 2026-05-22: a test routed to the production PG and wiped trade
-tables. This module closes that vector for the simulator by:
-  - popping ARCIS_DB_PATH and any prod-signature DATABASE_URL,
-  - pinning DATABASE_URL to the safe test PG on 127.0.0.1:5434,
-  - enabling the PG cutover gate + Alpaca paper mode,
-  - disabling .env loading (so a sim subprocess can't re-read the operator's
+Why scoped, not import-time (test-determinism #128 / T5):
+A module-level ``_scrub_environment()`` call popped ARCIS_DB_PATH the instant
+this module was imported. That froze ``src.config.DB_PATH = None`` (config
+resolves DB_PATH from ARCIS_DB_PATH at its OWN first import) for the rest of the
+process, with two consequences: (1) run_smoke's organic scan reached
+``connect_db`` with a None db_path → TypeError once the lifecycle conftest's
+per-test env-restore took the gate env away; (2) any later import of a
+``src.training.*`` module crashed at COLLECTION because
+``src/training/training_stop.py`` reads ``os.path.dirname(DB_PATH)`` with
+DB_PATH=None. Relocating the scrub into a scoped context manager removes both:
+the gate env (DATABASE_URL=:5434 + ARCIS_PG_CUTOVER_ENABLED=1) is active during
+the run (so connect_db routes to PG) and fully undone afterward (so it cannot
+leak into the ~130 engine-aware tests the conftest protects).
+
+Incident 2026-05-22 (preserved): a test routed to the production PG and wiped
+trade tables. ``scoped_scrub()`` still closes that vector — DURING any smoke/full
+run it:
+  - pops ARCIS_DB_PATH and any prod-signature DATABASE_URL,
+  - pins DATABASE_URL to the safe test PG on 127.0.0.1:5434,
+  - enables the PG cutover gate + Alpaca paper mode,
+  - disables .env loading (so a sim subprocess can't re-read the operator's
     real .env — see the ARCIS_DISABLE_DOTENV guard in src/config/__init__.py),
-  - pinning PYTHONHASHSEED for determinism.
+  - pins PYTHONHASHSEED for determinism.
 
 `_PROD_SIGNATURES` / `_is_prod_pg_url` mirror tests/conftest.py:51 semantics
 (copied, NOT imported — src must not depend on test code).
 
-Called by: simulation.lifecycle (package __init__, imported first)
+Called by: simulation.lifecycle entrypoints (run_smoke / run_full_gate)
 Calls: none
 Owns tables: none
 Config keys: none (reads/writes os.environ: DATABASE_URL, TEST_DATABASE_URL,
     ARCIS_DB_PATH, ARCIS_PG_CUTOVER_ENABLED, ALPACA_PAPER_TRADE,
     ARCIS_DISABLE_DOTENV, PYTHONHASHSEED)
-Tests: tests/simulation/lifecycle/test_bootstrap.py (Task 2)
+Tests: tests/simulation/lifecycle/test_bootstrap.py (Task 2),
+    tests/simulation/lifecycle/test_entrypoints.py (T5)
 """
 
+import contextlib
 import os
 
 # Mirror of tests/conftest.py:51 — keep these in sync if the prod PG moves.
@@ -58,6 +78,29 @@ def _scrub_environment() -> None:
     os.environ["PYTHONHASHSEED"] = "0"
 
 
+@contextlib.contextmanager
+def scoped_scrub():
+    """Apply the env scrub for the duration of a run, then fully restore it.
+
+    Snapshots os.environ, calls ``_scrub_environment()``, yields, and on exit
+    restores os.environ exactly (removing keys the scrub added, restoring keys
+    it changed or popped). This keeps the prod-isolation INTENT active during a
+    smoke/full run while guaranteeing zero leakage of the :5434 gate env into
+    any code that runs after the run (test-determinism #128 / T5).
+    """
+    snapshot = dict(os.environ)
+    _scrub_environment()
+    try:
+        yield
+    finally:
+        for key in list(os.environ.keys()):
+            if key not in snapshot:
+                del os.environ[key]
+        for key, value in snapshot.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
+
+
 def assert_safe_db_env() -> None:
     """Raise RuntimeError if DATABASE_URL/TEST_DATABASE_URL points at prod PG."""
     for var in ("DATABASE_URL", "TEST_DATABASE_URL"):
@@ -84,7 +127,3 @@ def scrubbed_env() -> dict:
     env["TEST_DATABASE_URL"] = SIM_DATABASE_URL
     env["ARCIS_DISABLE_DOTENV"] = "1"
     return env
-
-
-# Scrub on import — this is the whole point of the module.
-_scrub_environment()

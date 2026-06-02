@@ -170,9 +170,6 @@ def test_all_endpoints_emit_meta(endpoint):
 
 # -- Test 2: closed-count reconciles (cohort-aware) ---------------------------
 
-@pytest.mark.skip(reason="tracked-upstream-bug (#1192): order-dependent test-isolation "
-                  "leak — passes in isolation, fails only in full-suite ordering via "
-                  "process-global state leaked by an earlier test; not a product bug. See #1192.")
 def test_closed_count_reconciles():
     """Assert cto._meta.trade_summary.cohort == shadow._meta.cohort BEFORE asserting n == n.
 

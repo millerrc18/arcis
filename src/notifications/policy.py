@@ -7,13 +7,27 @@ Config keys: notifications.*
 Tests: tests/notifications/test_policy.py, tests/notifications/test_policy_purity.py
 
 Pure-function gate: no I/O, no logging, no datetime.utcnow().
-now_et is always injected by the caller.
+now_et is normally injected by the caller. As of Test-Determinism #128 T1,
+should_dispatch also accepts now_et=None: the time is then obtained from the
+injectable module-level hook _now_et_provider (a callable returning an ET
+datetime). This module stays pure — it never imports datetime nor reads the
+clock itself; the provider is supplied by the caller/test. Production always
+injects now_et (safe_send passes telegram._now_et_for_safe_send()), so the
+None path is a test seam. tests/conftest.py pins _now_et_provider for
+time-deterministic notification tests.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Callable, Literal, Optional
+
+# Injectable clock seam (#128 T1). Left None in production: every production
+# caller (safe_send) injects now_et explicitly, so should_dispatch never reads
+# this. Tests set it (tests/conftest.py autouse fixture) to pin the clock.
+# Keeping it None preserves the module's purity contract (no datetime import,
+# no .now() call here — enforced by tests/notifications/test_policy_purity.py).
+_now_et_provider: Optional[Callable[[], "object"]] = None
 
 
 @dataclass(frozen=True)
@@ -82,7 +96,20 @@ def should_dispatch(
        - else → MUTE
     4. severity == 'low' AND config.digest_low=True → DIGEST
     5. fallback → SEND via config.default_routing channels
+
+    now_et: the ET datetime to evaluate quiet hours against. Pass None to obtain
+    it from the injectable _now_et_provider hook (#128 T1). Production callers
+    (safe_send) always pass now_et explicitly and are unaffected; the None path
+    is a test seam and raises if no provider is installed.
     """
+    if now_et is None:
+        if _now_et_provider is None:
+            raise ValueError(
+                "should_dispatch(now_et=None) requires _now_et_provider to be "
+                "set (test seam, #128 T1); production callers must pass now_et."
+            )
+        now_et = _now_et_provider()
+
     # Rule 1: high/critical severity always sends
     if severity in ("high", "critical"):
         return PolicyDecision(

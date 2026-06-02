@@ -110,9 +110,22 @@ def test_notify_action_required_sends_message(mock_send):
 
 @patch("src.notifications.telegram.send_telegram", return_value=True)
 def test_retrain_overdue_check(mock_send, db_path):
-    """Should remind if model retrain is overdue (>14 days)."""
+    """Retrain reminder must NOT fire on a weekday (deterministic).
+
+    #128 T4: the conftest autouse fixture pins the telegram_commands clock to a
+    fixed WEEKDAY (Mon 2026-06-01 14:00 ET), so the Sunday-only retrain branch
+    deterministically does not fire. Reading the SAME injectable seam the code
+    reads (check_action_reminders -> telegram_commands._now_et) keeps the test
+    and the code in agreement regardless of the calendar day the suite runs.
+    Previously this test branched on real datetime.now(ET) and FAILED on real
+    Sundays (the boundary-edge day-of-week flake). The Sunday-firing path is
+    covered non-vacuously by test_retrain_overdue_fires_on_sunday below.
+    """
+    from src.notifications import telegram_commands
+
+    now = telegram_commands._now_et()
     with sqlite3.connect(db_path) as conn:
-        old_date = (datetime.now(ET) - timedelta(days=20)).isoformat()
+        old_date = (now - timedelta(days=20)).isoformat()
         conn.execute(
             "INSERT INTO model_versions (version_id, version_name, status, created_at, "
             "training_examples_count, synthetic_examples_count, outcome_examples_count, model_file_path) "
@@ -120,12 +133,37 @@ def test_retrain_overdue_check(mock_send, db_path):
             ("v1", "halcyon-v1.0.0", old_date),
         )
 
-    now = datetime.now(ET)
-    # Only triggers on Sundays at 10+ AM
-    if now.weekday() == 6 and now.hour >= 10:
-        sent = check_action_reminders(db_path)
-        assert "retrain_overdue" in sent
-    else:
-        # On non-Sundays, retrain check doesn't fire
-        sent = check_action_reminders(db_path)
-        assert "retrain_overdue" not in sent
+    # Autouse pin -> weekday; the Sunday-gated retrain check must not fire.
+    assert now.weekday() != 6, "conftest pin must be a weekday for this test"
+    sent = check_action_reminders(db_path)
+    assert "retrain_overdue" not in sent
+
+
+@patch("src.notifications.telegram.send_telegram", return_value=True)
+def test_retrain_overdue_fires_on_sunday(mock_send, db_path, monkeypatch):
+    """Retrain reminder DOES fire on a Sunday >=10 AM when retrain is overdue.
+
+    #128 T4 verify-by-mutation companion: injects a Sunday clock via the
+    telegram_commands._now_et seam and proves the >14-day-overdue retrain
+    reminder fires. Without the seam (when the code read real wall-clock) this
+    behavior was only reachable on real Sundays. Pinning the seam makes the
+    Sunday-firing branch deterministically testable on any day.
+    """
+    from src.notifications import telegram_commands
+
+    # 2026-06-07 14:00 ET is a Sunday (weekday()==6) at hour>=10.
+    sunday = datetime(2026, 6, 7, 14, 0, tzinfo=ET)
+    assert sunday.weekday() == 6
+    monkeypatch.setattr(telegram_commands, "_now_et_provider", lambda: sunday)
+
+    with sqlite3.connect(db_path) as conn:
+        old_date = (sunday - timedelta(days=20)).isoformat()
+        conn.execute(
+            "INSERT INTO model_versions (version_id, version_name, status, created_at, "
+            "training_examples_count, synthetic_examples_count, outcome_examples_count, model_file_path) "
+            "VALUES (?, ?, 'active', ?, 969, 0, 0, 'test.gguf')",
+            ("v1", "halcyon-v1.0.0", old_date),
+        )
+
+    sent = check_action_reminders(db_path)
+    assert "retrain_overdue" in sent

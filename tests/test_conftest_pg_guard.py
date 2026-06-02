@@ -27,15 +27,23 @@ _TEST_DB_URL = "postgresql://test:test@127.0.0.1:5434/halcyon"
 def _run_collect(env_overrides: dict) -> subprocess.CompletedProcess:
     """Run pytest --collect-only in a subprocess with the given env overrides.
 
-    Starts from a clean copy of the current environment with specific variables
-    forced to the values in env_overrides.  Any key with value None is removed
-    from the subprocess environment (simulates the variable being unset).
+    Starts from a SCRUBBED copy of the current environment: every DB-routing var
+    is forced to a known-safe baseline so neither a polluted parent os.environ nor
+    a developer .env can sneak a prod-signature URL into the nested guard. Then the
+    test's env_overrides are applied — a value of None removes the var entirely
+    (no .env re-injection because the var that would block load_dotenv override is
+    explicitly an empty string baseline first).
     """
     env = os.environ.copy()
-    # Always remove the escape hatch and test URL so we start from a known
-    # baseline; individual tests re-add them as needed via env_overrides.
-    for key in ("ARCIS_ALLOW_PROD_PG_IN_TESTS", "TEST_DATABASE_URL", "DATABASE_URL"):
-        env.pop(key, None)
+    # Baseline scrub: blank the URL vars (empty string, NOT absent) so the nested
+    # pytest_configure's load_dotenv(override=False) cannot re-inject a prod URL —
+    # an already-present empty value wins over .env. Cutover flag and escape hatch
+    # are removed outright. _is_prod_pg_url("") is False, so an empty URL is the
+    # "no prod DB configured" baseline the guard expects.
+    env["DATABASE_URL"] = ""
+    env["TEST_DATABASE_URL"] = ""
+    env.pop("ARCIS_ALLOW_PROD_PG_IN_TESTS", None)
+    env.pop("ARCIS_PG_CUTOVER_ENABLED", None)
     for key, value in env_overrides.items():
         if value is None:
             env.pop(key, None)
@@ -139,10 +147,6 @@ class TestPgGuardDoesNotFireWhenSafe:
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-    @pytest.mark.skip(reason="tracked-upstream-bug (#1192): order-dependent test-isolation "
-                      "leak — the spawned subprocess inherits a parent os.environ polluted by "
-                      "an earlier test; passes in isolation, fails only in full-suite ordering. "
-                      "Real fix: scrub the subprocess env in _run_collect. See #1192.")
     def test_no_database_url_does_not_trigger_guard(self):
         """When DATABASE_URL is unset entirely, guard does NOT block."""
         result = _run_collect({})

@@ -72,22 +72,28 @@ def _provision_pg(dsn: str):
 
 
 def run_full_gate() -> FullGateResult:
-    """Provision the 5434 PG, run the authoritative scenario, return its Verdict."""
+    """Provision the 5434 PG, run the authoritative scenario, return its Verdict.
+
+    The bootstrap env scrub is applied via ``scoped_scrub()`` for the duration
+    of THIS run only (it is no longer an import side-effect; #128 / T5) and
+    fully restored on exit.
+    """
     install_prod_guard()
     dsn = _bootstrap.SIM_DATABASE_URL
-    baseline = _leak_detector.snapshot_backends(dsn, application_name_filter=None)
-    conn = _provision_pg(dsn)
-    try:
-        runner = ScenarioRunner(conn=conn, start=_FULL_GATE_START, sim_dsn=dsn)
-        scenario = runner.run(days=_FULL_GATE_DAYS)
-    finally:
-        conn.rollback()
-        conn.close()
-        after = _leak_detector.snapshot_backends(dsn, application_name_filter=None)
-        LOG.info(
-            "[full_gate] conn-leak diagnostic:\n%s",
-            _leak_detector.format_delta(baseline, after),
-        )
+    with _bootstrap.scoped_scrub():
+        baseline = _leak_detector.snapshot_backends(dsn, application_name_filter=None)
+        conn = _provision_pg(dsn)
+        try:
+            runner = ScenarioRunner(conn=conn, start=_FULL_GATE_START, sim_dsn=dsn)
+            scenario = runner.run(days=_FULL_GATE_DAYS)
+        finally:
+            conn.rollback()
+            conn.close()
+            after = _leak_detector.snapshot_backends(dsn, application_name_filter=None)
+            LOG.info(
+                "[full_gate] conn-leak diagnostic:\n%s",
+                _leak_detector.format_delta(baseline, after),
+            )
     results = list(scenario.final_results)
     report = VerdictReporter(tier="full").render(results)
     return FullGateResult(verdict=classify(results), report=report, results=results)

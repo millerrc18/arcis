@@ -1,15 +1,21 @@
 """Lifecycle simulator package (T9 organic open->exit->reconcile; #97).
 
-`bootstrap` is imported FIRST so importing this package scrubs the
-environment (pinning the safe test PG and disabling .env loading) before
-any other simulator code — or anything it transitively imports — runs.
+`bootstrap` exposes ``scoped_scrub()``, which the run entrypoints wrap around
+their work to pin the safe test PG (and disable .env loading) for the DURATION
+of a run only. The scrub is NOT an import side-effect: importing this package
+no longer mutates os.environ, so importing the simulator can never freeze
+``src.config.DB_PATH`` to None or leak the :5434 gate env into unrelated tests
+(test-determinism #128 / T5).
 
 Run entrypoints
 ---------------
-``run_smoke()`` — the fast per-PR tier. Runs end-to-end on a TEMPORARY SQLite
-DB (NO Docker / NO 5434 PG / NO GPU). Drives the T9 organic open->exit->reconcile
-lifecycle (ScenarioRunner KEYSTONE) with the real prod scan path, then renders a
-Verdict report that labels the integrity results "non-authoritative (SQLite)".
+``run_smoke()`` — the fast per-PR tier. Runs end-to-end against the ephemeral
+5434 test PG via the cutover gate (DATABASE_URL=:5434 + ARCIS_PG_CUTOVER_ENABLED=1,
+pinned by the scoped bootstrap scrub for the run; NO GPU). Drives the T9 organic
+open->exit->reconcile lifecycle (ScenarioRunner KEYSTONE) with the real prod scan
+path, then renders a Verdict report that labels the integrity results
+"non-authoritative (smoke tier)" — the historical "SQLite" wording is kept on the
+label, but the backing store is the 5434 PG.
 Wired into the `lifecycle-smoke` workflow (.github/workflows/lifecycle-smoke.yml),
 which triggers on every push + pull_request. The per-PR job exists for wiring +
 regression coverage, not integrity authority.

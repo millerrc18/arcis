@@ -170,9 +170,7 @@ class TestSelfBlindingDataCollector:
         count = collect_training_examples_from_closed_trades()
         assert count == 0
 
-    @pytest.mark.skip(reason="tracked-upstream-bug (#1192): order-dependent test-isolation "
-                      "leak — passes in isolation, fails only in full-suite ordering via "
-                      "process-global state leaked by an earlier test; not a product bug. See #1192.")
+    @pytest.mark.skip(reason="tracked-upstream-bug (#1192): order-dependent test-isolation leak. T6 fixed the src.training.* module-identity drift via the conftest _restore_training_modules fixture, but this test stays fragile to a SEPARATE full-suite state leak that changes data_collector's INSERT path so its brittle positional assertion (args[-1] expects output_text but receives a real datetime.now() timestamp) breaks. Passes in isolation + the scoped 3-seed proof; fails only in the full deterministic order. Re-skipped per operator bounded-completion (task 128 T7); tracked for the latent-order-dependence kin.")
     @patch("src.training.data_collector.generate_training_example")
     @patch("src.training.data_collector.load_config")
     @patch("src.training.data_collector.init_training_tables")

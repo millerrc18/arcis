@@ -57,3 +57,21 @@ filelock>=3.0,<4.0
 # the simulator's VirtualClock (src/simulation/lifecycle/clock.py freeze_at).
 # Test-only — not imported by production code paths.
 freezegun>=1.5,<2.0
+
+# Test-Determinism #128 (Wave 1 T1): test-isolation tooling.
+# - pytest-randomly can randomize test order so order-dependent leaks (Class C
+#   in docs/audits/2026-05-30-test-determinism) surface instead of hiding behind
+#   a fixed collection order. DECISION (T7, operator-approved bounded completion;
+#   SUPERSEDES the original "active by default" plan): it is DISABLED by default
+#   via `addopts = -p no:randomly` in pytest.ini, so the full suite runs in
+#   DETERMINISTIC default order. Enabling it fleet-wide surfaces a large
+#   pre-existing latent order-dependence tail (origin/main is ~25 failed / 7
+#   errors under it) that is out of scope for task 128; the cataloged Class-C set
+#   is proven order-robust by a scoped >=3-seed proof. Ad-hoc randomized proof:
+#   `pytest <paths> -o addopts= --randomly-seed=N`.
+# - pytest-forked runs selected tests in a forked subprocess (`--forked`); it
+#   is OPT-IN, used by Wave 2/3 to confirm an order-dependent test passes in
+#   isolation. Not active by default (no per-test fork overhead on normal runs).
+# Both are test-only — not imported by production code paths.
+pytest-randomly>=3.15,<5.0
+pytest-forked>=1.6,<2.0

@@ -85,9 +85,18 @@ class TestPerCheckExceptionIsolation:
                 raise RuntimeError("deliberate failure in reminder 2 (Sunday review)")
             return True
 
+        # #128 T4: check_action_reminders now reads the clock via the injectable
+        # telegram_commands._now_et() seam, and the conftest autouse fixture pins
+        # _now_et_provider to a WEEKDAY by default — which would suppress reminder
+        # 2 (Sunday review) and make this isolation test vacuous. Pin the seam to
+        # the Sunday-5PM instant this test requires so reminder 2 fires and raises.
+        # Still patch the module `datetime` so the inline
+        # datetime.fromisoformat(created_at) parsing in reminders 3/5 keeps working.
         with patch("src.notifications.telegram_commands.connect_db", return_value=fake_conn), \
              patch("src.notifications.telegram.notify_action_required",
                    side_effect=fake_notify), \
+             patch("src.notifications.telegram_commands._now_et_provider",
+                   lambda: sunday_5pm), \
              patch("src.notifications.telegram_commands.datetime") as mock_dt:
 
             mock_dt.now.return_value = sunday_5pm

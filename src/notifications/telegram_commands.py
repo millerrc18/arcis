@@ -27,6 +27,27 @@ from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+# Injectable clock seam (#128 T4 — extension of the T1 policy-clock seam).
+# Left None in production: _now_et() then reads the real wall clock, so behavior
+# is unchanged when unset. Tests (tests/conftest.py autouse fixture) set this to
+# a callable returning a fixed ET datetime so day-of-week / time-of-day logic in
+# check_action_reminders and the _cmd_* handlers is deterministic. This is the
+# day-of-week root cause of the Class-A "Sunday flake" in
+# docs/audits/2026-05-30-test-determinism.
+_now_et_provider = None
+
+
+def _now_et():
+    """Return the current ET datetime, honoring the injectable test seam.
+
+    Production: _now_et_provider is None, so this returns datetime.now(ET) —
+    behavior identical to the previous inline calls. Tests pin _now_et_provider
+    to a fixed instant for deterministic day-of-week / time-of-day branches.
+    """
+    if _now_et_provider is not None:
+        return _now_et_provider()
+    return datetime.now(ET)
+
 TELEGRAM_UPDATES_API = "https://api.telegram.org/bot{token}/getUpdates"
 
 
@@ -121,7 +142,7 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
     import sqlite3
     from src.notifications.telegram import notify_action_required
     sent = []
-    now = datetime.now(ET)
+    now = _now_et()
 
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -325,7 +346,7 @@ def handle_command(command: str, args: str) -> str:
 
 def _cmd_status() -> str:
     """System status summary."""
-    now = datetime.now(ET)
+    now = _now_et()
 
     # Check Ollama directly instead of importing is_llm_available
     try:
@@ -533,7 +554,7 @@ def _cmd_earnings() -> str:
 
 def _cmd_schedule() -> str:
     """Compute schedule status."""
-    now = datetime.now(ET)
+    now = _now_et()
     hour = now.hour
 
     if 9 <= hour < 16 and now.weekday() < 5:
@@ -609,7 +630,7 @@ def _cmd_council(question: str = "") -> str:
     except Exception as e:
         return f"❌ Council session failed: {str(e)[:200]}"
 
-    now = datetime.now(ET).strftime("%H:%M ET")
+    now = _now_et().strftime("%H:%M ET")
     direction = result.get("consensus", "unknown").upper()
     consensus_type = result.get("consensus_type", "?")
     confidence = result.get("confidence_avg", 0)
@@ -796,7 +817,7 @@ def _cmd_disk() -> str:
 
 def _cmd_uptime() -> str:
     """Watch loop uptime and next event."""
-    now = datetime.now(ET)
+    now = _now_et()
     hour = now.hour
 
     # Determine next scheduled event
@@ -833,7 +854,7 @@ def _cmd_heartbeat() -> str:
 
     try:
         last_beat = datetime.fromisoformat(watchdog_file.read_text().strip())
-        now = datetime.now(ET)
+        now = _now_et()
         age_seconds = (now - last_beat).total_seconds()
         age_min = age_seconds / 60
 
