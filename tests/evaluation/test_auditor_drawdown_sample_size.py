@@ -12,8 +12,10 @@ Post-fix: when `trades_closed < _DRAWDOWN_MIN_SAMPLE` (50), the check is
 suppressed regardless of drawdown value. Above 50, the 25% ceiling
 applies as before.
 
-The proper long-term fix is switching to a 30-day rolling window, queued
-for post-W21-freeze.
+The proper long-term fix — switching the drawdown check to a 30-day rolling
+window so the circuit-breaker is actually reachable (the 50-trade guard is
+unreachable in a single day) — landed in #51 (Cleanup-2); see
+test_drawdown_evaluated_over_30day_window_not_audit_snapshot below.
 """
 from __future__ import annotations
 
@@ -106,3 +108,55 @@ def test_drawdown_missing_data_no_crash():
     flags = []
     _check_drawdown(flags, {"trade_summary": {}})  # empty trade_summary
     assert flags == []
+
+
+def test_drawdown_evaluated_over_30day_window_not_audit_snapshot(monkeypatch, tmp_path):
+    """#51 (Cleanup-2): the drawdown circuit-breaker must evaluate a 30-DAY rolling
+    window, not the days=1 audit snapshot. With days=1 the _DRAWDOWN_MIN_SAMPLE=50
+    guard is unreachable (you don't close 50 trades in one day), so the check never
+    fired — an inert safety net. _collect_deterministic_precheck_flags now generates
+    a days=30 cto_report for the drawdown check specifically.
+
+    Verify-by-mutation: reverting to `_check_drawdown(flags, cto_data)` (the days=1
+    snapshot passed in) means generate_cto_report(days=30) is never called and the
+    3-trade snapshot can't fire → both assertions below fail.
+    """
+    from src.evaluation import auditor
+
+    seen_days: list[int] = []
+
+    def _fake_cto_report(days, db_path=None):
+        seen_days.append(days)
+        if days == 30:
+            # a real 30-day sample with a sustained 30% drawdown → SHOULD fire
+            return _build_cto_data(trades_closed=60, max_drawdown_pct=30.0)
+        return _build_cto_data(trades_closed=3, max_drawdown_pct=5.0)
+
+    monkeypatch.setattr("src.evaluation.cto_report.generate_cto_report", _fake_cto_report)
+    # Isolate from the other db-touching sibling checks in the precheck bundle.
+    for fn in (
+        "_check_unknown_exit_ratio",
+        "_check_bracket_coverage",
+        "_check_reconciled_stale_volume",
+        "_check_model_win_rate",
+        "_check_regime_classification_flag",
+    ):
+        monkeypatch.setattr(auditor, fn, lambda *a, **k: None)
+
+    # The audit snapshot handed in is the days=1 view (3 trades) — pre-fix this is
+    # exactly what the drawdown check saw, and it could never fire.
+    audit_snapshot = _build_cto_data(trades_closed=3, max_drawdown_pct=5.0)
+    flags = auditor._collect_deterministic_precheck_flags(
+        str(tmp_path / "audit.sqlite3"), audit_snapshot
+    )
+
+    assert 30 in seen_days, (
+        "drawdown must be evaluated over a freshly-generated 30-day window "
+        "(generate_cto_report(days=30) was not called)"
+    )
+    dd = [f for f in flags if f.get("metric") == "max_drawdown_pct"]
+    assert dd and dd[0]["severity"] == "critical", (
+        "a 30% drawdown over 60 trades (30-day window) must raise the CRITICAL flag — "
+        "the circuit-breaker is now live instead of silently suppressed by the 1-day "
+        "sample guard"
+    )
