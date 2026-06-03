@@ -31,6 +31,18 @@ gate (`run_full_gate()`) now returns **STABLE**, unblocking the #95 capstone gat
   invoked `datetime.replace(year="Z", …)` → `'str' object cannot be interpreted as an
   integer`; fail-open returned `None`, disabling SPY attribution on every closed trade.
   New `_iso_to_date` helper accepts datetime/date/string.
+- **Reconcile/close sibling sites — same anti-pattern, surfaced by dual-Opus QA's
+  sibling search (#132)**. The reviewers grepped the close/reconcile path for the same
+  bug and found three more:
+  - `src/shadow_trading/reconcile.py` — the "skip trades < 1 h old" safety guard did
+    `datetime.fromisoformat(created_at)` inline → `TypeError` on a PG datetime →
+    `except: pass` → the guard was **silently defeated under PG**, so a freshly-opened
+    trade could be force-closed `reconciled_stale` on a transient Alpaca blip (an
+    orphan-adjacent path). Extracted to a tested `_raw_ts_within_seconds` helper
+    (datetime/string/naive-aware). **Important.**
+  - `src/shadow_trading/reconcile.py` (days-held) and `src/journal/store.py`
+    (`time_to_target_days`) — same datetime-vs-string pattern, silently dropping a
+    data-quality field under PG. Both hardened. (Cosmetic.)
 
 ### Changed
 

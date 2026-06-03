@@ -144,6 +144,48 @@ def test_multiple_closes_recent_one_wins(tmp_db):
     assert _has_recent_close(tmp_db, "COP", _NOW, _RECENT_CLOSE_WINDOW_HOURS, "swing") is True
 
 
+# ───────── #132: _raw_ts_within_seconds — the < 1h stale-close guard parse ─────────
+# Verify-by-mutation: the reconcile_paper_trades "skip trades < 1 hour old" guard
+# previously did datetime.fromisoformat(created_at) inline; under PG created_at is a
+# native datetime → TypeError → except:pass → guard SILENTLY DEFEATED → a fresh trade
+# could be force-closed reconciled_stale (orphan source). The helper accepts both.
+
+def test_raw_ts_within_seconds_accepts_pg_native_datetime():
+    """A PG-native datetime within the window → True. Reverting the helper to a
+    string-only fromisoformat makes the datetime raise → caught → False (guard
+    defeated) → this assertion fails."""
+    from src.shadow_trading.reconcile import _raw_ts_within_seconds
+    created_dt = _NOW - timedelta(minutes=30)  # native datetime, 30 min old
+    assert _raw_ts_within_seconds(created_dt, _NOW, 3600) is True
+
+
+def test_raw_ts_within_seconds_accepts_iso_string():
+    """SQLite path: an ISO string within the window → True (back-compat)."""
+    from src.shadow_trading.reconcile import _raw_ts_within_seconds
+    assert _raw_ts_within_seconds((_NOW - timedelta(minutes=30)).isoformat(), _NOW, 3600) is True
+
+
+def test_raw_ts_within_seconds_coerces_naive_datetime():
+    """A tz-naive datetime within the window is coerced to now's zone → True (no
+    aware−naive TypeError bypass)."""
+    from src.shadow_trading.reconcile import _raw_ts_within_seconds
+    naive = (_NOW - timedelta(minutes=30)).replace(tzinfo=None)
+    assert _raw_ts_within_seconds(naive, _NOW, 3600) is True
+
+
+def test_raw_ts_within_seconds_outside_window_is_false():
+    """A datetime older than the window → False (trade is NOT recent → reconcilable)."""
+    from src.shadow_trading.reconcile import _raw_ts_within_seconds
+    assert _raw_ts_within_seconds(_NOW - timedelta(hours=2), _NOW, 3600) is False
+
+
+def test_raw_ts_within_seconds_unparseable_is_false():
+    """Garbage / None → False (fail toward the caller's default path, never raise)."""
+    from src.shadow_trading.reconcile import _raw_ts_within_seconds
+    assert _raw_ts_within_seconds("not-a-timestamp", _NOW, 3600) is False
+    assert _raw_ts_within_seconds(None, _NOW, 3600) is False
+
+
 # ───────────────────────── wiring (regression-lock) ─────────────────────────
 
 def test_detection_loop_excludes_recent_closes():
