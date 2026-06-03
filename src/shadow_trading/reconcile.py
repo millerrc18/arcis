@@ -1201,7 +1201,13 @@ def reconcile_paper_trades(
                     _days = 0
                     if trade_row and trade_row["created_at"]:
                         try:
-                            _created = datetime.fromisoformat(trade_row["created_at"])
+                            # PG-cutover (#132): created_at is a native datetime under PG;
+                            # fromisoformat(datetime) → TypeError → except:pass → days_held=0.
+                            # (Paper-side twin of the reconcile_live_trades site above.)
+                            _craw = trade_row["created_at"]
+                            _created = _craw if isinstance(_craw, datetime) else datetime.fromisoformat(str(_craw))
+                            if _created.tzinfo is None:
+                                _created = _created.replace(tzinfo=now.tzinfo)
                             _days = max(0, (now - _created).days)
                         except (ValueError, TypeError):
                             pass
