@@ -567,15 +567,25 @@ def check_and_manage_open_trades(
         if price_move < mae:
             mae = price_move
 
-        # Calculate days open
-        entry_time_str = trade.get("actual_entry_time") or trade.get("created_at", "")
+        # Calculate days open. PG-cutover hardening (#132): psycopg2 returns
+        # timestamp columns as native datetime objects (connect_db's
+        # RealDictCursor does NOT stringify), while SQLite returns ISO strings.
+        # Passing a datetime to datetime.fromisoformat() raises TypeError, which
+        # previously defaulted days_open=999 and force-closed EVERY PG-read trade
+        # as a phantom "timeout" on the first manage cycle — a DB-closed /
+        # broker-open split that is a prime orphan source.
+        _entry_raw = trade.get("actual_entry_time") or trade.get("created_at", "")
         try:
-            entry_time = datetime.fromisoformat(entry_time_str)
+            entry_time = _entry_raw if isinstance(_entry_raw, datetime) else datetime.fromisoformat(_entry_raw)
+            # PG timestamptz is tz-aware; normalize a bare (naive) timestamp to
+            # ET so the tz-aware subtraction below cannot raise.
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=et)
             days_open = (now - entry_time).days
         except (ValueError, TypeError):
             days_open = 999  # Force timeout if timestamp unparseable
             logger.warning("[EXECUTOR] Could not parse entry time '%s' for trade %s — defaulting to days_open=999",
-                           entry_time_str, trade.get("trade_id"))
+                           _entry_raw, trade.get("trade_id"))
 
         if mfe_increased:
             mfe_days = days_open

@@ -75,24 +75,21 @@ def pg_conn(_schema):
 # ─── KEYSTONE #1 — the clean-close bar (§3.1) ──────────────────────────────
 
 
-# T13 RESIDUAL BLIND-SPOT INPUT: the organic OPEN path is fully exercised (provenance
-# guard, oracle, orphan checks all pass — see test_provenance_guard + reconcile_when_gone
-# below). The exit-detection branch of check_and_manage_open_trades does NOT recognize
-# the fake's OCO-leg fill via the expected `.filled_avg_price` path; reconcile then
-# attempts a liquidating SELL whose paper-side clearance the fake doesn't mirror,
-# producing the "close-didn't-clear" reconciliation pattern (executor.py:1664 area +
-# reconcile.py:908). This gap is the kind of fake↔prod-broker contract drift T9
-# surfaces; resolving it requires either tightening the fake's OCO fill→position
-# transition OR adding an additional executor seam patch. For the v0.36.50 cutover
-# the OPEN path certification is what unblocks #95; T13 must enumerate this as a
-# residual blind-spot for the verdict's STABLE scope.
-@pytest.mark.xfail(
-    reason="T9 partial: clean-close exit-detection has fake↔executor contract "
-           "drift on .filled_avg_price OCO recognition; reconcile then hits "
-           "close-didn't-clear. Open path certifies fully (see provenance + "
-           "reconcile-when-gone + teardown tests). T13 residual blind-spot input.",
-    strict=False,
-)
+# Clean-close exit path CERTIFIED as of #132 (was XFAIL). The original blind spot
+# was NOT a fake↔executor `.filled_avg_price` contract drift — it was three
+# distinct bugs the sim gate surfaced by running the real check_and_manage_open_trades
+# against a real PG:
+#   1. postmortem.py sliced `actual_entry_time[:10]` — psycopg2 returns a native
+#      datetime (not an ISO string), so the slice raised TypeError and aborted the
+#      close mid-flight ("close-didn't-clear" → orphan). [REAL PROD BUG, fixed]
+#   2. order_lifecycle.py passed that same datetime to datetime.fromisoformat() →
+#      TypeError → days_open=999 → a phantom "timeout" exit on the first manage
+#      cycle. [REAL PROD BUG, fixed]
+#   3. the harness pinned the sim's neutral price to a flat 100.0 (fake_md
+#      base_price), which sits below the drifted rec band's stop → spurious
+#      price-based stop-out before the OCO fill. [HARNESS, fixed in wiring.py]
+# With all three fixed the organic take-profit OCO close drives cleanly: db_open
+# matches broker (0 positions) and the exit is the canonical 'target_1'.
 def test_organic_open_exit_reconcile_clean_close_bar(pg_conn):
     """End-to-end organic drive: exactly 1 rec, 1 organic trade, clean close, no orphans."""
     runner = ScenarioRunner(
@@ -133,7 +130,12 @@ def test_organic_open_exit_reconcile_clean_close_bar(pg_conn):
     assert status in {"closed", "exited", "stopped_out", "target_hit"}, (
         f"status={status!r} must be terminal after exit"
     )
-    assert exit_reason in {"take_profit", "stop_loss", "stop_hit", "target_2_hit", "target_1_hit"}, (
+    # Canonical controlled vocab (src.shadow_trading.exit_reason.CONTROLLED_VOCAB):
+    # coerce_exit_reason maps the synonyms the executor emits — 'take_profit' and
+    # 'target_1_hit' → 'target_1', 'stop_hit' → 'stop_loss' — BEFORE persistence,
+    # so the stored value is always the canonical term. The organic drive fires
+    # the take-profit leg, so a clean OCO close lands on 'target_1'.
+    assert exit_reason in {"target_1", "target_2", "stop_loss"}, (
         f"exit_reason={exit_reason!r} must be in the clean-close set"
     )
 

@@ -140,8 +140,10 @@ RESIDUAL BLIND-SPOTS (10 enumerated; deferred for follow-up):
 6. FULL INV9 ORGANIC-DETERMINISM END-TO-END DEFERRED (T10 not built this
    sprint): recommendation_id + actual_shares + pnl_dollars columns are
    individually verified (T7 spike) but no end-to-end test of two organic
-   open→exit→close runs producing identical inv9 hashes (the equality test
-   depends on clean-close working, which is xfailed).
+   open→exit→close runs producing identical inv9 hashes. (The clean-close bar
+   this depends on is now CERTIFIED as of #132 — the organic take-profit OCO
+   close drives cleanly to db_open==broker — so the two-run determinism test is
+   unblocked; it simply has not been built yet.)
 
 7. SYNTHETIC-ACCOUNTING-SIDE CapitalLedger FEED (DA disclosure folded): the
    ledger invariants (5/6) verify that the sim's accounting reconciles with the

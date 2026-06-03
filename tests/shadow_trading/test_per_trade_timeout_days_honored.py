@@ -166,3 +166,50 @@ def test_exit_timeout_does_not_fire_within_per_trade_window():
         "Did not expect any exit at days_old=4 when per-trade timeout_days=30 "
         "(config=3 should not override)."
     )
+
+
+# ---------------------------------------------------------------------------
+# PG-cutover hardening (#132): days_open must parse a native datetime entry time
+# ---------------------------------------------------------------------------
+
+def test_days_open_handles_pg_native_datetime_entry_time():
+    """#132 verify-by-mutation: actual_entry_time may arrive as a PG-native
+    datetime, not an ISO string.
+
+    Under the PG cutover, psycopg2's RealDictCursor returns timestamp columns as
+    datetime objects. check_and_manage_open_trades computed days_open via
+    ``datetime.fromisoformat(entry_time)`` — which raises TypeError on a datetime
+    and previously defaulted days_open=999, force-closing EVERY PG-read trade as
+    a phantom 'timeout' on the first manage cycle (a DB-closed / broker-open
+    split — a prime orphan source).
+
+    Post-fix: a 2-day-old datetime entry yields days_open≈2, so NO timeout fires
+    within the 30-day window. Reverting the isinstance(datetime) guard makes
+    days_open=999 → the timeout fires → this assertion fails (not vacuous).
+    """
+    from datetime import datetime, timedelta
+
+    from src.shadow_trading import executor
+
+    trade = _open_trade(days_old=2, timeout_days=None)
+    # Simulate the psycopg2 return: a native tz-aware datetime, NOT an ISO string.
+    trade["actual_entry_time"] = datetime.now(ET) - timedelta(days=2)
+    trade["created_at"] = trade["actual_entry_time"]
+
+    with (
+        patch.object(executor, "get_open_shadow_trades", return_value=[trade]),
+        patch.object(executor, "_get_current_price_safe", return_value=100.0),  # no stop/target hit
+        patch.object(executor, "update_shadow_trade") as mock_update,
+        patch.object(executor, "close_shadow_trade") as mock_close,
+        patch.object(executor, "load_config", return_value={"shadow_trading": {"timeout_days": 30}}),
+        patch.object(executor, "_submit_exit_order", return_value={"status": "filled", "filled_avg_price": 100.0}),
+        patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+              return_value=[{"symbol": trade["ticker"], "qty": trade["planned_shares"]}]),
+    ):
+        executor.check_and_manage_open_trades(db_path=":memory:")
+
+    assert not _captures_timeout_exit(mock_update, mock_close), (
+        "A recent (2-day-old) trade whose actual_entry_time is a PG-native "
+        "datetime must NOT phantom-timeout: pre-fix datetime.fromisoformat("
+        "datetime) raised TypeError → days_open=999 → spurious 'timeout' exit."
+    )

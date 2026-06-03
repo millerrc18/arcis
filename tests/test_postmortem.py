@@ -41,6 +41,32 @@ def _make_trade(
     }
 
 
+def test_postmortem_handles_pg_native_datetimes_without_crashing():
+    """PG-cutover regression (#132): psycopg2 returns timestamp columns as native
+    datetime objects (connect_db's RealDictCursor does NOT stringify), not ISO
+    strings. generate_postmortem sliced ``actual_entry_time[:10]`` to extract the
+    date, which raised "'datetime.datetime' object is not subscriptable" and
+    aborted check_and_manage_open_trades mid-close — leaving the broker position
+    open ("close-didn't-clear" → orphan source).
+
+    Boundary-touch / verify-by-mutation: reverting the str()-coercion at
+    postmortem.py:42-43 makes this test raise TypeError, not just lose an
+    assertion (the function never returns).
+    """
+    from datetime import datetime, timezone
+
+    trade = _make_trade()
+    trade["actual_entry_time"] = datetime(2026, 3, 15, 13, 30, tzinfo=timezone.utc)
+    trade["actual_exit_time"] = datetime(2026, 3, 20, 19, 30, tzinfo=timezone.utc)
+
+    # Pre-fix this raised TypeError; post-fix it returns a normal postmortem with
+    # the date prefix extracted from the datetime (str(dt)[:10] == "YYYY-MM-DD").
+    pm = generate_postmortem(trade)
+    assert "POSTMORTEM" in pm
+    assert "2026-03-15" in pm  # entry date rendered from a native datetime
+    assert "2026-03-20" in pm  # exit date rendered from a native datetime
+
+
 def test_winning_trade_target_hit():
     trade = _make_trade(exit_reason="target_1_hit", pnl=10.0, pnl_pct=10.0)
     pm = generate_postmortem(trade)

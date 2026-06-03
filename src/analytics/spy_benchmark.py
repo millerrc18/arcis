@@ -46,6 +46,23 @@ def get_sector(ticker: str) -> Optional[str]:
     return _load_sector_lookup().get(ticker.upper())
 
 
+def _iso_to_date(value) -> dt.date:
+    """Coerce a PG-native datetime/date OR an ISO string to a date.
+
+    PG-cutover hardening (#132): psycopg2 returns timestamp columns as native
+    datetime objects (connect_db's RealDictCursor does NOT stringify), while the
+    SQLite path returns ISO strings. Calling ``.replace("Z", "+00:00")`` on a
+    datetime invokes ``datetime.replace(year="Z", month="+00:00")`` → "'str'
+    object cannot be interpreted as an integer", which (fail-open) silently
+    disabled SPY-benchmark attribution on every PG-read close. Handle both.
+    """
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+
+
 def spy_return_over_range(entry_iso: str, exit_iso: str) -> Optional[float]:
     """SPY total return (fraction) from entry close to exit close.
 
@@ -54,12 +71,8 @@ def spy_return_over_range(entry_iso: str, exit_iso: str) -> Optional[float]:
     """
     try:
         import yfinance as yf
-        entry_date = dt.datetime.fromisoformat(
-            entry_iso.replace("Z", "+00:00")
-        ).date()
-        exit_date = dt.datetime.fromisoformat(
-            exit_iso.replace("Z", "+00:00")
-        ).date()
+        entry_date = _iso_to_date(entry_iso)
+        exit_date = _iso_to_date(exit_iso)
 
         # Buffer on both sides to handle weekends/holidays.
         start = (entry_date - dt.timedelta(days=5)).isoformat()

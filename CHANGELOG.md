@@ -4,6 +4,52 @@
 
 ## [Unreleased]
 
+## [v0.36.84] — 2026-06-02 — Sim-gate honesty pass + 3 PG-cutover orphan-source fixes (#132)
+
+Certified the lifecycle simulator's clean-close OCO path (was XFAILED). Driving the
+real `check_and_manage_open_trades` against a real PG surfaced **three genuine
+production regressions** in the trade-close path — all the same root cause: psycopg2's
+`RealDictCursor` returns timestamp columns as native `datetime` objects (the
+`connect_db` PG shim restored SQLite's *access* shape but not its *string-typed value*
+contract), so SQLite-era string operations on those fields break. The full lifecycle
+gate (`run_full_gate()`) now returns **STABLE**, unblocking the #95 capstone gate.
+
+### Fixed
+
+- **Postmortem datetime crash → orphan source (#132)** (`src/evaluation/postmortem.py`).
+  `generate_postmortem` sliced `actual_entry_time[:10]` to extract the date; on a
+  PG-native datetime this raised `'datetime.datetime' object is not subscriptable`,
+  aborting `check_and_manage_open_trades` mid-close → the broker position stayed open
+  ("close-didn't-clear" → orphan). Now `str()`-coerces before slicing.
+- **days_open phantom-timeout → orphan source (#132)** (`src/shadow_trading/order_lifecycle.py`).
+  `datetime.fromisoformat(actual_entry_time)` raised `TypeError` on a PG-native datetime
+  and defaulted `days_open=999`, force-closing every PG-read trade as a phantom
+  `timeout` on the first manage cycle (DB-closed / broker-open split). Now handles a
+  native datetime directly and normalizes naive timestamps to ET.
+- **SPY-benchmark `.replace` crash silently disabled attribution (#132)**
+  (`src/analytics/spy_benchmark.py`). `entry_iso.replace("Z", "+00:00")` on a datetime
+  invoked `datetime.replace(year="Z", …)` → `'str' object cannot be interpreted as an
+  integer`; fail-open returned `None`, disabling SPY attribution on every closed trade.
+  New `_iso_to_date` helper accepts datetime/date/string.
+
+### Changed
+
+- **Lifecycle harness neutral-price fix (#132)** (`src/simulation/lifecycle/wiring.py`).
+  The sim pinned `_get_current_price_safe` to a flat `100.0` (fake_md `base_price`), which
+  sits below the drifted rec band's stop and tripped a spurious stop-out before the OCO
+  fill. Now returns the midpoint of the open bracket's held legs (always strictly inside
+  `(stop, target)`), so the OCO `fill_leg` is the sole exit. Also patches
+  `spy_return_over_range → None` in the sim so the gate stays network-free.
+- **Clean-close keystone test un-XFAILED + exit_reason set corrected to canonical vocab**
+  (`tests/simulation/lifecycle/test_scenario.py`). Stale gate disclosures updated
+  (`verdict.py`, `simulation/lifecycle/__init__.py`).
+
+### Follow-ups filed
+
+- Systemic audit of all `connect_db`-over-PG readers for string-ops-on-datetime/Decimal
+  (the three fixed sites are unlikely to be the only ones); consider type-coercion at the
+  `CompatRow`/`_RowFactoryCursor` shim layer (foundation-class, own PR + dual-Opus QA).
+
 ## [v0.36.83] — 2026-06-02 — Cleanup-2: drawdown 30-day window (#51) + dangling-FK root-cause (#77)
 
 The last two Phase-4 hotfix-backlog items.
