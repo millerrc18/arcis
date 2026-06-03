@@ -32,8 +32,15 @@ def generate_postmortem(trade: dict, features_at_entry: dict | None = None) -> s
     target_1 = trade.get("target_1") or 0
     target_2 = trade.get("target_2") or 0
 
-    entry_date = (trade.get("actual_entry_time") or trade.get("shadow_entry_time") or "")[:10]
-    exit_date = (trade.get("actual_exit_time") or trade.get("shadow_exit_time") or "")[:10]
+    # PG-cutover hardening (#132): psycopg2 returns timestamp columns as native
+    # datetime objects (connect_db's RealDictCursor does NOT stringify), so the
+    # SQLite-era `[:10]` slice raised "'datetime.datetime' object is not
+    # subscriptable" — aborting check_and_manage_open_trades mid-close and
+    # leaving the broker position open ("close-didn't-clear" → orphan source).
+    # str()-coerce first: str(datetime)[:10] and str(iso_string)[:10] both yield
+    # the YYYY-MM-DD date prefix.
+    entry_date = str(trade.get("actual_entry_time") or trade.get("shadow_entry_time") or "")[:10]
+    exit_date = str(trade.get("actual_exit_time") or trade.get("shadow_exit_time") or "")[:10]
 
     thesis_text = trade.get("thesis_text", "")
     atr = trade.get("atr", 0) or 0

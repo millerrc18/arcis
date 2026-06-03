@@ -23,6 +23,7 @@ import itertools
 import uuid as _uuid_module
 from typing import Callable
 
+import src.analytics.spy_benchmark as _spy_benchmark_mod
 import src.config as _config_module
 import src.data_ingestion.market_data as _market_data_mod
 import src.journal.store as _journal_store_mod
@@ -194,6 +195,7 @@ def install_organic_patches(
         (_broker_factory_mod, "get_live_broker"): _broker_factory_mod.get_live_broker,
         (_executor_mod, "_get_current_price_safe"): _executor_mod._get_current_price_safe,
         (_price_utils_mod, "_get_current_price_safe"): _price_utils_mod._get_current_price_safe,
+        (_spy_benchmark_mod, "spy_return_over_range"): _spy_benchmark_mod.spy_return_over_range,
     }
 
     def undo() -> None:
@@ -206,6 +208,42 @@ def install_organic_patches(
     # the spec calls out leak-resistance as a requirement (§2.5 teardown
     # discipline). _get_trading_client uses (*a, **kw) to accept positional
     # `desk` calls (e.g., `_get_trading_client('equity_long')`) without TypeError.
+    def _sim_current_price(ticker: str) -> float:
+        """Neutral sim price = the MIDPOINT of `ticker`'s open bracket band.
+
+        T9 originally pinned this to a flat 100.0 (the fake_md *base_price*). But
+        FakeMarketData is a seeded random walk: the recommendation's
+        entry/stop/target band centers on the walk's drifted close (e.g. entry
+        ~104.5, stop ~100.9, target ~107.3), NOT on base_price. A flat 100.0 sits
+        BELOW the freshly-opened trade's stop, tripping a spurious price-based
+        stop-out on the very first manage cycle — before the intended OCO
+        take-profit fill — leaving the broker position open (the
+        db_open_equals_broker mismatch, #132). The fake_md last close is the wrong
+        anchor too (the entry is a pullback BELOW it, so the close sits above
+        target_1 and trips a spurious target instead).
+
+        The one value guaranteed strictly inside (stop, target) for any seed —
+        with no scan-ordering or DB dependency — is the midpoint of the bracket's
+        own held legs, read straight off the fake's order book. A band-centered
+        neutral price triggers neither stop nor target, so the OCO fill_leg
+        remains the SOLE exit (the documented design intent → clean take_profit).
+        Falls back to 100.0 when no held bracket legs exist for the ticker.
+        """
+        tp_limit = sl_stop = None
+        try:
+            for order in fake_tc.get_orders():
+                if getattr(order, "symbol", None) != ticker or getattr(order, "status", None) != "held":
+                    continue
+                if getattr(order, "limit_price", None):
+                    tp_limit = float(order.limit_price)
+                elif getattr(order, "stop_price", None):
+                    sl_stop = float(order.stop_price)
+            if tp_limit is not None and sl_stop is not None:
+                return (tp_limit + sl_stop) / 2.0
+        except Exception:
+            pass
+        return 100.0
+
     try:
         setattr(_alpaca_mod, "_get_trading_client", lambda *a, **kw: fake_tc)
         setattr(_market_data_mod, "fetch_ohlcv", fake_md.fetch_ohlcv)
@@ -215,8 +253,16 @@ def install_organic_patches(
         setattr(_sp100_mod, "get_sp100_universe", lambda: universe)
         setattr(_journal_store_mod, "uuid", uuid_stub)
         setattr(_broker_factory_mod, "get_live_broker", lambda *a, **kw: None)
-        setattr(_executor_mod, "_get_current_price_safe", lambda ticker: 100.0)
-        setattr(_price_utils_mod, "_get_current_price_safe", lambda ticker: 100.0)
+        setattr(_executor_mod, "_get_current_price_safe", _sim_current_price)
+        setattr(_price_utils_mod, "_get_current_price_safe", _sim_current_price)
+        # Hermeticity: spy_return_over_range hits yf.download("SPY") on the real
+        # network. Pre-#132 a PG-datetime bug short-circuited it before the call;
+        # now that store.py passes a native datetime and the fix handles it, the
+        # sim would reach yfinance. Return None ("cannot attribute" — the
+        # documented fail-open) so the gate stays network-free and deterministic;
+        # no invariant reads SPY attribution. The REAL fix ships in
+        # analytics/spy_benchmark.py for prod.
+        setattr(_spy_benchmark_mod, "spy_return_over_range", lambda *a, **kw: None)
     except Exception:
         undo()
         raise

@@ -369,8 +369,13 @@ def _populate_exit_metadata(
             if trade["actual_entry_time"] and exit_time:
                 from datetime import datetime as _dt
                 try:
-                    entry_dt = _dt.fromisoformat(trade["actual_entry_time"][:19])
-                    exit_dt = _dt.fromisoformat(exit_time[:19])
+                    # PG-cutover (#132): these may be native datetimes under PG;
+                    # subscripting [:19] a datetime → TypeError → time_to_target_days
+                    # silently dropped. Strip tz to keep both naive (the [:19] string
+                    # path already drops tz) so the subtraction stays consistent.
+                    _e, _x = trade["actual_entry_time"], exit_time
+                    entry_dt = _e.replace(tzinfo=None) if isinstance(_e, _dt) else _dt.fromisoformat(str(_e)[:19])
+                    exit_dt = _x.replace(tzinfo=None) if isinstance(_x, _dt) else _dt.fromisoformat(str(_x)[:19])
                     extras["time_to_target_days"] = (exit_dt - entry_dt).days
                 except (ValueError, TypeError):
                     pass

@@ -25,4 +25,10 @@ update CHANGELOG.md alongside.
 # drawdown flag never fired. #77: root-caused as 18 sim-placeholder rows (rec-4),
 # not a rec-flow bug — documented + closed; symptom already handled by v0.36.41.)
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.83"
+# v0.36.84 (#132): sim-gate honesty pass — certified the clean-close OCO path
+# (was xfailed) and in doing so fixed THREE real PG-cutover regressions in the
+# trade-close path (postmortem datetime[:10] subscript crash, days_open
+# fromisoformat(datetime) phantom-timeout, SPY-benchmark .replace crash) — a
+# DB-closed/broker-open orphan source — plus a sim harness neutral-price drift.
+# Full lifecycle gate now returns STABLE.
+VERSION = "v0.36.84"

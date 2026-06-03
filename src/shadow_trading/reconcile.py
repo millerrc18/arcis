@@ -92,6 +92,25 @@ SYNTHETIC_EXIT_REASONS = frozenset({
 })
 
 
+def _raw_ts_within_seconds(raw, now, seconds: float) -> bool:
+    """True if timestamp `raw` is within `seconds` of `now`.
+
+    PG-cutover safe (#132): psycopg2's RealDictCursor returns timestamp columns as
+    native datetime objects, while the SQLite path returns ISO strings — accept
+    both. A tz-naive legacy value is coerced to `now`'s zone so the comparison
+    can't raise (the same TypeError-then-silently-bypass trap _has_recent_close
+    documents). Unparseable / wrong-typed → False (fail toward the caller's
+    default path). Mirrors the _has_recent_close parse contract.
+    """
+    try:
+        ts = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+        if ts.tzinfo is None and now.tzinfo is not None:
+            ts = ts.replace(tzinfo=now.tzinfo)
+        return (now - ts).total_seconds() < seconds
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def _has_recent_close(db_path, ticker, now, window_hours, desk=None, source="paper"):
     """True if `ticker` has an alpaca shadow_trade closed within `window_hours`.
 
@@ -696,7 +715,12 @@ def reconcile_live_trades(
                             _cr = _c.execute("SELECT created_at FROM shadow_trades WHERE trade_id = ?", (trade_id,)).fetchone()
                             if _cr and _cr["created_at"]:
                                 from datetime import datetime as _dt
-                                _created = _dt.fromisoformat(_cr["created_at"].replace("Z", "+00:00"))
+                                # PG-cutover (#132): created_at is a native datetime under PG;
+                                # .replace("Z",...) on a datetime → TypeError → except:pass → days_held=0.
+                                _craw = _cr["created_at"]
+                                _created = _craw if isinstance(_craw, _dt) else _dt.fromisoformat(str(_craw).replace("Z", "+00:00"))
+                                if _created.tzinfo is None:
+                                    _created = _created.replace(tzinfo=now.tzinfo)
                                 _days = max(0, (now - _created).days)
                     except (ValueError, TypeError):
                         pass
@@ -1116,18 +1140,19 @@ def reconcile_paper_trades(
                     (trade_id,),
                 ).fetchone()
 
-            if trade_row:
-                created_at_str = trade_row["created_at"] or ""
-                try:
-                    created = datetime.fromisoformat(created_at_str)
-                    if (now - created).total_seconds() < 3600:
-                        logger.info(
-                            "[RECONCILE-PAPER] Skipping recent trade %s (< 1 hour old)",
-                            ticker,
-                        )
-                        continue
-                except (ValueError, TypeError):
-                    pass
+            # PG-cutover hardening (#132): created_at arrives as a native datetime
+            # under PG, not an ISO string. The prior inline datetime.fromisoformat(
+            # created_at) raised TypeError → except:pass → this "< 1 hour old"
+            # safety skip was SILENTLY DEFEATED under PG, letting a freshly-opened
+            # trade be force-closed reconciled_stale on a transient Alpaca blip
+            # (itself an orphan/phantom-close source). _raw_ts_within_seconds
+            # accepts datetime OR string.
+            if trade_row and _raw_ts_within_seconds(trade_row["created_at"], now, 3600):
+                logger.info(
+                    "[RECONCILE-PAPER] Skipping recent trade %s (< 1 hour old)",
+                    ticker,
+                )
+                continue
 
             # Fix #356: Cancel pending orders before closing to prevent
             # held_for_orders deadlock.
@@ -1176,7 +1201,13 @@ def reconcile_paper_trades(
                     _days = 0
                     if trade_row and trade_row["created_at"]:
                         try:
-                            _created = datetime.fromisoformat(trade_row["created_at"])
+                            # PG-cutover (#132): created_at is a native datetime under PG;
+                            # fromisoformat(datetime) → TypeError → except:pass → days_held=0.
+                            # (Paper-side twin of the reconcile_live_trades site above.)
+                            _craw = trade_row["created_at"]
+                            _created = _craw if isinstance(_craw, datetime) else datetime.fromisoformat(str(_craw))
+                            if _created.tzinfo is None:
+                                _created = _created.replace(tzinfo=now.tzinfo)
                             _days = max(0, (now - _created).days)
                         except (ValueError, TypeError):
                             pass

@@ -45,9 +45,13 @@ at this certification level certifies the organic lifecycle mechanics; it does N
 certify adversarial fault paths, deliberate-reject flows, or extended multi-day
 stress (those will extend the STABLE bar when T10/T11/T12 land).
 
-Clean-close xfail: the clean-close oracle bar (exactly 1 rec + 1 trade row,
-deterministic exit_reason) is exercised but xfailed pending T10 determinism
-hardening. Provenance + reconcile-when-gone pass unconditionally.
+Clean-close certified (#132): the clean-close oracle bar (exactly 1 rec + 1 trade
+row, canonical 'target_1' exit, db_open==broker, zero orphans) now passes — was
+previously xfailed. The fix uncovered three real PG-cutover regressions in the
+close path (postmortem datetime slice, days_open fromisoformat, SPY-benchmark
+.replace) plus a harness neutral-price drift. Provenance + reconcile-when-gone
+pass unconditionally. Full end-to-end two-run inv9 determinism (T10) is still
+deferred, but no longer blocked by the clean-close bar.
 
 Blind-spots caveat: a STABLE verdict is bounded by the simulated scenarios — the
 sim-day count, the fault set exercised, and the invariants encoded. It is NOT a
