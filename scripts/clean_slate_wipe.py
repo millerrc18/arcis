@@ -69,9 +69,10 @@ logger = logging.getLogger(__name__)
 _ET = ZoneInfo("America/New_York")
 
 # Reused verbatim from the archive_bootcamp precedent (PG/SQLite-agnostic).
+# NB: _check_open_shadow_trades (SQLite, source_path-based) is intentionally NOT
+# imported — this script is PG-only, so it uses the local _check_open_shadow_trades_safe.
 from scripts.archive_bootcamp_2026_04_24 import (  # noqa: E402
     _check_alpaca_positions,
-    _check_open_shadow_trades,
     _check_watch_loop_running,
 )
 
