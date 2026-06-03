@@ -31,4 +31,11 @@ update CHANGELOG.md alongside.
 # fromisoformat(datetime) phantom-timeout, SPY-benchmark .replace crash) — a
 # DB-closed/broker-open orphan source — plus a sim harness neutral-price drift.
 # Full lifecycle gate now returns STABLE.
-VERSION = "v0.36.84"
+# v0.36.85 (#95): W21 capstone — the destructive prod clean-slate-wipe script
+# (scripts/clean_slate_wipe.py + scripts/_clean_slate/*) is BUILT (not run):
+# dry-run-by-default, ProdGuard-gated, backup-first (verify-restore into a fresh
+# ephemeral DB), single-transaction TRUNCATE of the 53-table WIPE set (27 KEEP
+# preserved), live-schema+FK reconciliation, SQLite archive-then-empty, forensic
+# WIPE_COMMITTED marker, + full verify-by-mutation test suite. EXECUTION stays
+# operator-gated. Found+fixed a Windows fsync(O_RDONLY)->EBADF portability bug.
+VERSION = "v0.36.85"

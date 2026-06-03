@@ -4,6 +4,55 @@
 
 ## [Unreleased]
 
+## [v0.36.85] — 2026-06-03 — W21 capstone: clean-slate-wipe script + full test suite (#95)
+
+Built (but did NOT run) the W21 capstone: a destructive, **dry-run-by-default**,
+ProdGuard-gated, backup-first prod clean-slate-wipe script that resets the platform
+to a proven-sound stable release. EXECUTION stays operator-gated (the script never
+runs a real wipe in this PR — no `ARCIS_ALLOW_PROD_PG=1`, prod PG 5433 untouched).
+
+### Added
+
+- **`scripts/clean_slate_wipe.py`** — the capstone script. Decorated public entry
+  point `clean_slate_wipe(*, dsn, confirm=False, ...)` with `@safe_op(mutates=True)`
+  → `@prod_guard(dsn_param='dsn')` (NO `@safety_window` — the `market_hours` config
+  key does not exist). Phase 0-7 orchestration: live-schema+FK reconciliation,
+  broker-flat HARD gate, already-clean short-circuit, backup+verify-restore,
+  single-transaction `TRUNCATE ... RESTART IDENTITY CASCADE` of the 53-table WIPE
+  set (27 KEEP tables preserved), watch-loop re-check at the TRUNCATE boundary,
+  fsync'd `WIPE_COMMITTED.marker`, SQLite archive-then-empty, DB + config
+  post-verify, atomic `manifest.json`, operator banner + dotenv CLI.
+- **`scripts/_clean_slate/`** — `classification.py` (reviewed WIPE/KEEP frozensets +
+  `EXPECTED_FK_EDGES` + `assert_partition_complete()` pinning `len(registry.TABLES)==80`),
+  `live_schema.py` (authoritative live reconciliation), `backup.py` (pg_dump +
+  verify + fresh-ephemeral-DB restore-compare), `sqlite_retire.py`
+  (archive-fsync-then-empty), `config_verify.py` (read-only config/Ollama assertion),
+  `_errors.py` (CleanSlateAbort / BackupVerifyError).
+- **`tests/scripts/test_clean_slate_*.py`** (6 files, 44 tests) — verify-by-mutation
+  throughout: partition completeness + count-pin, live-schema/FK drift aborts,
+  backup REFUSE/shortfall/excess/divergence paths + ephemeral-DB lifecycle,
+  dry-run/ProdGuard/TRUNCATE/watch-loop-re-check/broker/already-clean/config-pending,
+  interrupted-run forensic-marker safe re-entry, full E2E rehearsal against a 5434
+  scratch DB. All DB tests use the 5434 test server + fresh ephemeral DBs; prod 5433
+  is never touched.
+- **`docs/runbooks/clean_slate_wipe.md`** — operator runbook + manifest schema.
+
+### Fixed
+
+- **Windows `fsync(O_RDONLY)` → EBADF portability bug** (`scripts/_clean_slate/sqlite_retire.py`).
+  `os.fsync()` on a read-only descriptor raises `OSError [Errno 9] Bad file descriptor`
+  on Windows; the archive-fsync now opens `O_RDWR` and tolerates a platform fsync
+  failure (the bytes are already flushed by VACUUM INTO / copy2).
+
+### Notes
+
+- The live-schema FK reconciliation asserts the live wipe-touching FK set is a
+  **subset** of the 6 modeled edges (no unexpected/CASCADE-reachable edge), rather
+  than requiring physical presence: `src.schema.postgres.create_all_tables` (the prod
+  provisioning path) does NOT emit FK constraints, so a faithfully-provisioned prod PG
+  has zero of the 6 edges physically present. A *missing* modeled edge is not a CASCADE
+  hazard (fewer edges => CASCADE reaches strictly less); only an *unexpected* edge aborts.
+
 ## [v0.36.84] — 2026-06-02 — Sim-gate honesty pass + 3 PG-cutover orphan-source fixes (#132)
 
 Certified the lifecycle simulator's clean-close OCO path (was XFAILED). Driving the
