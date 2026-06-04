@@ -116,3 +116,4 @@ data/periodic-discipline/reports/*.json
 .coordinator-state.json
 .coordinator-state.json.tmp
 .HALT_CAMPAIGN
+.superpowers/
