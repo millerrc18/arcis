@@ -19,7 +19,7 @@ SELECT st.trade_id, st.ticker, st.source, st.status,
        r.thesis_text
 FROM shadow_trades st
 LEFT JOIN recommendations r ON r.recommendation_id = st.recommendation_id
-WHERE st.source = 'live'
+WHERE st.source IN ('live', 'paper')
   AND st.status IN ('open', 'exit_pending')
   AND COALESCE(st.quarantined, 0) = 0
 ORDER BY st.actual_entry_time DESC
