@@ -49,7 +49,7 @@ Three facts shape every decision below:
 
 Top-level shape: **Now / Decide / Know** (single nav, three regions). The split honors a cognitive distinction the old dashboard ignored: **observability** ("what's wrong now" — glanceable, exception-driven) is a different mode from **legibility** ("hold the system in my head" — browsable, on-demand), and **decisions** (human-on-the-loop veto) deserve their own un-missable surface.
 
-A persistent **honest header** is on every region: `ARCIS · vX.Y.Z · PAPER · bootcamp OFF · market state · clock` — all read from config/runtime, never narrated.
+A persistent **honest header** is on every region: `ARCIS · vX.Y.Z · PAPER · bootcamp OFF · market state · clock` — all read from config/runtime, never narrated. The header also carries the **global PAUSE control** (decided 2026-06-04): a graceful pause reachable in one click from any region — stops new autonomous actions while keeping positions + monitoring, audit-logged, distinct from a hard kill.
 
 ### 3.1 NOW — the live cockpit (default landing)
 
@@ -69,7 +69,7 @@ Purpose: *the few strategic gates that need a human.* Nothing here auto-executes
 - **Challenge-and-response cards** (not bare "Approve?"). Each decision shows the **evidence that cleared its gate**, then **Intent · Blast-radius · Rollback**, then Approve / Reject / Defer + a drill-in. Decision types: **strategy promotions** (proposed→backtested→shadow→production, gated on DSR/PBO/walkforward), **model challenger promotions** (sequential test), **capital-advance gates** (when a phase gate is met), **halts** (auditor recommendations to approve/override), and **AI-dev-team approvals** (e.g. merge asks surfaced from the coding pipeline).
 - **Risk-tiered:** low-risk items may be configured to auto-run; medium/high route here. (Over-governing routine work *causes* rubber-stamping — tier deliberately.)
 - **"Recently decided"** trail + an honest **override-rate** indicator (an approver who never overrides has stopped truly reviewing).
-- **Graceful PAUSE** affordance (stop new autonomous actions, keep positions + monitoring) — distinct from a hard kill; behaviour-triggered, audit-logged. *(Open question 11.2: global vs. Decide-local placement.)*
+- **Halts** here are auditor *recommendations* to approve/override. The PAUSE control itself lives in the global header (decided 2026-06-04), not in Decide, so it's reachable from any region when the operator is away from this tab.
 
 ### 3.3 KNOW — legibility + analytics + research (on-demand)
 
@@ -127,7 +127,7 @@ The simpler shell does **not** mean less engineering — the depth and the hones
 
 ---
 
-## 7. Build approach (recommended — confirm at review)
+## 7. Build approach (decided 2026-06-04)
 
 - **Frontend:** **rebuild the shell** (a new 3-region app) on the **same stack** (React/Vite/Tailwind/TanStack Query/Recharts — modern, no reason to switch). **Salvage, don't rewrite** the high-value analytical components (CTO Report rendering, the rigor/stress/walkforward visualizations, attribution, ledgers, charts) — they are the depth that stays. "Nuke and start over" applies to the *shell and IA*, not the audit-grade analytics.
 - **Backend:** **augment + consolidate**, not rebuild. The FastAPI `cloud_routes` and data largely stay; add the metric-registry layer, the derived-legibility endpoints, reconciliation break-event retention, and the decision-queue feed. Collapse duplicate/cohort-divergent endpoints to canonical ones.
@@ -163,12 +163,16 @@ The simpler shell does **not** mean less engineering — the depth and the hones
 
 ---
 
-## 11. Open questions / decisions for operator review
+## 11. Decisions resolved at review (2026-06-04)
 
-1. **Build approach (§7):** confirm "rebuild shell on same stack + salvage analytics + augment backend," vs. evolve-in-place.
-2. **PAUSE placement (§3.2):** global (always-visible top-bar control) vs. Decide-local. (Leaning global, given absent-operator risk.)
-3. **Implementation pipeline:** route the build through the project's `arcis:code` (PM + dual-Opus QA) pipeline, or the superpowers `writing-plans` → `executing-plans` path. (The spec is consumable by both.)
-4. **Calibration dependency (§6):** is the recommendation→trade→P&L join reliable enough today, or does it need the #134/#135 fixes landed first as a prerequisite?
+All four open questions were resolved by the operator:
+
+1. **Build approach:** **Rebuild the shell + salvage analytics + augment backend** (§7). New 3-region app on the same stack; port the high-value analytical components; the backend gains a metric layer + derived endpoints rather than a rewrite.
+2. **PAUSE placement:** **Global top-bar** — always visible, one click from any region (§3 header).
+3. **Implementation pipeline:** **`arcis:code`** (PM orchestrator + dual-Opus-QA merge gate). The PM presents a task graph for approval, then builds region-by-region.
+4. **Calibration dependency:** **#134 and #135 are hard prerequisites.** The recommendation→trade→P&L join must be corrected before any console work that touches it; the calibration view — and the live/paper book reads behind Now and Track-record — are gated on those fixes landing first.
+
+**Prerequisite (Phase 0, before the console build):** land **#134** (TradingState `source='live'` hides the paper book) and **#135** (DBQuery default DSN reads stale SQLite) so the console reads the book from one correct, canonical source. These also directly de-risk law #1 (single source of truth) and law #9 (reconciliation).
 
 ---
 
@@ -184,6 +188,10 @@ The simpler shell does **not** mean less engineering — the depth and the hones
 | D6 | Derive-from-source + fail-closed for legibility views | The roadmap/architecture/schema staleness was the literal cause of the audit's drift findings; generalizes #88. |
 | D7 | Rebuild shell, salvage analytics, augment backend | "Nuke and simplify" targets the incoherent shell, not the audit-grade analytics depth (which a fund needs more of). |
 | D8 | Reconciliation surfaces break-rate, retains break events post-backfill | The reconciler currently hides the orphan-source bug by auto-healing; the break rate is the real signal. |
+| D9 | Rebuild shell + salvage analytics + augment backend | Operator-chosen; "nuke" targets the incoherent shell, preserves audit-grade depth and working API routes. |
+| D10 | Global top-bar PAUSE | Operator-chosen; absent-operator risk demands a one-click halt from any region. |
+| D11 | Implement via `arcis:code` (dual-Opus QA) | Operator-chosen; matches the standing feature-work standard (PM + dual-QA merge gate). |
+| D12 | #134/#135 are hard prerequisites | Operator-chosen; the recommendation→trade→P&L join must be sound before the console reads or calibrates on it (fix-before-build). |
 
 ---
 
