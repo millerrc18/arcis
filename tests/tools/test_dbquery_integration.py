@@ -258,6 +258,10 @@ def test_limit_returns_truncated_rows_and_cli_footer(fixture_table, tmp_path):
     assert "(10 rows, truncated=True)" in result.stdout, (
         f"expected '(10 rows, truncated=True)' in CLI output; got:\n{result.stdout}"
     )
+    # #135: footer must name the DB hit, so an operator never mistakes test for live.
+    assert "db=test_pg" in result.stdout, (
+        f"expected 'db=test_pg' in CLI footer (#135); got:\n{result.stdout}"
+    )
 
 
 # ── Test (g) — CLI JSON envelope on WriteNotPermittedError + exit code 1 ─────

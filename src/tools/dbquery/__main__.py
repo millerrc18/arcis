@@ -14,13 +14,19 @@ import argparse
 import json as json_mod
 
 from src.tools._cli_envelope import run_cli
+from src.tools._config import load_arcis_config
+from src.tools._safety import data_source_label
 from src.tools.dbquery.core import query_with_truncated
 
 
-def _render_markdown(rows: list[dict], truncated: bool) -> str:
-    """Render rows as a column-aligned markdown table with a truncation footer."""
+def _render_markdown(rows: list[dict], truncated: bool, db: str) -> str:
+    """Render rows as a column-aligned markdown table with a truncation footer.
+
+    The footer names the DB that was hit (db=live_pg|test_pg) so an operator
+    never mistakes an empty test read for the live book (#135).
+    """
     n = len(rows)
-    footer = f"({n} rows, truncated={truncated})"
+    footer = f"({n} rows, truncated={truncated})  db={db}"
 
     if not rows:
         return footer
@@ -53,7 +59,8 @@ def _run(sql: str, *, dsn: str | None, limit: int, json: bool) -> str:
 
     if json:
         return json_mod.dumps(rows, default=str)
-    return _render_markdown(rows, truncated)
+    db = data_source_label(dsn or load_arcis_config().pg.test_dsn)
+    return _render_markdown(rows, truncated, db)
 
 
 def main() -> None:

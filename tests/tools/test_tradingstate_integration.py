@@ -42,6 +42,7 @@ def _build_state(log_path: Path):
         TradingStateError,
         _build_audit_dict,
         _build_gpu_health,
+        _pg_data_source_label,
         _pg_snapshot,
         _sqlite_snapshot,
         _PG_CONNECT_ERRORS,
@@ -70,7 +71,7 @@ def _build_state(log_path: Path):
 
         try:
             positions, audit_row, metrics_rows, snapshot_errors = _pg_snapshot(resolved_dsn)
-            data_source = "pg"
+            data_source = _pg_data_source_label(resolved_dsn)
         except _PG_CONNECT_ERRORS:
             try:
                 cfg = load_arcis_config()
@@ -191,6 +192,26 @@ def _pg_delete_fixture(conn, trade_ids, audit_ids, metric_ids, rec_ids):
         raise
 
 
+# ── Unit: data_source label classifier (#134 L2, no DB) ──────────────────────
+
+def test_pg_data_source_label_classifies_live_vs_test():
+    """_pg_data_source_label labels prod-signature DSNs 'live_pg' and everything
+    else 'test_pg', so an empty test read can't be mistaken for the live book.
+
+    Verify-by-mutation: fails if the classifier returns a flat 'pg', or if the
+    live/test branches are swapped.
+    """
+    from src.tools.tradingstate.core import _pg_data_source_label
+    from src.tools._config import load_arcis_config
+
+    sigs = load_arcis_config().pg.prod_dsn_signatures
+    assert sigs, "expected non-empty pg.prod_dsn_signatures in config"
+    # Any DSN containing a configured prod signature → live_pg
+    assert _pg_data_source_label(f"host=x {sigs[0]} db=y") == "live_pg"
+    # The test PG (no prod signature) → test_pg
+    assert _pg_data_source_label(_TEST_DSN) == "test_pg"
+
+
 # ── Test (a): Happy-path PG snapshot ─────────────────────────────────────────
 
 def test_state_pg_happy_path(tmp_path):
@@ -202,6 +223,10 @@ def test_state_pg_happy_path(tmp_path):
       to `created_at AS entry_time` — entry_time would differ from fixture value.
     - quarantined-excluded: fails if COALESCE(quarantined,0)=0 is flipped to =1 —
       the quarantined trade appears instead of being excluded.
+    - paper-included (#134 L1): fails if the WHERE filter is reverted to
+      source='live' — the NVDA paper trade vanishes and the set != {AAPL,NVDA}.
+    - data_source label (#134 L2): fails if the label is reverted to a flat "pg" —
+      the test PG must classify as "test_pg", never the live book.
     """
     _ensure_tables()
 
@@ -252,7 +277,7 @@ def test_state_pg_happy_path(tmp_path):
                VALUES (%s,'TSLA','live','open',700.0,%s,1)""",
             (quarantined_trade_id, entry_time),
         )
-        # paper trade — must be excluded (source != 'live')
+        # paper trade — now INCLUDED (#134 L1: the paper book must be visible)
         cur.execute(
             """INSERT INTO shadow_trades
                (trade_id, ticker, source, status, entry_price, actual_entry_time, quarantined)
@@ -283,20 +308,24 @@ def test_state_pg_happy_path(tmp_path):
 
         result = state_fn(dsn=_TEST_DSN)
 
-        # Exactly 1 open position (AAPL)
-        assert len(result["open_positions"]) == 1, (
-            f"expected 1 open position, got {len(result['open_positions'])}: "
-            f"{result['open_positions']}"
+        # Two open positions: AAPL (live) + NVDA (paper). Paper book is now
+        # visible (#134 L1); MSFT (closed) and TSLA (quarantined) excluded.
+        positions = {p["ticker"]: p for p in result["open_positions"]}
+        assert set(positions) == {"AAPL", "NVDA"}, (
+            f"expected open AAPL(live)+NVDA(paper), got: {result['open_positions']}"
         )
-        pos = result["open_positions"][0]
-        assert pos["ticker"] == "AAPL"
-        assert pos["trade_id"] == open_trade_id
-        assert pos["source"] == "live"
-        assert pos["status"] == "open"
-        assert pos["thesis_text"] == "Strong breakout thesis"
+        aapl = positions["AAPL"]
+        assert aapl["trade_id"] == open_trade_id
+        assert aapl["source"] == "live"
+        assert aapl["status"] == "open"
+        assert aapl["thesis_text"] == "Strong breakout thesis"
+        nvda = positions["NVDA"]
+        assert nvda["trade_id"] == paper_trade_id
+        assert nvda["source"] == "paper", "paper book must be included (#134 L1)"
+        assert nvda["status"] == "open"
 
         # entry_time must match actual_entry_time (within 1s tolerance for roundtrip)
-        returned_et = pos["entry_time"]
+        returned_et = aapl["entry_time"]
         if isinstance(returned_et, str):
             returned_et = datetime.fromisoformat(returned_et)
         if returned_et.tzinfo is None:
@@ -320,8 +349,8 @@ def test_state_pg_happy_path(tmp_path):
         assert gh["training_ok"] is False, f"expected False, got {gh['training_ok']!r}"
         assert gh["metric_date"] == today_str
 
-        # data_source
-        assert result["data_source"] == "pg"
+        # data_source — test PG (5434) classifies as test_pg, NOT the live book (#134 L2)
+        assert result["data_source"] == "test_pg"
 
         # 'success' event recorded in log
         events = _read_log(log)
@@ -723,6 +752,7 @@ def test_state_repeatable_read_snapshot_consistency(tmp_path):
             TradingStateError,
             _build_audit_dict,
             _build_gpu_health,
+            _pg_data_source_label,
             _PG_CONNECT_ERRORS,
         )
         from src.tools._config import load_arcis_config as _load_cfg
@@ -742,7 +772,7 @@ def test_state_repeatable_read_snapshot_consistency(tmp_path):
             snap_errors: dict = {}
             try:
                 positions, audit_row, metrics_rows, snap_errors = _pgs(resolved_dsn)
-                ds = "pg"
+                ds = _pg_data_source_label(resolved_dsn)
             except _PG_CONNECT_ERRORS:
                 try:
                     cfg = _load_cfg()

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 from src.tools._config import load_arcis_config
 from src.tools._db import DBHelperError
 from src.utils.db import DBError, DBOperationalError
-from src.tools._safety import prod_guard, safe_op
+from src.tools._safety import data_source_label, prod_guard, safe_op
 from src.tools.tradingstate.queries import (
     GPU_METRICS_PG,
     GPU_METRICS_SQLITE,
@@ -46,6 +46,13 @@ _AUDIT_TZ = ZoneInfo("America/New_York")
 
 # Connection-level failures that trigger SQLite fallback.
 _PG_CONNECT_ERRORS = (psycopg2.OperationalError, DBHelperError)
+
+
+def _pg_data_source_label(dsn: str) -> str:
+    """Live book ('live_pg') vs test PG ('test_pg') — thin wrapper over the shared
+    _safety.data_source_label so the label always agrees with ProdGuard's
+    prod-signature definition (#134 L2)."""
+    return data_source_label(dsn)
 
 
 class TradingStateError(RuntimeError):
@@ -243,7 +250,7 @@ def state(
                               'entry_time','thesis_text','quarantined'}, ...],
           'most_recent_audit': {'audit_id','created_at','overall_assessment','stale': bool} | None,
           'gpu_health': {'ollama_ok': bool|None, 'training_ok': bool|None, 'metric_date': YYYY-MM-DD},
-          'data_source': 'pg' | 'sqlite_fallback',
+          'data_source': 'live_pg' | 'test_pg' | 'sqlite_fallback',
         }
 
     Raises:
@@ -259,7 +266,7 @@ def state(
 
     try:
         positions, audit_row, metrics_rows, snapshot_errors = _pg_snapshot(resolved_dsn)
-        data_source = "pg"
+        data_source = _pg_data_source_label(resolved_dsn)
     except _PG_CONNECT_ERRORS:
         try:
             cfg = load_arcis_config()
