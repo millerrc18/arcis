@@ -345,6 +345,16 @@ def _matches_prod_signature(dsn: str, signatures: list[str]) -> bool:
     return bool(dsn) and any(sig in dsn for sig in signatures)
 
 
+def data_source_label(dsn: str, *, config_path: Optional[Path] = None) -> str:
+    """Classify a resolved PG DSN as the live book ('live_pg') or the test/other
+    PG ('test_pg'), using the SAME prod-signature list ProdGuard enforces — so an
+    operator or the console can never mistake an empty test read for the live
+    book (#134 L2 / #135). Callers handle the non-PG 'sqlite_fallback' case.
+    """
+    cfg = load_arcis_config(path=config_path)
+    return "live_pg" if _matches_prod_signature(dsn, cfg.pg.prod_dsn_signatures) else "test_pg"
+
+
 def prod_guard(
     *,
     dsn_param: str,

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 from src.tools._config import load_arcis_config
 from src.tools._db import DBHelperError
 from src.utils.db import DBError, DBOperationalError
-from src.tools._safety import _matches_prod_signature, prod_guard, safe_op
+from src.tools._safety import data_source_label, prod_guard, safe_op
 from src.tools.tradingstate.queries import (
     GPU_METRICS_PG,
     GPU_METRICS_SQLITE,
@@ -49,15 +49,10 @@ _PG_CONNECT_ERRORS = (psycopg2.OperationalError, DBHelperError)
 
 
 def _pg_data_source_label(dsn: str) -> str:
-    """Classify a resolved PG DSN as the live book ('live_pg') or the test PG
-    ('test_pg'), so an empty test read can never be silently mistaken for the
-    live book (#134 L2). Uses the SAME signature list ProdGuard enforces
-    (pg.prod_dsn_signatures), so 'live' here means exactly 'prod' there.
-    """
-    cfg = load_arcis_config()
-    if _matches_prod_signature(dsn, cfg.pg.prod_dsn_signatures):
-        return "live_pg"
-    return "test_pg"
+    """Live book ('live_pg') vs test PG ('test_pg') — thin wrapper over the shared
+    _safety.data_source_label so the label always agrees with ProdGuard's
+    prod-signature definition (#134 L2)."""
+    return data_source_label(dsn)
 
 
 class TradingStateError(RuntimeError):
