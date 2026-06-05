@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+### Added — Founder Operating Console, Phase 2 (DECIDE region)
+
+Second phase of the founder operating console: the **DECIDE** region — the human-on-the-loop veto queue (spec §3.2). Builds on the Phase-1 metric registry + render-boundary primitives + console shell; the old dashboard stays untouched.
+
+- **Decision-queue service (`src/console/decisions.py`)** — the §8 unified pending-gate feed, aggregated live from **real** sources: strategy promotions (`strategy_promotion_events` gate proposals + evidence), capital-advance gate (derived from the Phase-1 `/now/gate` metrics-vs-targets), auditor halts (`audit_reports` recommendations, distinct from the header PAUSE). Model-challenger and AI-dev-team merge-asks have **no queryable pending store** and degrade explicitly (`source_state="degraded"`, zero items, named in `degraded_sources`) — never fabricated. Plus `record_decision` (audit-logged verdict), the "recently decided" trail, and an honest `override_rate` (null when no decisions — "an approver who never overrides has stopped reviewing").
+- **LLM-authority boundary (law #8 / FINSABER):** decisions **record the human verdict + audit-log only** — nothing here auto-executes or touches live money; `AUTO_RUN_TIERS={'low'}` is defined but no auto-run is wired (wiring a verdict into an actual promotion/execution pipeline is explicitly a later phase). Medium/high route to the human.
+- **DECIDE endpoints (`src/api/cloud_routes/console_decide.py`)** — `GET /api/console/decide/pending`, `POST /api/console/decide/action` (approve/reject/defer; 409 on a duplicate verdict, 422 on invalid action/tier), `GET /api/console/decide/decided` (trail + override-rate envelope).
+- **DECIDE frontend (`frontend/src/console/decide/`)** — challenge-and-response cards (evidence-that-cleared-the-gate → Intent · Blast-radius · Rollback → Approve/Reject/Defer + drill-in), risk-tiered (high→medium→low), an honest degraded-source banner, and the recently-decided trail + override-rate. Wired into the ConsoleShell DECIDE tab (replacing the Phase-1 placeholder). Every number flows through the render-boundary primitives.
+- **Single-source pending count (law #1):** Phase-1's `/now/attention` now reads the **same** decision-queue service, so NOW's "N decisions waiting" chip equals the DECIDE queue length (closes the Phase-1 parity gap). Gate targets consolidated into `src/console/gate_targets.py` (one definition for `/now/gate` and the capital-advance source).
+
+### Changed
+
+- `src/schema/registry.py` — `console_decisions` table (decided-outcome trail; `sync_to_postgres=True`); pending feed is aggregated live, not stored.
+- `scripts/_clean_slate/classification.py` — `console_decisions` classified WIPE; `EXPECTED_REGISTRY_COUNT` 82→83.
+
 ### Added — Founder Operating Console, Phase 1 (backend foundation + NOW region)
 
 First phase of the founder operating console (spec: `docs/superpowers/specs/2026-06-04-founder-console-design.md`). Stands up a new `/console` region **alongside** the existing dashboard (the old `frontend/` pages are untouched; cutover is region-by-region at parity). Phase-0 prerequisites #134/#135 landed first (PR #1200).

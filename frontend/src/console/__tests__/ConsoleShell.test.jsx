@@ -1,10 +1,10 @@
 /**
- * ConsoleShell tests (T8).
- * 3-tab nav present. Decide/Know are placeholders.
+ * ConsoleShell tests (T8, updated P2-T6).
+ * 3-tab nav present. Decide now wires real DecideRegion. Know remains placeholder.
  * App routing: /console mounts shell, old routes still resolve.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsoleShell from '../ConsoleShell'
@@ -14,8 +14,53 @@ vi.mock('../HonestHeader', () => ({
   default: () => <div data-testid="honest-header-stub">Header</div>,
 }))
 
-// The Now route now mounts the real NowRegion (T9), which uses TanStack Query.
-// In production the app supplies the QueryClient; the shell unit tests must too.
+// ---------------------------------------------------------------------------
+// fetchApi mock helpers — mirrors NowRegion test pattern
+// ---------------------------------------------------------------------------
+const NOW = '2026-06-05T14:30:00Z'
+
+const MOCK_PENDING = {
+  items: [],
+  count: 0,
+  degraded_sources: [],
+  as_of: NOW,
+}
+
+const MOCK_DECIDED = {
+  items: [],
+  override_rate: {
+    value: null,
+    n: 0,
+    as_of: NOW,
+    cohort: 'decisions.all',
+    unit: 'ratio',
+    state: 'no_data',
+  },
+  as_of: NOW,
+}
+
+function jsonResponse(data) {
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve(JSON.stringify(data)),
+  })
+}
+
+function mockDecideApi() {
+  const fetchMock = vi.fn((url) => {
+    if (url.includes('/console/decide/pending')) return jsonResponse(MOCK_PENDING)
+    if (url.includes('/console/decide/decided')) return jsonResponse(MOCK_DECIDED)
+    // Also handle NowRegion queries (now route still active)
+    return jsonResponse({})
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+// ---------------------------------------------------------------------------
+// Provider helper
+// ---------------------------------------------------------------------------
 function withProviders(initialPath) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchInterval: false } },
@@ -36,6 +81,10 @@ function renderShell(initialPath = '/console') {
 }
 
 describe('ConsoleShell', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('renders the 3 nav tabs: Now, Decide, Know', () => {
     renderShell()
     expect(screen.getByRole('link', { name: 'Now' })).toBeInTheDocument()
@@ -48,31 +97,31 @@ describe('ConsoleShell', () => {
     expect(screen.getByTestId('honest-header-stub')).toBeInTheDocument()
   })
 
-  it('Decide tab shows placeholder content (not empty, not full feature)', () => {
-    render(
-      <MemoryRouter initialEntries={['/console/decide']}>
-        <Routes>
-          <Route path="/console/*" element={<ConsoleShell />} />
-        </Routes>
-      </MemoryRouter>
-    )
-    // Should show placeholder/coming-soon text
-    expect(
-      screen.getByText(/coming soon|placeholder/i)
-    ).toBeInTheDocument()
+  it('Decide route renders real DecideRegion (data-testid decide-region, not placeholder text)', async () => {
+    mockDecideApi()
+    render(withProviders('/console/decide'))
+    // The real DecideRegion renders data-testid="decide-region"
+    await waitFor(() => {
+      expect(screen.getByTestId('decide-region')).toBeInTheDocument()
+    })
+    // No DecidePlaceholder text ("Decide — coming soon")
+    expect(screen.queryByText(/Decide — coming soon/i)).not.toBeInTheDocument()
   })
 
-  it('Know tab shows placeholder content', () => {
-    render(
-      <MemoryRouter initialEntries={['/console/know']}>
-        <Routes>
-          <Route path="/console/*" element={<ConsoleShell />} />
-        </Routes>
-      </MemoryRouter>
-    )
-    expect(
-      screen.getByText(/coming soon|placeholder/i)
-    ).toBeInTheDocument()
+  it('Know tab still shows KnowPlaceholder (Phase 3 untouched)', () => {
+    render(withProviders('/console/know'))
+    expect(screen.getByText(/Know — coming soon/i)).toBeInTheDocument()
+    expect(screen.getByTestId('know-region')).toBeInTheDocument()
+  })
+
+  it('DecidePlaceholder text is absent when on decide route', async () => {
+    mockDecideApi()
+    render(withProviders('/console/decide'))
+    await waitFor(() => {
+      expect(screen.getByTestId('decide-region')).toBeInTheDocument()
+    })
+    // "Decide — coming soon" must not appear anywhere
+    expect(screen.queryByText('Decide — coming soon')).not.toBeInTheDocument()
   })
 
   it('default route /console shows the Now mount point', () => {

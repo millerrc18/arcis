@@ -117,6 +117,8 @@ EXPECTED_TABLES = {
     "company_executives", "stock_financials", "price_targets",
     # Founder Console Phase-1 T1 — break-event retention + PAUSE state
     "reconciliation_breaks", "console_pause_state",
+    # Founder Console Phase-2 T1 — decision outcomes persistence
+    "console_decisions",
 }
 
 
@@ -1098,4 +1100,91 @@ def test_console_pause_state_is_paused_default_zero():
     assert col.default == "0", (
         f"is_paused default must be '0' (system starts un-paused), "
         f"got {col.default!r}"
+    )
+
+
+# ── Founder Console Phase-2 T1 — console_decisions ──────────────────────────
+
+
+def test_console_decisions_in_registry():
+    """console_decisions must be registered (Founder Console Phase-2 T1)."""
+    assert "console_decisions" in TABLES, (
+        "console_decisions not in registry — "
+        "add TableDef to src/schema/registry.py"
+    )
+
+
+def test_console_decisions_columns():
+    """console_decisions must have all required columns with correct types/nullability."""
+    assert "console_decisions" in TABLES
+    td = TABLES["console_decisions"]
+    col_map = {c.name: c for c in td.columns}
+
+    assert "id" in col_map, "console_decisions missing id"
+    assert col_map["id"].type == "INTEGER"
+    assert col_map["id"].nullable is False
+    assert col_map["id"].autoincrement is True
+
+    assert "created_at" in col_map, "console_decisions missing created_at"
+    assert col_map["created_at"].type == "TEXT"
+    assert col_map["created_at"].nullable is False
+
+    assert "decision_key" in col_map, "console_decisions missing decision_key"
+    assert col_map["decision_key"].type == "TEXT"
+    assert col_map["decision_key"].nullable is False
+
+    assert "decision_type" in col_map, "console_decisions missing decision_type"
+    assert col_map["decision_type"].type == "TEXT"
+    assert col_map["decision_type"].nullable is False
+
+    assert "action" in col_map, "console_decisions missing action"
+    assert col_map["action"].type == "TEXT"
+    assert col_map["action"].nullable is False
+
+    assert "risk_tier" in col_map, "console_decisions missing risk_tier"
+    assert col_map["risk_tier"].type == "TEXT"
+    assert col_map["risk_tier"].nullable is False
+
+    assert "reason" in col_map, "console_decisions missing reason"
+    assert col_map["reason"].nullable is True
+
+    assert "decided_by" in col_map, "console_decisions missing decided_by"
+    assert col_map["decided_by"].nullable is True
+
+    assert "evidence_json" in col_map, "console_decisions missing evidence_json"
+    assert col_map["evidence_json"].nullable is True
+
+    assert "decided_at" in col_map, "console_decisions missing decided_at"
+    assert col_map["decided_at"].type == "TEXT"
+    assert col_map["decided_at"].nullable is False
+
+
+def test_console_decisions_indexes():
+    """console_decisions must have indexes on created_at and decision_key."""
+    assert "console_decisions" in TABLES
+    td = TABLES["console_decisions"]
+    indexed_cols = {col for idx in td.indexes for col in idx.columns}
+    assert "created_at" in indexed_cols, (
+        "console_decisions missing index on created_at"
+    )
+    assert "decision_key" in indexed_cols, (
+        "console_decisions missing index on decision_key"
+    )
+
+
+def test_console_decisions_sync_to_postgres():
+    """console_decisions must sync to postgres (Phase-1 lesson: console tables must exist in PG)."""
+    assert "console_decisions" in TABLES
+    td = TABLES["console_decisions"]
+    assert td.sync_to_postgres is True, (
+        "console_decisions sync_to_postgres must be True"
+    )
+    assert td.sync_mode == "incremental", (
+        f"console_decisions sync_mode must be 'incremental', got {td.sync_mode!r}"
+    )
+    assert td.sync_time_column == "created_at", (
+        f"console_decisions sync_time_column must be 'created_at', got {td.sync_time_column!r}"
+    )
+    assert td.sync_pk == "id", (
+        f"console_decisions sync_pk must be 'id', got {td.sync_pk!r}"
     )

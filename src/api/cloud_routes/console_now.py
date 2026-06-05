@@ -26,6 +26,8 @@ from fastapi import APIRouter, Depends
 
 from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
 from src.config import load_config
+from src.console.decisions import get_pending_decisions
+from src.console.gate_targets import GATE_TARGETS
 from src.logging.activity import get_recent_activity
 from src.metrics import registry as metric_registry
 from src.shadow_trading.break_events import get_break_events
@@ -44,15 +46,6 @@ def verify_auth() -> None:
     """Local placeholder; app.dependency_overrides[verify_auth] swaps in real auth."""
     return None
 
-
-# North-star gate targets (the bar each metric must clear). Display-side only —
-# the metric values themselves come exclusively from the registry.
-_GATE_TARGETS: dict[str, float] = {
-    "closed_trade_count": 100,
-    "excess_sharpe_vs_spy": 0.5,
-    "sharpe_t_stat": 2.0,
-    "max_drawdown": 0.20,
-}
 
 # An honest "unavailable" envelope: a missing source is unknown, never green.
 def _unknown_envelope(as_of: str | None = None) -> dict:
@@ -121,7 +114,7 @@ def get_now_gate() -> dict:
             "max_drawdown", returns=returns, as_of=as_of,
         ),
     }
-    return {"metrics": metrics, "targets": dict(_GATE_TARGETS), "as_of": as_of}
+    return {"metrics": metrics, "targets": dict(GATE_TARGETS), "as_of": as_of}
 
 
 def _latest_close_time(trades: list[dict]) -> str | None:
@@ -234,23 +227,13 @@ def get_now_positions() -> dict:
 # ── /api/console/now/attention ───────────────────────────────────────────────
 
 def _pending_decision_count() -> dict:
-    """Count existing pending gates (strategy/model promotions, auditor-halt
-    recommendations, AI-team merge asks). Returns {value, n, as_of}.
+    """Count pending decisions from the unified decision-queue service.
 
-    Reads whatever pending-gate sources exist. Sources that are absent degrade
-    to a zero contribution rather than fabricating a count."""
-    count = 0
-    # Pending strategy/model promotion proposals.
-    try:
-        from src.analytics import kpis_compute as _ak
-        from src.config import DB_PATH
-        proposals = _ak.get_gate_proposal_counts(DB_PATH)
-        for window in proposals.values():
-            if isinstance(window, dict):
-                count += int(window.get("defer", 0) or 0)
-    except Exception as exc:  # noqa: BLE001
-        _log.debug("[console-now] gate-proposal source unavailable: %s", exc)
-    return {"value": count, "n": count, "as_of": _now_utc_iso()}
+    Returns {value, n, as_of}. Delegates entirely to
+    src.console.decisions.get_pending_decisions so NOW's "N decisions waiting"
+    chip equals DECIDE's queue length (single source of truth, law #1)."""
+    result = get_pending_decisions()
+    return {"value": result["count"], "n": result["count"], "as_of": result["as_of"]}
 
 
 @router.get("/console/now/attention", dependencies=[Depends(verify_auth)])
