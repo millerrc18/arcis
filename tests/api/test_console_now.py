@@ -322,6 +322,83 @@ class TestAttention:
         assert "decisions" not in data
         assert "actions" not in data
 
+    def test_attention_single_sourced_from_decisions_service(self):
+        """P2-T4(A): pending_count must equal the unified decision-queue count.
+
+        Non-vacuous: seeding decisions service with K=7 must yield
+        pending_count.value==7 (different from K=4 in the sibling test above).
+        Patch at console_now's binding (where it was imported) to prove
+        _pending_decision_count calls get_pending_decisions, not an old source.
+        """
+        client = _make_client()
+        fake_result = {
+            "items": [{}] * 7,
+            "count": 7,
+            "degraded_sources": [],
+            "as_of": "2026-06-05T12:00:00+00:00",
+        }
+        with patch(
+            "src.api.cloud_routes.console_now.get_pending_decisions",
+            return_value=fake_result,
+        ):
+            resp = client.get("/api/console/now/attention")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pending_count"]["value"] == 7, (
+            f"pending_count.value should equal decisions queue count (7), got {data['pending_count']['value']}"
+        )
+        assert data["pending_count"]["n"] == 7
+        assert data["desk_healthy"] is False  # 7 > 0 => not healthy
+
+    def test_attention_degradation_preserved_when_decisions_service_raises(self):
+        """P2-T4(A): when decisions service raises, attention returns unknown
+        envelope + desk_healthy=False (honest degradation, design law #4).
+        """
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_now.get_pending_decisions",
+            side_effect=RuntimeError("decisions service unavailable"),
+        ):
+            resp = client.get("/api/console/now/attention")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["desk_healthy"] is False, "degraded source must set desk_healthy=False"
+        pc = data["pending_count"]
+        assert pc["value"] is None, "degraded source must yield unknown envelope (value=None)"
+        assert pc.get("state") == "unknown"
+
+
+class TestGateTargetsSingleSourced:
+    """P2-T4(B): /now/gate targets must come from src.console.gate_targets.GATE_TARGETS."""
+
+    def test_gate_targets_use_canonical_values(self):
+        """/now/gate targets match the canonical GATE_TARGETS values exactly."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_now._fetch_closed_trades", return_value=[]
+        ):
+            data = client.get("/api/console/now/gate").json()
+        targets = data["targets"]
+        assert targets["closed_trade_count"] == 100
+        assert targets["excess_sharpe_vs_spy"] == 0.5
+        assert targets["sharpe_t_stat"] == 2.0
+        assert targets["max_drawdown"] == 0.20
+
+    def test_gate_targets_sourced_from_gate_targets_module(self):
+        """P2-T4(B): console_now imports GATE_TARGETS from src.console.gate_targets.
+
+        Mutating the module-level GATE_TARGETS dict must flow through to the
+        endpoint (proves single-source, not a local copy).
+        """
+        import src.console.gate_targets as _gt
+        import src.api.cloud_routes.console_now as _cn
+        # The module-level object in console_now must be the same object as
+        # GATE_TARGETS in gate_targets — same id() proves import, not copy.
+        assert _cn.GATE_TARGETS is _gt.GATE_TARGETS, (
+            "console_now.GATE_TARGETS must be the same object as "
+            "src.console.gate_targets.GATE_TARGETS (import, not local copy)"
+        )
+
 
 # ── /api/console/now/since ───────────────────────────────────────────────────
 
