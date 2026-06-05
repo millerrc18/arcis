@@ -6,22 +6,7 @@
  */
 import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
 import HonestHeader from './HonestHeader'
-
-function NowPlaceholder() {
-  return (
-    <div
-      data-testid="now-region"
-      style={{
-        padding: 24,
-        color: 'var(--arcis-text-secondary, #a1a1aa)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 13,
-      }}
-    >
-      {/* T9 will mount the Now region body here */}
-    </div>
-  )
-}
+import NowRegion from './now/NowRegion'
 
 function DecidePlaceholder() {
   return (
@@ -105,7 +90,7 @@ export default function ConsoleShell() {
       <main style={{ flex: 1, overflow: 'auto' }}>
         <Routes>
           <Route index element={<Navigate to="now" replace />} />
-          <Route path="now" element={<NowPlaceholder />} />
+          <Route path="now" element={<NowRegion />} />
           <Route path="decide" element={<DecidePlaceholder />} />
           <Route path="know" element={<KnowPlaceholder />} />
         </Routes>

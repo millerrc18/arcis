@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsoleShell from '../ConsoleShell'
 
 // Stub HonestHeader so ConsoleShell tests don't need full API mocks
@@ -13,14 +14,25 @@ vi.mock('../HonestHeader', () => ({
   default: () => <div data-testid="honest-header-stub">Header</div>,
 }))
 
-function renderShell(initialPath = '/console') {
-  return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        <Route path="/console/*" element={<ConsoleShell />} />
-      </Routes>
-    </MemoryRouter>
+// The Now route now mounts the real NowRegion (T9), which uses TanStack Query.
+// In production the app supplies the QueryClient; the shell unit tests must too.
+function withProviders(initialPath) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchInterval: false } },
+  })
+  return (
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/console/*" element={<ConsoleShell />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   )
+}
+
+function renderShell(initialPath = '/console') {
+  return render(withProviders(initialPath))
 }
 
 describe('ConsoleShell', () => {
