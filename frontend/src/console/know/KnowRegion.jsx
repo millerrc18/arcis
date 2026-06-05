@@ -6,10 +6,10 @@
 import { Routes, Route } from 'react-router-dom'
 import {
   KnowOverview,
-  LadderStub,
+  FundLadderView,
   TrackRecordStub,
   LedgersStub,
-  SystemMapStub,
+  SystemMapView,
   RigorStub,
   AttributionStub,
   ResearchStub,
@@ -21,10 +21,10 @@ export default function KnowRegion() {
     <div data-testid="know-region">
       <Routes>
         <Route index element={<KnowOverview />} />
-        <Route path="ladder" element={<LadderStub />} />
+        <Route path="ladder" element={<FundLadderView />} />
         <Route path="track-record" element={<TrackRecordStub />} />
         <Route path="ledgers" element={<LedgersStub />} />
-        <Route path="system-map" element={<SystemMapStub />} />
+        <Route path="system-map" element={<SystemMapView />} />
         <Route path="rigor" element={<RigorStub />} />
         <Route path="attribution" element={<AttributionStub />} />
         <Route path="research" element={<ResearchStub />} />
