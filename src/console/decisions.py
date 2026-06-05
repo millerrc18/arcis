@@ -139,13 +139,18 @@ def record_decision(
         "evidence_json": json.dumps(evidence) if evidence is not None else None,
         "decided_at": now,
     }
-    cols = list(row)
     conn = connect_db()
     try:
+        # Static ? placeholders (no dynamic construction — PG-safety, M4 bug
+        # class). The wrapper rewrites ? -> %s for psycopg2.
         conn.execute(
-            f"INSERT INTO console_decisions ({', '.join(cols)}) "
-            f"VALUES ({', '.join('?' * len(cols))})",
-            tuple(row[c] for c in cols),
+            "INSERT INTO console_decisions "
+            "(created_at, decision_key, decision_type, action, risk_tier, "
+            " reason, decided_by, evidence_json, decided_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (row["created_at"], row["decision_key"], row["decision_type"],
+             row["action"], row["risk_tier"], row["reason"], row["decided_by"],
+             row["evidence_json"], row["decided_at"]),
         )
         conn.commit()
     finally:
@@ -171,9 +176,12 @@ def get_recently_decided(limit: int = 50) -> dict:
             "risk_tier", "reason", "decided_by", "evidence_json", "decided_at")
     conn = connect_db()
     try:
+        # Static SQL with a static ? placeholder (no f-string / dynamic
+        # construction — PG-safety, M4 bug class). The wrapper rewrites ? -> %s.
         rows = conn.execute(
-            f"SELECT {', '.join(cols)} FROM console_decisions "
-            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            "SELECT id, created_at, decision_key, decision_type, action, "
+            "risk_tier, reason, decided_by, evidence_json, decided_at "
+            "FROM console_decisions ORDER BY created_at DESC, id DESC LIMIT ?",
             (limit,),
         ).fetchall()
     finally:
