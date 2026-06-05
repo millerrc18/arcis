@@ -3,9 +3,19 @@
  * Overview synthesis cards + drill-down views.
  * Each view carries its own data-testid for shell-test compatibility.
  */
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchApi } from '../../api'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import Metric from '../components/Metric'
 import SentinelGuard from '../components/SentinelGuard'
 import StalenessBadge from '../components/StalenessBadge'
@@ -559,12 +569,306 @@ function DrillStub({ testId, label }) {
   )
 }
 
-export function TrackRecordStub() {
-  return <DrillStub testId="know-track-record" label="Track record" />
+// ---------------------------------------------------------------------------
+// TrackRecordView — consumes GET /console/know/track-record
+// ---------------------------------------------------------------------------
+
+const HEADLINE_STAT_IDS = [
+  'rf_adjusted_sharpe',
+  'excess_sharpe_vs_spy',
+  'psr',
+  'win_rate',
+  'profit_factor',
+  'max_drawdown',
+  'expectancy',
+  'closed_trade_count',
+]
+
+function EquityCurveChart({ curve }) {
+  const data = curve.map((pt) => ({ date: pt.t, equity: pt.equity }))
+
+  return (
+    <div data-testid="know-track-record-equity-curve" style={{ width: '100%', height: 220 }}>
+      <ResponsiveContainer>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--arcis-border, rgba(255,255,255,0.08))" />
+          <XAxis dataKey="date" fontSize={10} tick={{ fill: 'var(--arcis-text-muted, #71717a)' }} />
+          <YAxis
+            domain={['dataMin', 'dataMax']}
+            fontSize={10}
+            tick={{ fill: 'var(--arcis-text-muted, #71717a)' }}
+            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+          />
+          <RechartsTooltip
+            formatter={(v) => `$${Number(v).toLocaleString()}`}
+            contentStyle={{ background: 'var(--arcis-surface, #18181b)', border: '1px solid var(--arcis-border)', borderRadius: 6, fontSize: 12 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="equity"
+            stroke="var(--arcis-accent, #6366f1)"
+            dot={false}
+            strokeWidth={2}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
 }
 
-export function LedgersStub() {
-  return <DrillStub testId="know-ledgers" label="Trade ledgers" />
+export function TrackRecordView() {
+  const query = useQuery({
+    queryKey: ['console-know-track-record'],
+    queryFn: () => fetchApi('/console/know/track-record'),
+  })
+
+  const data = query.data
+  const metrics = data?.metrics ?? {}
+  const unavailable = Array.isArray(data?.unavailable) ? data.unavailable : []
+  const equityCurve = data?.equity_curve ?? null
+  const ctoReportLink = data?.cto_report_link ?? null
+  const asOf = data?.as_of ?? null
+
+  return (
+    <div>
+      <BackToOverview />
+      <div data-testid="know-track-record">
+        <section style={SECTION_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={SECTION_TITLE_STYLE}>Track record</div>
+            {asOf && <StalenessBadge asOf={asOf} maxAge={3600} />}
+          </div>
+          {ctoReportLink && (
+            <a
+              data-testid="know-track-record-cto-link"
+              href={ctoReportLink}
+              style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--arcis-accent, #6366f1)', textDecoration: 'none' }}
+            >
+              Full CTO Report →
+            </a>
+          )}
+        </section>
+
+        {/* Headline stats grid */}
+        <section style={SECTION_STYLE}>
+          <div style={SECTION_TITLE_STYLE}>Headline stats</div>
+          <div style={CARD_GRID_STYLE}>
+            {HEADLINE_STAT_IDS.map((id) => {
+              const m = metrics[id]
+              if (!m) return null
+              const { value, n, as_of, cohort, unit, state } = m
+
+              // no_data or unknown state — honest no-data treatment, not 0
+              if (state === 'no_data' || state === 'unknown') {
+                return (
+                  <Metric
+                    key={id}
+                    label={id}
+                    value={<SentinelGuard value={null} />}
+                    cohort={cohort}
+                    n={n}
+                    asOf={as_of}
+                  />
+                )
+              }
+
+              return (
+                <Metric
+                  key={id}
+                  label={id}
+                  value={<SentinelGuard value={value} />}
+                  cohort={cohort}
+                  n={n}
+                  asOf={as_of}
+                />
+              )
+            })}
+          </div>
+        </section>
+
+        {/* Unavailable metrics — explicit not-available treatment */}
+        {unavailable.length > 0 && (
+          <section style={SECTION_STYLE}>
+            <div style={SECTION_TITLE_STYLE}>Not available</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {unavailable.map((id) => (
+                <div
+                  key={id}
+                  data-testid={`know-track-record-unavailable-${id}`}
+                  style={{
+                    padding: '4px 12px',
+                    border: '1px dashed var(--arcis-text-muted, #71717a)',
+                    borderRadius: 4,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    color: 'var(--arcis-text-muted, #71717a)',
+                  }}
+                >
+                  {id}: not available
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Equity curve */}
+        <section style={SECTION_STYLE}>
+          <div style={SECTION_TITLE_STYLE}>Equity curve</div>
+          {equityCurve === null ? (
+            <div data-testid="know-track-record-no-curve" style={{ color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '12px 0' }}>
+              Equity curve not available
+            </div>
+          ) : (
+            <EquityCurveChart curve={equityCurve} />
+          )}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TradeLedgersView — consumes GET /console/know/ledgers
+// ---------------------------------------------------------------------------
+
+const LEDGER_TABS = [
+  { key: 'open', label: 'Open' },
+  { key: 'closed', label: 'Closed' },
+  { key: 'all', label: 'History' },
+]
+
+function LedgerRow({ trade }) {
+  const ticker = trade.ticker ?? '--'
+  const pnlDollars = trade.pnl_dollars
+  const pnlPct = trade.pnl_pct
+
+  return (
+    <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>
+        {ticker}
+      </td>
+      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+        <SentinelGuard value={pnlDollars} />
+      </td>
+      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+        <SentinelGuard value={pnlPct} />
+      </td>
+    </tr>
+  )
+}
+
+export function TradeLedgersView() {
+  const [activeTab, setActiveTab] = useState('open')
+  const [search, setSearch] = useState('')
+
+  const query = useQuery({
+    queryKey: ['console-know-ledgers', activeTab, search],
+    queryFn: () => {
+      const params = new URLSearchParams({ status: activeTab, limit: '50' })
+      if (search) params.set('q', search)
+      return fetchApi(`/console/know/ledgers?${params}`)
+    },
+  })
+
+  const data = query.data
+  const rows = Array.isArray(data?.rows) ? data.rows : []
+  const asOf = data?.as_of ?? null
+  const state = data?.state ?? null
+
+  return (
+    <div>
+      <BackToOverview />
+      <div data-testid="know-ledgers">
+        <section style={SECTION_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={SECTION_TITLE_STYLE}>Trade ledgers</div>
+            <StalenessBadge asOf={asOf} maxAge={3600} />
+          </div>
+
+          {/* Tab bar */}
+          <div style={{ display: 'flex', gap: 2, marginBottom: 12, borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+            {LEDGER_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                data-testid={`know-ledgers-tab-${tab.key}`}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  padding: '6px 16px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: activeTab === tab.key ? '2px solid var(--arcis-accent, #6366f1)' : '2px solid transparent',
+                  color: activeTab === tab.key ? 'var(--arcis-text-primary, #fff)' : 'var(--arcis-text-muted, #71717a)',
+                  cursor: 'pointer',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search box */}
+          <div style={{ marginBottom: 12 }}>
+            <input
+              data-testid="know-ledgers-search"
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search ticker..."
+              style={{
+                padding: '6px 12px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12,
+                background: 'var(--arcis-surface, #18181b)',
+                border: '1px solid var(--arcis-border, rgba(255,255,255,0.08))',
+                borderRadius: 4,
+                color: 'var(--arcis-text-primary, #fff)',
+                outline: 'none',
+                width: 220,
+              }}
+            />
+          </div>
+        </section>
+
+        {/* Table or no-data */}
+        <section style={SECTION_STYLE}>
+          {state === 'no_data' || state === 'unknown' ? (
+            <div
+              data-testid="know-ledgers-no-data"
+              style={{ color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '16px 0' }}
+            >
+              No trade data available
+            </div>
+          ) : rows.length === 0 && data ? (
+            <div
+              data-testid="know-ledgers-no-data"
+              style={{ color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '16px 0' }}
+            >
+              No trades
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', tableLayout: 'auto', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)' }}>Ticker</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)' }}>P&L $</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)' }}>P&L %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <LedgerRow key={row.trade_id ?? i} trade={row} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  )
 }
 
 export function RigorStub() {

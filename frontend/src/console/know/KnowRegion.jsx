@@ -7,8 +7,8 @@ import { Routes, Route } from 'react-router-dom'
 import {
   KnowOverview,
   FundLadderView,
-  TrackRecordStub,
-  LedgersStub,
+  TrackRecordView,
+  TradeLedgersView,
   SystemMapView,
   RigorStub,
   AttributionStub,
@@ -22,8 +22,8 @@ export default function KnowRegion() {
       <Routes>
         <Route index element={<KnowOverview />} />
         <Route path="ladder" element={<FundLadderView />} />
-        <Route path="track-record" element={<TrackRecordStub />} />
-        <Route path="ledgers" element={<LedgersStub />} />
+        <Route path="track-record" element={<TrackRecordView />} />
+        <Route path="ledgers" element={<TradeLedgersView />} />
         <Route path="system-map" element={<SystemMapView />} />
         <Route path="rigor" element={<RigorStub />} />
         <Route path="attribution" element={<AttributionStub />} />
