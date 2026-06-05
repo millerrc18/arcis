@@ -2948,6 +2948,48 @@ _register(TableDef(
 # Designed as single-row (id=1 only) so consumers can SELECT without
 # filtering; the primary key is just INTEGER (not AUTOINCREMENT) because
 # the row is never deleted, only updated.
+# console_decisions: Persisted DECISION OUTCOMES (human verdict + audit trail).
+# Written by: DECIDE endpoint (later task — not here, schema only).
+# Read by: console Decide-region recently-decided trail, audit trail.
+# The PENDING feed is aggregated live from existing sources and is NOT stored
+# here — this table stores only DECIDED records (one row per action taken).
+_register(TableDef(
+    name="console_decisions",
+    description="Persisted decision outcomes for the operator DECIDE console region. "
+                "One row per approve/reject/defer action taken on a pending item. "
+                "decision_key dedupes pending items across restarts.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef("decision_key", "TEXT", nullable=False,
+                  description="Stable identity of the source item, e.g. "
+                              "'strategy_promotion:<event_id>', 'auditor_halt:<audit_id>', "
+                              "'capital_advance:phase1'. Used to mark a pending item "
+                              "decided and dedupe."),
+        ColumnDef("decision_type", "TEXT", nullable=False,
+                  description="strategy_promotion | model_challenger | capital_advance "
+                              "| auditor_halt | ai_dev_approval"),
+        ColumnDef("action", "TEXT", nullable=False,
+                  description="approve | reject | defer"),
+        ColumnDef("risk_tier", "TEXT", nullable=False,
+                  description="low | medium | high"),
+        ColumnDef("reason", "TEXT", nullable=True),
+        ColumnDef("decided_by", "TEXT", nullable=True),
+        ColumnDef("evidence_json", "TEXT", nullable=True,
+                  description="Snapshot of evidence at decision time"),
+        ColumnDef("decided_at", "TEXT", nullable=False),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_console_decisions_created_at", ["created_at"]),
+        IndexDef("idx_console_decisions_decision_key", ["decision_key"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="id",
+))
+
 _register(TableDef(
     name="console_pause_state",
     description="Single-row canonical graceful-PAUSE state for the operator console. "
