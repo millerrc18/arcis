@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`test_connect_db_complete_coverage` allowlist drift** — the `sqlite3.connect` guardrail allowlist was line-pinned `(file, line_no)` and had drifted RED on `main`: `watch.py`'s backup pair shifted (1671/1672→1715/1716, Phase-1 PAUSE gate), `tradingstate` shifted (176→190, #134), and `scripts/_clean_slate/sqlite_retire.py` (#95, 3 legit sites) was never added. Converted the allowlist to **content-keyed `(file, snippet)`** matching so unrelated edits no longer drift it, re-covered all 33 current legitimate sites, and added `test_no_dead_allowlist_entries` to stop the allowlist rotting (how the old `engine_helpers.py:61` entry went dead). Verified by mutation: drift-proof (line shifts still pass) and still catches new raw-connect violations.
+
 ### Added — Founder Operating Console, Phase 2 (DECIDE region)
 
 Second phase of the founder operating console: the **DECIDE** region — the human-on-the-loop veto queue (spec §3.2). Builds on the Phase-1 metric registry + render-boundary primitives + console shell; the old dashboard stays untouched.
