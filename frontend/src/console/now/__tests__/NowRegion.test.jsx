@@ -92,9 +92,14 @@ const MOCK_SINCE = {
   as_of: NOW,
 }
 
-// devteam: activity (NOT current_activity); nested this_week.{prs,regressions,scope_violations}.
+// devteam: activity is a LIST of rows (get_recent_activity → list[dict] of
+// {id,timestamp,category,event,detail,source}); nested this_week.{prs,
+// regressions,scope_violations}. (Real backend shape — NOT a string.)
 const MOCK_DEVTEAM = {
-  activity: 'Implementing T9 NOW region',
+  activity: [
+    { id: 2, timestamp: NOW, category: 'pr', event: 'merged PR #1202', detail: '', source: 'pm' },
+    { id: 1, timestamp: NOW, category: 'dev', event: 'opened console NOW region', detail: '', source: 'dev' },
+  ],
   this_week: {
     prs: 4,
     regressions: 0,
@@ -372,7 +377,10 @@ describe('NowRegion — AI dev-team strip', () => {
     renderNow()
     const dev = await screen.findByTestId('now-devteam')
     await waitFor(() => {
-      expect(dev.textContent).toMatch(/Implementing T9 NOW region/)
+      // Renders the event text from the real list-of-dicts activity contract
+      // (would throw "Objects are not valid as a React child" if the component
+      // rendered the raw array).
+      expect(dev.textContent).toMatch(/merged PR #1202/)
     })
   })
 })

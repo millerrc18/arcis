@@ -403,8 +403,13 @@ export function SinceBand({ data }) {
 // Dev-team quiet strip
 // ---------------------------------------------------------------------------
 export function DevTeamStrip({ data }) {
-  // Contract: activity (NOT current_activity); this_week.{prs,regressions,scope_violations}.
+  // Contract: activity is a LIST of {id, timestamp, category, event, detail,
+  // source} rows (from get_recent_activity); this_week.{prs,regressions,
+  // scope_violations}. Render the most recent events as scalar text — NEVER the
+  // raw row objects (rendering an object as a React child throws).
   const thisWeek = data?.this_week ?? {}
+  const activityList = Array.isArray(data?.activity) ? data.activity : []
+  const recent = activityList.slice(0, 3)
   const items = [
     { label: 'PRs this week', value: thisWeek.prs },
     { label: 'Regressions', value: thisWeek.regressions },
@@ -415,6 +420,7 @@ export function DevTeamStrip({ data }) {
     <section data-testid="now-devteam" style={SECTION_STYLE}>
       <div style={SECTION_TITLE_STYLE}>AI dev team</div>
       <div
+        data-testid="now-devteam-activity"
         style={{
           fontSize: 13,
           fontFamily: 'var(--font-mono)',
@@ -422,7 +428,13 @@ export function DevTeamStrip({ data }) {
           marginBottom: 12,
         }}
       >
-        {data?.activity || 'idle'}
+        {recent.length === 0
+          ? 'idle'
+          : recent.map((a, i) => (
+              <div key={a?.id ?? `${a?.timestamp ?? ''}-${i}`}>
+                {a?.event || a?.detail || a?.category || '—'}
+              </div>
+            ))}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         {items.map((it) => (
