@@ -22,10 +22,10 @@ export default function HonestHeader() {
     if (!pauseStatus || toggling) return
     setToggling(true)
     try {
-      const action = pauseStatus.paused ? 'resume' : 'pause'
+      const action = pauseStatus.is_paused ? 'resume' : 'pause'
       const result = await fetchApi('/console/pause', {
         method: 'POST',
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, reason: null }),
       })
       setPauseStatus(result)
     } finally {
@@ -75,14 +75,14 @@ export default function HonestHeader() {
           </span>
 
           <span style={{ color: 'var(--arcis-text-secondary, #a1a1aa)' }}>
-            {`bootcamp ${header.bootcamp ? 'ON' : 'OFF'}`}
+            {`bootcamp ${header.bootcamp_off ? 'OFF' : 'ON'}`}
           </span>
 
           <span style={{ color: 'var(--arcis-text-secondary, #a1a1aa)' }}>
-            {header.market_state}
+            {header.market_open ? 'Open' : 'Closed'}
           </span>
 
-          <StalenessBadge asOf={header.clock} maxAge={120} />
+          <StalenessBadge asOf={header.server_clock} maxAge={120} />
         </>
       ) : (
         <span style={{ color: 'var(--arcis-text-muted, #71717a)' }}>loading…</span>
@@ -102,12 +102,12 @@ export default function HonestHeader() {
                 fontWeight: 600,
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',
-                color: pauseStatus.paused
+                color: pauseStatus.is_paused
                   ? 'var(--arcis-danger, #ef4444)'
                   : 'var(--arcis-success, #22c55e)',
               }}
             >
-              {pauseStatus.paused ? 'PAUSED' : 'RUNNING'}
+              {pauseStatus.is_paused ? 'PAUSED' : 'RUNNING'}
             </span>
             <button
               data-testid="pause-toggle-btn"
@@ -121,19 +121,19 @@ export default function HonestHeader() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
                 cursor: toggling ? 'wait' : 'pointer',
-                background: pauseStatus.paused
+                background: pauseStatus.is_paused
                   ? 'rgba(34,197,94,0.12)'
                   : 'rgba(239,68,68,0.12)',
-                border: pauseStatus.paused
+                border: pauseStatus.is_paused
                   ? '1px solid rgba(34,197,94,0.4)'
                   : '1px solid rgba(239,68,68,0.4)',
                 borderRadius: 3,
-                color: pauseStatus.paused
+                color: pauseStatus.is_paused
                   ? 'var(--arcis-success, #22c55e)'
                   : 'var(--arcis-danger, #ef4444)',
               }}
             >
-              {pauseStatus.paused ? 'Resume' : 'Pause'}
+              {pauseStatus.is_paused ? 'Resume' : 'Pause'}
             </button>
           </>
         )}

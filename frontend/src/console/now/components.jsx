@@ -29,10 +29,43 @@ const SECTION_TITLE_STYLE = {
 
 // ---------------------------------------------------------------------------
 // Gate hero — north-star progress vs targets, honest about the gap
+// Contract: metrics is a DICT keyed by metric id; targets is a SEPARATE dict.
+// There is NO top-level progress — the bar is computed client-side (presentation
+// only) from value-vs-target.
 // ---------------------------------------------------------------------------
+const GATE_METRIC_ORDER = [
+  'closed_trade_count',
+  'excess_sharpe_vs_spy',
+  'sharpe_t_stat',
+  'max_drawdown',
+]
+
+const GATE_METRIC_LABELS = {
+  closed_trade_count: 'Closed trades',
+  excess_sharpe_vs_spy: 'Excess Sharpe vs SPY',
+  sharpe_t_stat: 'Sharpe t-stat',
+  max_drawdown: 'Max drawdown',
+}
+
+function gateRatio(id, value, target) {
+  if (typeof value !== 'number' || typeof target !== 'number' || target === 0) return null
+  // max_drawdown is a "lower is better" metric: progress is how far under target.
+  if (id === 'max_drawdown') {
+    return Math.max(0, Math.min(1, 1 - value / target))
+  }
+  return Math.max(0, Math.min(1, value / target))
+}
+
 export function GateHero({ data }) {
-  const metrics = data?.metrics ?? []
-  const progress = typeof data?.progress === 'number' ? data.progress : 0
+  const metrics = data?.metrics ?? {}
+  const targets = data?.targets ?? {}
+  const ids = GATE_METRIC_ORDER.filter((id) => id in metrics)
+  const orderedIds = ids.length > 0 ? ids : Object.keys(metrics)
+
+  const ratios = orderedIds
+    .map((id) => gateRatio(id, metrics[id]?.value, targets[id]))
+    .filter((r) => r != null)
+  const progress = ratios.length > 0 ? ratios.reduce((a, b) => a + b, 0) / ratios.length : 0
   const pct = Math.max(0, Math.min(1, progress)) * 100
 
   return (
@@ -63,29 +96,33 @@ export function GateHero({ data }) {
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-        {metrics.map((m) => (
-          <div key={m.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <Metric
-              label={m.label}
-              value={<SentinelGuard value={m.value} />}
-              cohort={m.cohort}
-              n={m.n}
-              asOf={m.as_of}
-            />
-            {m.target != null && (
-              <div
-                style={{
-                  fontSize: 10,
-                  color: 'var(--arcis-text-muted, #71717a)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                target {m.target}
-                {m.unit || ''}
-              </div>
-            )}
-          </div>
-        ))}
+        {orderedIds.map((id) => {
+          const m = metrics[id] || {}
+          const target = targets[id]
+          return (
+            <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Metric
+                label={GATE_METRIC_LABELS[id] || id}
+                value={<SentinelGuard value={m.value} />}
+                cohort={m.cohort}
+                n={m.n}
+                asOf={m.as_of}
+              />
+              {target != null && (
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--arcis-text-muted, #71717a)',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  target {target}
+                  {m.unit || ''}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </section>
   )
@@ -95,7 +132,8 @@ export function GateHero({ data }) {
 // Attention row — two-tier: positive confirmation OR routed chip
 // ---------------------------------------------------------------------------
 export function AttentionRow({ data }) {
-  const count = data?.count ?? 0
+  // Contract: pending_count is an ENV (.value = the count); desk_healthy is a bool.
+  const count = data?.pending_count?.value ?? 0
   const deskHealthy = data?.desk_healthy === true && count === 0
 
   return (
@@ -148,37 +186,50 @@ export function AttentionRow({ data }) {
 // ---------------------------------------------------------------------------
 // Signal row — canonical liveness slots. ABSENCE renders UNKNOWN (law #4).
 // ---------------------------------------------------------------------------
+// Contract: signals is a DICT keyed by canonical id. Canonical keys are
+// heartbeat, data_feed, reconciliation, risk_limits (NOT risk_governor).
+// SIG = {value, n, as_of, state, healthy}.
 const SIGNAL_SLOTS = [
   { key: 'heartbeat', label: 'Watch-loop heartbeat', maxAge: 120 },
   { key: 'data_feed', label: 'Data-feed freshness', maxAge: 300 },
   { key: 'reconciliation', label: 'Reconciliation breaks', maxAge: 3600 },
-  { key: 'risk_governor', label: 'Risk limits used', maxAge: 600 },
+  { key: 'risk_limits', label: 'Risk limits used', maxAge: 600 },
 ]
 
+// Law #4: a signal is unknown (never green) if it is absent, has state
+// "unknown", a null/missing as_of, or a null healthy flag.
+function signalIsUnknown(signal) {
+  if (!signal) return true
+  if (signal.state === 'unknown') return true
+  if (signal.as_of == null) return true
+  if (signal.healthy == null) return true
+  return false
+}
+
 export function SignalRow({ data }) {
-  const incoming = data?.signals ?? []
-  const byKey = new Map(incoming.map((s) => [s.key, s]))
+  const incoming = data?.signals ?? {}
 
   return (
     <section data-testid="now-signals" style={SECTION_STYLE}>
       <div style={SECTION_TITLE_STYLE}>Integrity / liveness</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         {SIGNAL_SLOTS.map((slot) => {
-          const signal = byKey.get(slot.key)
-          // Absence (or missing as_of) => asOf is null => StalenessBadge unknown.
-          const asOf = signal?.as_of ?? null
-          const maxAge = signal?.max_age ?? slot.maxAge
+          const signal = incoming[slot.key]
+          const unknown = signalIsUnknown(signal)
+          // Unknown signals MUST render the StalenessBadge unknown variant
+          // (asOf=null forces "unknown", never green) — law #4.
+          const asOf = unknown ? null : signal.as_of
           return (
             <div
               key={slot.key}
               data-testid={`signal-${slot.key}`}
               style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 160 }}
             >
-              {signal && signal.cohort != null && signal.n != null && signal.as_of != null ? (
+              {!unknown && signal.n != null ? (
                 <Metric
                   label={slot.label}
                   value={<SentinelGuard value={signal.value} />}
-                  cohort={signal.cohort}
+                  cohort="live"
                   n={signal.n}
                   asOf={signal.as_of}
                 />
@@ -196,7 +247,7 @@ export function SignalRow({ data }) {
                   {slot.label}
                 </div>
               )}
-              <StalenessBadge asOf={asOf} maxAge={maxAge} />
+              <StalenessBadge asOf={asOf} maxAge={slot.maxAge} />
             </div>
           )
         })}
@@ -208,39 +259,70 @@ export function SignalRow({ data }) {
 // ---------------------------------------------------------------------------
 // Open positions — canonical reconciled source
 // ---------------------------------------------------------------------------
+const POSITIONS_NODATA_STYLE = {
+  fontSize: 12,
+  color: 'var(--arcis-text-muted, #71717a)',
+  fontFamily: 'var(--font-mono)',
+  fontStyle: 'italic',
+}
+
 export function PositionsSection({ data }) {
-  const positions = data?.positions ?? []
-  const equity = data?.equity
-  const todayMove = data?.today_move
+  // Contract: key is data_source (NOT source). positions may be a list or null.
+  // The canonical TradingState source carries NO account equity / today's-move —
+  // render those as an explicit "no data" state, never fabricated.
+  const dataSource = data?.data_source
+  const state = data?.state
+  const rawPositions = data?.positions
+  const positionsUnknown =
+    rawPositions == null || state === 'unknown' || state === 'no_data'
+  const positions = Array.isArray(rawPositions) ? rawPositions : []
 
   return (
     <section data-testid="now-positions" style={SECTION_STYLE}>
       <div style={SECTION_TITLE_STYLE}>
-        Open positions{data?.source ? ` · ${data.source}` : ''}
+        Open positions{dataSource ? ` · ${dataSource}` : ''}
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
-        {equity && (
-          <Metric
-            label="Equity"
-            value={<SentinelGuard value={equity.value} />}
-            cohort={equity.cohort}
-            n={equity.n}
-            asOf={equity.as_of}
-          />
-        )}
-        {todayMove && (
-          <Metric
-            label="Today's move"
-            value={<SentinelGuard value={todayMove.value} />}
-            cohort={todayMove.cohort}
-            n={todayMove.n}
-            asOf={todayMove.as_of}
-          />
-        )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span
+            style={{
+              fontSize: 11,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--arcis-text-secondary, #a1a1aa)',
+              fontWeight: 500,
+            }}
+          >
+            Equity
+          </span>
+          <span data-testid="equity-no-data" style={POSITIONS_NODATA_STYLE}>
+            no data — pending account-equity source
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span
+            style={{
+              fontSize: 11,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--arcis-text-secondary, #a1a1aa)',
+              fontWeight: 500,
+            }}
+          >
+            Today's move
+          </span>
+          <span data-testid="today-move-no-data" style={POSITIONS_NODATA_STYLE}>
+            no data — pending account-equity source
+          </span>
+        </div>
       </div>
 
-      {positions.length === 0 ? (
+      {positionsUnknown ? (
+        <div data-testid="positions-unknown" style={POSITIONS_NODATA_STYLE}>
+          positions unavailable — source state unknown
+        </div>
+      ) : positions.length === 0 ? (
         <div
           style={{
             fontSize: 12,
@@ -279,14 +361,16 @@ export function PositionsSection({ data }) {
 // Since-band — "Since you last looked (Nh ago)"
 // ---------------------------------------------------------------------------
 export function SinceBand({ data }) {
+  // Contract: counts are nested under delta; the field is audit_changes.
   const hours = data?.hours
+  const delta = data?.delta ?? {}
   const items = [
-    { label: 'opened', value: data?.opened },
-    { label: 'closed', value: data?.closed },
-    { label: 'alerts raised', value: data?.alerts_raised },
-    { label: 'alerts resolved', value: data?.alerts_resolved },
-    { label: 'audit verdict changes', value: data?.audit_verdict_changes },
-    { label: 'deploys', value: data?.deploys },
+    { label: 'opened', value: delta.opened },
+    { label: 'closed', value: delta.closed },
+    { label: 'alerts raised', value: delta.alerts_raised },
+    { label: 'alerts resolved', value: delta.alerts_resolved },
+    { label: 'audit changes', value: delta.audit_changes },
+    { label: 'deploys', value: delta.deploys },
   ]
 
   return (
@@ -319,9 +403,13 @@ export function SinceBand({ data }) {
 // Dev-team quiet strip
 // ---------------------------------------------------------------------------
 export function DevTeamStrip({ data }) {
-  const prs = data?.prs_this_week
-  const regressions = data?.regressions_this_week
-  const scope = data?.scope_violations_this_week
+  // Contract: activity (NOT current_activity); this_week.{prs,regressions,scope_violations}.
+  const thisWeek = data?.this_week ?? {}
+  const items = [
+    { label: 'PRs this week', value: thisWeek.prs },
+    { label: 'Regressions', value: thisWeek.regressions },
+    { label: 'Scope violations', value: thisWeek.scope_violations },
+  ]
 
   return (
     <section data-testid="now-devteam" style={SECTION_STYLE}>
@@ -334,36 +422,24 @@ export function DevTeamStrip({ data }) {
           marginBottom: 12,
         }}
       >
-        {data?.current_activity || 'idle'}
+        {data?.activity || 'idle'}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-        {prs && (
-          <Metric
-            label="PRs this week"
-            value={<SentinelGuard value={prs.value} />}
-            cohort={prs.cohort}
-            n={prs.n}
-            asOf={prs.as_of}
-          />
-        )}
-        {regressions && (
-          <Metric
-            label="Regressions"
-            value={<SentinelGuard value={regressions.value} />}
-            cohort={regressions.cohort}
-            n={regressions.n}
-            asOf={regressions.as_of}
-          />
-        )}
-        {scope && (
-          <Metric
-            label="Scope violations"
-            value={<SentinelGuard value={scope.value} />}
-            cohort={scope.cohort}
-            n={scope.n}
-            asOf={scope.as_of}
-          />
-        )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+        {items.map((it) => (
+          <div
+            key={it.label}
+            style={{
+              display: 'flex',
+              gap: 6,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 13,
+              color: 'var(--arcis-text-secondary, #a1a1aa)',
+            }}
+          >
+            <SentinelGuard value={it.value} />
+            <span>{it.label}</span>
+          </div>
+        ))}
       </div>
     </section>
   )

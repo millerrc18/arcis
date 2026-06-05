@@ -22,16 +22,33 @@ function renderHeader() {
 // ---------------------------------------------------------------------------
 // fetch mock baseline
 // ---------------------------------------------------------------------------
+// Authoritative backend contract:
+//   header  = {version, paper, bootcamp_off, market_open, server_clock}
+//   pause   = {is_paused, paused_at, paused_by, reason, resumed_at, updated_at}
 const MOCK_HEADER = {
   version: 'v1.2.3',
   paper: true,
-  bootcamp: false,
-  market_state: 'OPEN',
-  clock: '2026-06-05T14:30:00Z',
+  bootcamp_off: true,
+  market_open: true,
+  server_clock: '2026-06-05T14:30:00Z',
 }
 
-const MOCK_PAUSE_RUNNING = { paused: false }
-const MOCK_PAUSE_PAUSED = { paused: true }
+const MOCK_PAUSE_RUNNING = {
+  is_paused: false,
+  paused_at: null,
+  paused_by: null,
+  reason: null,
+  resumed_at: '2026-06-05T14:00:00Z',
+  updated_at: '2026-06-05T14:00:00Z',
+}
+const MOCK_PAUSE_PAUSED = {
+  is_paused: true,
+  paused_at: '2026-06-05T14:25:00Z',
+  paused_by: 'operator',
+  reason: 'manual',
+  resumed_at: null,
+  updated_at: '2026-06-05T14:25:00Z',
+}
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -81,7 +98,7 @@ describe('HonestHeader', () => {
     })
   })
 
-  it('renders bootcamp OFF when bootcamp is false', async () => {
+  it('renders bootcamp OFF when bootcamp_off is true', async () => {
     mockFetch()
     renderHeader()
     await waitFor(() => {
@@ -89,28 +106,59 @@ describe('HonestHeader', () => {
     })
   })
 
-  it('renders bootcamp ON when bootcamp is true', async () => {
-    mockFetch({ ...MOCK_HEADER, bootcamp: true })
+  it('renders bootcamp ON when bootcamp_off is false', async () => {
+    mockFetch({ ...MOCK_HEADER, bootcamp_off: false })
     renderHeader()
     await waitFor(() => {
       expect(screen.getByText(/bootcamp\s*ON/i)).toBeInTheDocument()
     })
   })
 
-  it('renders market state from API response', async () => {
+  it('renders market Open when market_open is true', async () => {
     mockFetch()
     renderHeader()
     await waitFor(() => {
-      expect(screen.getByText(/OPEN/)).toBeInTheDocument()
+      expect(screen.getByText(/open/i)).toBeInTheDocument()
     })
   })
 
-  it('renders StalenessBadge for the clock/market freshness', async () => {
+  it('renders market Closed when market_open is false', async () => {
+    mockFetch({ ...MOCK_HEADER, market_open: false })
+    renderHeader()
+    await waitFor(() => {
+      expect(screen.getByText(/closed/i)).toBeInTheDocument()
+    })
+  })
+
+  it('renders StalenessBadge for the server_clock freshness', async () => {
     mockFetch()
     renderHeader()
     await waitFor(() => {
       expect(screen.getByTestId('staleness-badge')).toBeInTheDocument()
     })
+  })
+
+  it('consumes the REAL contract fields bootcamp_off/market_open/server_clock', async () => {
+    // Authoritative contract: bootcamp_off=true => "bootcamp OFF",
+    // market_open=true => "Open", server_clock drives the StalenessBadge asOf.
+    mockFetch({
+      version: 'v2.0.0',
+      paper: true,
+      bootcamp_off: true,
+      market_open: true,
+      server_clock: '2026-06-05T14:30:00Z',
+    })
+    renderHeader()
+    await waitFor(() => {
+      expect(screen.getByText(/bootcamp\s*OFF/i)).toBeInTheDocument()
+    })
+    const header = screen.getByTestId('honest-header')
+    expect(header.textContent).toMatch(/open/i)
+    // server_clock fresh => the staleness badge renders a non-unknown variant
+    const badge = screen.getByTestId('staleness-badge')
+    expect(badge.className).not.toContain('staleness-unknown')
+    // The wrong/legacy fields must NOT be read (no stale OPEN/CLOSED literal mismatch)
+    expect(header.textContent).not.toMatch(/undefined/i)
   })
 
   it('does NOT hardcode version — shows API value not a literal placeholder', async () => {
@@ -125,18 +173,19 @@ describe('HonestHeader', () => {
   // ---------------------------------------------------------------------------
   // PAUSE control — non-vacuous: must show state AND fire POST on toggle
   // ---------------------------------------------------------------------------
-  it('shows RUNNING state when paused=false', async () => {
-    mockFetch(MOCK_HEADER, { paused: false })
+  it('shows RUNNING state when is_paused=false', async () => {
+    mockFetch(MOCK_HEADER, MOCK_PAUSE_RUNNING)
     renderHeader()
     await waitFor(() => {
       expect(screen.getByTestId('pause-control')).toBeInTheDocument()
     })
     const control = screen.getByTestId('pause-control')
-    expect(control.textContent).toMatch(/running|resume/i)
+    expect(control.textContent).toMatch(/running/i)
+    expect(control.textContent).not.toMatch(/paused/i)
   })
 
-  it('shows PAUSED state when paused=true', async () => {
-    mockFetch(MOCK_HEADER, { paused: true })
+  it('shows PAUSED state when is_paused=true', async () => {
+    mockFetch(MOCK_HEADER, MOCK_PAUSE_PAUSED)
     renderHeader()
     await waitFor(() => {
       expect(screen.getByTestId('pause-control')).toBeInTheDocument()
@@ -158,12 +207,12 @@ describe('HonestHeader', () => {
         if (!opts || opts.method !== 'POST') {
           return Promise.resolve({
             ok: true, status: 200,
-            text: () => Promise.resolve(JSON.stringify({ paused: false })),
+            text: () => Promise.resolve(JSON.stringify(MOCK_PAUSE_RUNNING)),
           })
         }
         return Promise.resolve({
           ok: true, status: 200,
-          text: () => Promise.resolve(JSON.stringify({ paused: true })),
+          text: () => Promise.resolve(JSON.stringify(MOCK_PAUSE_PAUSED)),
         })
       }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{}') })
@@ -201,12 +250,12 @@ describe('HonestHeader', () => {
         if (!opts || opts.method !== 'POST') {
           return Promise.resolve({
             ok: true, status: 200,
-            text: () => Promise.resolve(JSON.stringify({ paused: true })),
+            text: () => Promise.resolve(JSON.stringify(MOCK_PAUSE_PAUSED)),
           })
         }
         return Promise.resolve({
           ok: true, status: 200,
-          text: () => Promise.resolve(JSON.stringify({ paused: false })),
+          text: () => Promise.resolve(JSON.stringify(MOCK_PAUSE_RUNNING)),
         })
       }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{}') })
@@ -243,12 +292,12 @@ describe('HonestHeader', () => {
           pauseState = true
           return Promise.resolve({
             ok: true, status: 200,
-            text: () => Promise.resolve(JSON.stringify({ paused: true })),
+            text: () => Promise.resolve(JSON.stringify(MOCK_PAUSE_PAUSED)),
           })
         }
         return Promise.resolve({
           ok: true, status: 200,
-          text: () => Promise.resolve(JSON.stringify({ paused: pauseState })),
+          text: () => Promise.resolve(JSON.stringify(pauseState ? MOCK_PAUSE_PAUSED : MOCK_PAUSE_RUNNING)),
         })
       }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{}') })

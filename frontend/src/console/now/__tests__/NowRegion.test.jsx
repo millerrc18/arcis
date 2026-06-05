@@ -19,54 +19,87 @@ import NowRegion from '../NowRegion'
 // ---------------------------------------------------------------------------
 const NOW = '2026-06-05T14:30:00Z'
 
+// Authoritative backend contract (see brief):
+//   ENV = {value, n, as_of, cohort, unit, state}
+//   SIG = {value, n, as_of, state, healthy}
+function env(value, extra = {}) {
+  return { value, n: 120, as_of: NOW, cohort: 'paper-90d', unit: '', state: 'ok', ...extra }
+}
+
+// gate: metrics is a DICT keyed by metric id; targets is a SEPARATE dict; no top-level progress.
 const MOCK_GATE = {
-  metrics: [
-    { key: 'sharpe', label: 'Sharpe', value: 0.8, target: 1.5, n: 120, as_of: NOW, cohort: 'paper-90d', unit: '' },
-    { key: 'win_rate', label: 'Win rate', value: 52, target: 60, n: 120, as_of: NOW, cohort: 'paper-90d', unit: '%' },
-  ],
-  progress: 0.55,
+  metrics: {
+    closed_trade_count: env(48, { unit: '' }),
+    excess_sharpe_vs_spy: env(0.31, { unit: '' }),
+    sharpe_t_stat: env(1.4, { unit: '' }),
+    max_drawdown: env(0.12, { unit: '' }),
+  },
+  targets: {
+    closed_trade_count: 100,
+    excess_sharpe_vs_spy: 0.5,
+    sharpe_t_stat: 2.0,
+    max_drawdown: 0.2,
+  },
   as_of: NOW,
 }
 
-const MOCK_ATTENTION_HEALTHY = { count: 0, desk_healthy: true, as_of: NOW }
-const MOCK_ATTENTION_PENDING = { count: 3, desk_healthy: false, as_of: NOW }
+// attention: pending_count is an ENV (.value = the count), desk_healthy bool.
+const MOCK_ATTENTION_HEALTHY = {
+  pending_count: { value: 0, n: 1, as_of: NOW, cohort: 'live', unit: '', state: 'ok' },
+  desk_healthy: true,
+}
+const MOCK_ATTENTION_PENDING = {
+  pending_count: { value: 3, n: 1, as_of: NOW, cohort: 'live', unit: '', state: 'ok' },
+  desk_healthy: false,
+}
 
+// signals: a DICT keyed by canonical id; risk_limits (NOT risk_governor). SIG shape.
+function sig(value, extra = {}) {
+  return { value, n: 1, as_of: NOW, state: 'ok', healthy: true, ...extra }
+}
 const MOCK_SIGNALS = {
-  signals: [
-    { key: 'heartbeat', label: 'Watch-loop heartbeat', value: 12, unit: 's', as_of: NOW, n: 1, cohort: 'live', state: 'fresh', max_age: 120 },
-    { key: 'data_feed', label: 'Data-feed freshness', value: 5, unit: 's', as_of: NOW, n: 1, cohort: 'live', state: 'fresh', max_age: 300 },
-    { key: 'reconciliation', label: 'Reconciliation breaks', value: 0, unit: '', as_of: NOW, n: 1, cohort: 'live', state: 'fresh', max_age: 3600 },
-    { key: 'risk_governor', label: 'Risk limits used', value: 40, unit: '%', as_of: NOW, n: 1, cohort: 'live', state: 'fresh', max_age: 600 },
-  ],
+  signals: {
+    heartbeat: sig(12),
+    data_feed: sig(5),
+    reconciliation: sig(0),
+    risk_limits: sig(40),
+  },
   as_of: NOW,
 }
 
+// positions: data_source (NOT source); no equity / today's-move in the response.
 const MOCK_POSITIONS = {
-  source: 'reconciled',
   positions: [
     { ticker: 'AAPL', qty: 10, market_value: 1500, unrealized_pnl: 25 },
   ],
-  equity: { value: 100000, n: 1, as_of: NOW, cohort: 'paper-book', unit: '$' },
-  today_move: { value: 250, n: 1, as_of: NOW, cohort: 'paper-book', unit: '$' },
+  n: 1,
   as_of: NOW,
+  data_source: 'reconciled',
+  state: 'ok',
 }
 
+// since: fields nested under delta; audit_changes (NOT audit_verdict_changes).
 const MOCK_SINCE = {
   hours: 6,
-  opened: 2,
-  closed: 1,
-  alerts_raised: 0,
-  alerts_resolved: 1,
-  audit_verdict_changes: 0,
-  deploys: 1,
+  delta: {
+    opened: 2,
+    closed: 1,
+    alerts_raised: 0,
+    alerts_resolved: 1,
+    audit_changes: 0,
+    deploys: 1,
+  },
   as_of: NOW,
 }
 
+// devteam: activity (NOT current_activity); nested this_week.{prs,regressions,scope_violations}.
 const MOCK_DEVTEAM = {
-  current_activity: 'Implementing T9 NOW region',
-  prs_this_week: { value: 4, n: 4, as_of: NOW, cohort: 'week', unit: '' },
-  regressions_this_week: { value: 0, n: 0, as_of: NOW, cohort: 'week', unit: '' },
-  scope_violations_this_week: { value: 0, n: 0, as_of: NOW, cohort: 'week', unit: '' },
+  activity: 'Implementing T9 NOW region',
+  this_week: {
+    prs: 4,
+    regressions: 0,
+    scope_violations: 0,
+  },
   as_of: NOW,
 }
 
@@ -130,8 +163,11 @@ describe('NowRegion — gate hero', () => {
     renderNow()
     const hero = await screen.findByTestId('now-gate-hero')
     await waitFor(() => {
-      expect(within(hero).getByText(/Sharpe/i)).toBeInTheDocument()
+      // metrics is a DICT keyed by id — multiple Sharpe-named metrics exist
+      expect(within(hero).getAllByText(/Sharpe/i).length).toBeGreaterThan(0)
     })
+    // The closed-trade metric (keyed by id) renders its label
+    expect(within(hero).getByText(/Closed trades/i)).toBeInTheDocument()
     // Metric renders cohort · n=N · asOf
     expect(within(hero).getAllByText(/paper-90d/).length).toBeGreaterThan(0)
     expect(within(hero).getAllByText(/n=120/).length).toBeGreaterThan(0)
@@ -190,12 +226,12 @@ describe('NowRegion — integrity/liveness signals', () => {
 
   it('LAW #4: a signal with missing as_of renders UNKNOWN, never green/fresh', async () => {
     const missingSignal = {
-      signals: [
+      signals: {
         // heartbeat present & fresh
-        { key: 'heartbeat', label: 'Watch-loop heartbeat', value: 12, unit: 's', as_of: NOW, n: 1, cohort: 'live', state: 'fresh', max_age: 120 },
-        // data_feed signal absent its as_of — MUST render unknown
-        { key: 'data_feed', label: 'Data-feed freshness', value: null, unit: 's', as_of: null, n: 1, cohort: 'live', state: 'unknown', max_age: 300 },
-      ],
+        heartbeat: { value: 12, as_of: NOW, n: 1, state: 'ok', healthy: true },
+        // data_feed signal absent its as_of / state unknown — MUST render unknown
+        data_feed: { value: null, as_of: null, n: 1, state: 'unknown', healthy: null },
+      },
       as_of: NOW,
     }
     mockNow({ signals: missingSignal })
@@ -219,10 +255,10 @@ describe('NowRegion — integrity/liveness signals', () => {
 
   it('LAW #4: an entirely ABSENT signal (key missing from response) renders unknown, not green', async () => {
     const partialSignals = {
-      signals: [
-        { key: 'heartbeat', label: 'Watch-loop heartbeat', value: 12, unit: 's', as_of: NOW, n: 1, cohort: 'live', state: 'fresh', max_age: 120 },
-        // data_feed, reconciliation, risk_governor are ABSENT entirely
-      ],
+      signals: {
+        heartbeat: { value: 12, as_of: NOW, n: 1, state: 'ok', healthy: true },
+        // data_feed, reconciliation, risk_limits are ABSENT entirely
+      },
       as_of: NOW,
     }
     mockNow({ signals: partialSignals })
@@ -252,12 +288,15 @@ describe('NowRegion — open positions', () => {
     })
   })
 
-  it('does NOT render raw sentinel values for equity (SentinelGuard path)', async () => {
+  it('does NOT render raw sentinel values in per-position fields (SentinelGuard path)', async () => {
     const sentinelPositions = {
-      ...MOCK_POSITIONS,
-      equity: { value: 999, n: 1, as_of: NOW, cohort: 'paper-book', unit: '$' },
-      today_move: { value: -1, n: 1, as_of: NOW, cohort: 'paper-book', unit: '$' },
-      positions: [],
+      positions: [
+        { ticker: 'AAPL', qty: 10, market_value: 999, unrealized_pnl: -1 },
+      ],
+      n: 1,
+      as_of: NOW,
+      data_source: 'reconciled',
+      state: 'ok',
     }
     mockNow({ positions: sentinelPositions })
     renderNow()
@@ -268,6 +307,35 @@ describe('NowRegion — open positions', () => {
     // SentinelGuard renders "no data" for 999 / -1 — the raw number must not appear
     expect(within(positions).queryByText('999')).not.toBeInTheDocument()
     expect(within(positions).queryByText('-1')).not.toBeInTheDocument()
+  })
+
+  it('equity and today-move render an explicit no-data state (no fabrication)', async () => {
+    // The positions endpoint does NOT carry equity/today-move. The UI must
+    // render an explicit pending/no-data state for them, never a fabricated value.
+    mockNow()
+    renderNow()
+    const positions = await screen.findByTestId('now-positions')
+    await waitFor(() => {
+      expect(within(positions).getByText(/AAPL/)).toBeInTheDocument()
+    })
+    expect(within(positions).getByTestId('equity-no-data')).toBeInTheDocument()
+    expect(within(positions).getByTestId('today-move-no-data')).toBeInTheDocument()
+  })
+
+  it('renders an explicit unknown/empty state when positions are null / state unknown', async () => {
+    const unknownPositions = {
+      positions: null,
+      n: 0,
+      as_of: null,
+      data_source: 'reconciled',
+      state: 'unknown',
+    }
+    mockNow({ positions: unknownPositions })
+    renderNow()
+    const positions = await screen.findByTestId('now-positions')
+    await waitFor(() => {
+      expect(within(positions).getByTestId('positions-unknown')).toBeInTheDocument()
+    })
   })
 })
 
