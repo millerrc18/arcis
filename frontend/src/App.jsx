@@ -35,6 +35,7 @@ import Velocity from './pages/Velocity'
 import StrategyResearch from './pages/StrategyResearch'
 import WalkforwardResults from './pages/WalkforwardResults'
 import Diagnostics from './pages/Diagnostics'
+import ConsoleShell from './console/ConsoleShell'
 
 // staleTime 5s: dashboard values age fast; refetchInterval 30s for most
 // queries means ~25s staleness window at most. retry: 2 with exponential
@@ -133,6 +134,7 @@ export default function App() {
           <CacheInvalidator />
           <BrowserRouter>
             <Routes>
+              <Route path="/console/*" element={<ConsoleShell />} />
               <Route element={<Layout />}>
                 <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
                 <Route path="/packets" element={<ErrorBoundary><Packets /></ErrorBoundary>} />
