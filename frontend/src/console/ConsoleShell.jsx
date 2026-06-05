@@ -1,29 +1,13 @@
 /**
  * ConsoleShell — three-region console shell (T8).
  * Nav: Now / Decide / Know
- * Decide and Know are placeholders (T9+ will build content).
+ * Know is a placeholder (Phase 3 will build content).
  * Now region is the default route — body is T9's responsibility.
  */
 import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
 import HonestHeader from './HonestHeader'
 import NowRegion from './now/NowRegion'
-
-function DecidePlaceholder() {
-  return (
-    <div
-      data-testid="decide-region"
-      style={{
-        padding: 24,
-        color: 'var(--arcis-text-muted, #71717a)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 13,
-        textAlign: 'center',
-      }}
-    >
-      Decide — coming soon
-    </div>
-  )
-}
+import DecideRegion from './decide/DecideRegion'
 
 function KnowPlaceholder() {
   return (
@@ -91,7 +75,7 @@ export default function ConsoleShell() {
         <Routes>
           <Route index element={<Navigate to="now" replace />} />
           <Route path="now" element={<NowRegion />} />
-          <Route path="decide" element={<DecidePlaceholder />} />
+          <Route path="decide" element={<DecideRegion />} />
           <Route path="know" element={<KnowPlaceholder />} />
         </Routes>
       </main>
