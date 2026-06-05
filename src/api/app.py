@@ -42,6 +42,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
 from src.api.cloud_routes import console_decide as console_decide_route
+from src.api.cloud_routes import console_know as console_know_route
 from src.api.cloud_routes import console_now as console_now_route
 from src.api.cloud_routes import console_pause as console_pause_route
 from src.api.cloud_routes import kpis as kpis_route
@@ -181,6 +182,7 @@ for route_module in (
     console_pause_route,
     console_now_route,
     console_decide_route,
+    console_know_route,
     platform_module,
     walkforward_module,
 ):
@@ -193,6 +195,7 @@ app.include_router(notifications_route.router, prefix="/api")
 app.include_router(console_pause_route.router, prefix="/api")
 app.include_router(console_now_route.router, prefix="/api")
 app.include_router(console_decide_route.router, prefix="/api")
+app.include_router(console_know_route.router, prefix="/api")
 # platform + walkforward routers carry their own /api prefix in their @router.get
 # decorators, so include them WITHOUT prefix (matches cloud_app.py:330, 341).
 app.include_router(platform_module.router)
