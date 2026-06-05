@@ -108,10 +108,10 @@ describe('ConsoleShell', () => {
     expect(screen.queryByText(/Decide — coming soon/i)).not.toBeInTheDocument()
   })
 
-  it('Know tab still shows KnowPlaceholder (Phase 3 untouched)', () => {
+  it('Know tab renders KnowRegion overview (Phase 3 wired)', () => {
     render(withProviders('/console/know'))
-    expect(screen.getByText(/Know — coming soon/i)).toBeInTheDocument()
     expect(screen.getByTestId('know-region')).toBeInTheDocument()
+    expect(screen.queryByText(/Know — coming soon/i)).not.toBeInTheDocument()
   })
 
   it('DecidePlaceholder text is absent when on decide route', async () => {
