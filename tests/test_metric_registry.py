@@ -83,7 +83,12 @@ def test_compute_all_returns_envelope_per_metric():
                              "spy_returns": [0.0, 0.01, 0.0]},
         win_rate={"trades": [{"pnl_pct": 1.0}, {"pnl_pct": -1.0}]},
     )
-    assert set(out) == {"rf_adjusted_sharpe", "spy_relative_sharpe", "win_rate"}
+    # Derived from source (not a hardcoded id list) so this never drifts RED
+    # when a new metric is registered: compute_all must return exactly one
+    # envelope per registered metric. The 3 KPIs we pass kwargs for must be
+    # present; metrics registered without kwargs still get an envelope.
+    assert set(out) == set(REGISTRY)
+    assert {"rf_adjusted_sharpe", "spy_relative_sharpe", "win_rate"} <= set(out)
     for env in out.values():
         assert _ENVELOPE_KEYS <= set(env)
 
