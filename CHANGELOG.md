@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+### Added — Founder Operating Console, Phase 1 (backend foundation + NOW region)
+
+First phase of the founder operating console (spec: `docs/superpowers/specs/2026-06-04-founder-console-design.md`). Stands up a new `/console` region **alongside** the existing dashboard (the old `frontend/` pages are untouched; cutover is region-by-region at parity). Phase-0 prerequisites #134/#135 landed first (PR #1200).
+
+- **Metric registry (`src/metrics/`)** — server-side single-source metric layer (design law #1). `MetricDef` + duplicate-rejecting `register()` + `compute_metric`/`compute_all` returning a canonical envelope `{value, n, as_of, cohort, unit, state}`; sentinels (999/NaN/-1/∞) and missing data surface as a `state` flag, never as a raw value (laws #2/#3). Wraps the existing `kpis_compute` math (no re-derivation) and registers the gate metrics (closed-trade count, excess-Sharpe vs SPY, Sharpe t-stat, max drawdown).
+- **Reconciliation break-event retention** — `reconciliation_breaks` table + `src/shadow_trading/break_events.py` (`record_break`/`get_break_events`), emitted at the reconciler's detection points **before** auto-backfill erases the evidence, so the console surfaces the break-*rate* over time, not post-backfill state (law #9).
+- **Graceful global PAUSE** — `src/console/pause.py` (`console_pause_state` table) + `GET`/`POST /api/console/pause`. Blocks new autonomous actions at the watch-loop scan gate (`watch.py:_run_scan`) and the executor new-trade entry while keeping positions/monitoring/reconciliation running; audit-logged; distinct from the governor hard-kill. `is_paused()` **fails closed** on a DB read error (operator decision 2026-06-05) so a paused desk never silently resumes.
+- **NOW-region + honest-header endpoints (`src/api/cloud_routes/console_now.py`)** — `/api/console/header` (version + PAPER/bootcamp-OFF from config, market state, clock — never narrated); `/now/gate`, `/now/signals` (heartbeat/data-feed/reconciliation/risk-limits, each with `as_of`, alarmed/unknown on absence — never green on missing, law #4), `/now/positions` (canonical TradingState source), `/now/attention` (pending-decision count + desk-healthy), `/now/since`, `/now/devteam`.
+- **Frontend render-boundary primitives (`frontend/src/console/components/`)** — `<Metric>` (requires cohort/N/as-of or errors), `<SentinelGuard>` (true-0 distinct from no-data), `<StalenessBadge>` (degrades; never green on missing) — honesty enforced structurally (§8).
+- **Console shell + NOW region (`frontend/src/console/`)** — new `/console` route subtree (Now/Decide/Know nav; Decide/Know are placeholders this phase), `HonestHeader` carrying the global PAUSE control, and the assembled NOW region (gate hero, two-tier attention row, integrity-signal row, positions, "since you last looked" delta band, AI dev-team strip) — every number rendered through the honesty primitives.
+
+### Changed
+
+- `scripts/_clean_slate/classification.py` — classified the two new console tables into the clean-slate WIPE partition (per-run runtime state); `EXPECTED_REGISTRY_COUNT` 80→82, WIPE 53→55.
+- `src/schema/registry.py` — `reconciliation_breaks` + `console_pause_state` registered with `sync_to_postgres=True` so they exist in the canonical PG book the console + watch-loop read.
+
 ## [v0.36.85] — 2026-06-03 — W21 capstone: clean-slate-wipe script + full test suite (#95)
 
 Built (but did NOT run) the W21 capstone: a destructive, **dry-run-by-default**,

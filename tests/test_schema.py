@@ -36,7 +36,7 @@ def test_register_adds_table():
 
 # ── Completeness tests ───────────────────────────────────────────
 
-EXPECTED_TABLE_COUNT = 72
+EXPECTED_TABLE_COUNT = 74
 
 
 def test_registry_has_all_tables():
@@ -115,6 +115,8 @@ EXPECTED_TABLES = {
     "short_volume_daily",
     # v0.36.38 — dead-weight Finnhub collectors (T1 foundation: registry + wiring)
     "company_executives", "stock_financials", "price_targets",
+    # Founder Console Phase-1 T1 — break-event retention + PAUSE state
+    "reconciliation_breaks", "console_pause_state",
 }
 
 
@@ -975,4 +977,125 @@ def test_walkforward_results_has_derived_from_backtest_id_column():
     )
     assert col.nullable is True, (
         "derived_from_backtest_id must be nullable"
+    )
+
+
+# ── Founder Console Phase-1 T1 — reconciliation_breaks + console_pause_state ──
+
+def test_reconciliation_breaks_in_registry():
+    """reconciliation_breaks must be registered (Founder Console Phase-1 T1).
+
+    Design law #9: break-event evidence must survive auto-backfill of
+    shadow_trades. This table is the independent retention store.
+    """
+    assert "reconciliation_breaks" in TABLES, (
+        "reconciliation_breaks not in registry — "
+        "add TableDef to src/schema/registry.py"
+    )
+
+
+def test_reconciliation_breaks_columns():
+    """reconciliation_breaks must have all required columns with correct types/nullability."""
+    assert "reconciliation_breaks" in TABLES
+    td = TABLES["reconciliation_breaks"]
+    col_map = {c.name: c for c in td.columns}
+
+    assert "id" in col_map, "reconciliation_breaks missing id"
+    assert col_map["id"].type == "INTEGER"
+    assert col_map["id"].nullable is False
+    assert col_map["id"].autoincrement is True
+
+    assert "created_at" in col_map, "reconciliation_breaks missing created_at"
+    assert col_map["created_at"].type == "TEXT"
+    assert col_map["created_at"].nullable is False
+
+    assert "break_type" in col_map, "reconciliation_breaks missing break_type"
+    assert col_map["break_type"].type == "TEXT"
+    assert col_map["break_type"].nullable is False
+
+    assert "symbol" in col_map, "reconciliation_breaks missing symbol"
+    assert col_map["symbol"].type == "TEXT"
+    assert col_map["symbol"].nullable is False
+
+    assert "magnitude" in col_map, "reconciliation_breaks missing magnitude"
+    assert col_map["magnitude"].type == "REAL"
+    assert col_map["magnitude"].nullable is True
+
+    assert "desk" in col_map, "reconciliation_breaks missing desk"
+    assert col_map["desk"].nullable is True
+
+    assert "source" in col_map, "reconciliation_breaks missing source"
+    assert col_map["source"].nullable is True
+
+    assert "detail" in col_map, "reconciliation_breaks missing detail"
+    assert col_map["detail"].nullable is True
+
+    assert "detected_at" in col_map, "reconciliation_breaks missing detected_at"
+    assert col_map["detected_at"].type == "TEXT"
+    assert col_map["detected_at"].nullable is False
+
+
+def test_reconciliation_breaks_indexes():
+    """reconciliation_breaks must have indexes on created_at and break_type."""
+    assert "reconciliation_breaks" in TABLES
+    td = TABLES["reconciliation_breaks"]
+    indexed_cols = {col for idx in td.indexes for col in idx.columns}
+    assert "created_at" in indexed_cols, (
+        "reconciliation_breaks missing index on created_at"
+    )
+    assert "break_type" in indexed_cols, (
+        "reconciliation_breaks missing index on break_type"
+    )
+
+
+def test_console_pause_state_in_registry():
+    """console_pause_state must be registered (Founder Console Phase-1 T1)."""
+    assert "console_pause_state" in TABLES, (
+        "console_pause_state not in registry — "
+        "add TableDef to src/schema/registry.py"
+    )
+
+
+def test_console_pause_state_columns():
+    """console_pause_state must have all required columns with correct types/defaults."""
+    assert "console_pause_state" in TABLES
+    td = TABLES["console_pause_state"]
+    col_map = {c.name: c for c in td.columns}
+
+    assert "id" in col_map, "console_pause_state missing id"
+    assert col_map["id"].type == "INTEGER"
+    assert col_map["id"].nullable is False
+
+    assert "is_paused" in col_map, "console_pause_state missing is_paused"
+    assert col_map["is_paused"].type == "INTEGER"
+    assert col_map["is_paused"].nullable is False
+    assert col_map["is_paused"].default == "0", (
+        f"is_paused default must be '0', got {col_map['is_paused'].default!r}"
+    )
+
+    assert "paused_at" in col_map, "console_pause_state missing paused_at"
+    assert col_map["paused_at"].nullable is True
+
+    assert "paused_by" in col_map, "console_pause_state missing paused_by"
+    assert col_map["paused_by"].nullable is True
+
+    assert "reason" in col_map, "console_pause_state missing reason"
+    assert col_map["reason"].nullable is True
+
+    assert "resumed_at" in col_map, "console_pause_state missing resumed_at"
+    assert col_map["resumed_at"].nullable is True
+
+    assert "updated_at" in col_map, "console_pause_state missing updated_at"
+    assert col_map["updated_at"].type == "TEXT"
+    assert col_map["updated_at"].nullable is False
+
+
+def test_console_pause_state_is_paused_default_zero():
+    """console_pause_state.is_paused default must be 0 (system starts un-paused)."""
+    assert "console_pause_state" in TABLES
+    td = TABLES["console_pause_state"]
+    col = next(c for c in td.columns if c.name == "is_paused")
+    assert col.default == "0", (
+        f"is_paused default must be '0' (system starts un-paused), "
+        f"got {col.default!r}"
     )

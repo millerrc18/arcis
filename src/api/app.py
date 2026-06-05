@@ -41,6 +41,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
+from src.api.cloud_routes import console_now as console_now_route
+from src.api.cloud_routes import console_pause as console_pause_route
 from src.api.cloud_routes import kpis as kpis_route
 from src.api.cloud_routes import notifications as notifications_route
 from src.api.cloud_routes import platform as platform_module
@@ -175,6 +177,8 @@ for route_module in (
     broker_exceptions_route,
     preflight_route,
     notifications_route,
+    console_pause_route,
+    console_now_route,
     platform_module,
     walkforward_module,
 ):
@@ -184,6 +188,8 @@ app.include_router(kpis_route.router, prefix="/api")
 app.include_router(broker_exceptions_route.router, prefix="/api")
 app.include_router(preflight_route.router, prefix="/api")
 app.include_router(notifications_route.router, prefix="/api")
+app.include_router(console_pause_route.router, prefix="/api")
+app.include_router(console_now_route.router, prefix="/api")
 # platform + walkforward routers carry their own /api prefix in their @router.get
 # decorators, so include them WITHOUT prefix (matches cloud_app.py:330, 341).
 app.include_router(platform_module.router)

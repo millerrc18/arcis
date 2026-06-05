@@ -48,6 +48,7 @@ from src.shadow_trading.alpaca_adapter import (
     get_all_positions,
     get_live_positions,
 )
+from src.shadow_trading.break_events import record_break
 from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.utils.db import connect_db
 
@@ -591,6 +592,18 @@ def reconcile_live_trades(
                 t, _RECENT_CLOSE_WINDOW_HOURS,
             )
             continue
+        pos = alpaca_tickers[t]
+        try:
+            record_break(
+                break_type="orphan",
+                symbol=t,
+                magnitude=float(pos.get("market_value") or 0) or None,
+                desk=desk,
+                source="live",
+                detail="Alpaca live position not tracked in shadow_trades",
+            )
+        except Exception as _rb_exc:
+            logger.warning("[RECONCILE-LIVE] record_break orphan failed: %s", _rb_exc)
         orphaned.append(t)
     stale = [] if not live_fetch_ok else [t for t in tracked_tickers if t not in alpaca_tickers]
 
@@ -625,6 +638,16 @@ def reconcile_live_trades(
             # Wave 7 — skip stale-marking when live fetch failed this cycle.
             if not live_fetch_ok:
                 continue
+            try:
+                record_break(
+                    break_type="marked_closed",
+                    symbol=ticker,
+                    desk=desk,
+                    source="live",
+                    detail="Live shadow_trade open in DB but not on broker — marking stale",
+                )
+            except Exception as _rb_exc:
+                logger.warning("[RECONCILE-LIVE] record_break stale failed: %s", _rb_exc)
             trade_id = tracked_tickers[ticker]
             # v0.36.30 (F-1): None = unknown price → NULL pnl in DB. NOT 0.0
             # (a $0 exit is a phantom close that corrupts audit aggregates).
@@ -949,16 +972,42 @@ def reconcile_paper_trades(
                 )
                 skipped.append(ticker)
                 continue
+            _orph_qty = float(pos.get("qty", 0))
+            _orph_price = float(pos.get("avg_entry_price", 0))
+            try:
+                record_break(
+                    break_type="orphan",
+                    symbol=ticker,
+                    magnitude=_orph_qty * _orph_price if _orph_price > 0 else None,
+                    desk=desk,
+                    source="paper",
+                    detail="Alpaca paper position not tracked in shadow_trades",
+                )
+            except Exception as _rb_exc:
+                logger.warning("[RECONCILE-PAPER] record_break orphan failed: %s", _rb_exc)
             orphaned.append({
                 "ticker": ticker,
-                "qty": float(pos.get("qty", 0)),
-                "avg_price": float(pos.get("avg_entry_price", 0)),
+                "qty": _orph_qty,
+                "avg_price": _orph_price,
             })
         else:
             # Both have it — check qty
             local_qty = float(tracked_map[ticker].get("planned_shares", 0))
             alpaca_qty = float(pos.get("qty", 0))
             if abs(local_qty - alpaca_qty) > 0.001:
+                try:
+                    record_break(
+                        break_type="qty_mismatch",
+                        symbol=ticker,
+                        magnitude=abs(local_qty - alpaca_qty),
+                        desk=desk,
+                        source="paper",
+                        detail=f"qty mismatch: local={local_qty}, alpaca={alpaca_qty}",
+                    )
+                except Exception as _rb_exc:
+                    logger.warning(
+                        "[RECONCILE-PAPER] record_break qty_mismatch failed: %s", _rb_exc
+                    )
                 discrepancies.append({
                     "ticker": ticker,
                     "issue": f"qty mismatch: local={local_qty}, alpaca={alpaca_qty}",
@@ -1153,6 +1202,24 @@ def reconcile_paper_trades(
                     ticker,
                 )
                 continue
+
+            # Emit break event BEFORE any mutation (design law #9: evidence
+            # must survive the subsequent close_shadow_trade call).
+            try:
+                record_break(
+                    break_type="marked_closed",
+                    symbol=ticker,
+                    desk=desk,
+                    source="paper",
+                    detail=(
+                        f"Paper shadow_trade {trade_id} open in DB "
+                        "but not on broker — marking stale"
+                    ),
+                )
+            except Exception as _rb_exc:
+                logger.warning(
+                    "[RECONCILE-PAPER] record_break stale failed: %s", _rb_exc
+                )
 
             # Fix #356: Cancel pending orders before closing to prevent
             # held_for_orders deadlock.

@@ -7,7 +7,7 @@ are trade/learning state (TRUNCATE-d) vs market-data/operator-authored
 (`assert_partition_complete`, mirroring src/utils/db.py:820-836's
 `_require_classified_replace`).
 
-Counts: WIPE=53, KEEP=27, sum=80 == len(registry.TABLES).
+Counts: WIPE=55, KEEP=27, sum=82 == len(registry.TABLES).
 
 This module is PURE data + set algebra. It deliberately imports NO
 DB-connection / TRUNCATE / information_schema logic — the live reconciliation
@@ -23,9 +23,9 @@ from src.schema import registry
 
 # Pinned count of the registered universe. A registry add/remove that happens
 # to keep the partition valid still trips the guard via this count-pin.
-EXPECTED_REGISTRY_COUNT = 80
+EXPECTED_REGISTRY_COUNT = 82
 
-# ── WIPE: trade/learning state — TRUNCATE ... RESTART IDENTITY CASCADE (53) ──
+# ── WIPE: trade/learning state — TRUNCATE ... RESTART IDENTITY CASCADE (55) ──
 WIPE_TABLES: frozenset[str] = frozenset({
     # core trade + recommendation
     "recommendations", "shadow_trades", "ib_shadow_log", "attribution_trades",
@@ -54,6 +54,10 @@ WIPE_TABLES: frozenset[str] = frozenset({
     # AMBIGUOUS -> ruled WIPE (Decisions Log)
     "traffic_light_state", "data_freshness", "pending_commands",
     "diagnostic_runs", "diagnostic_run_plots", "system_metrics",
+    # Founder Console Phase-1 (per-run runtime state — reset on relaunch):
+    # reconciliation break-event evidence (T3, audit/forensic, like audit_reports);
+    # graceful-PAUSE single-row state (T4, runtime, like traffic_light_state).
+    "reconciliation_breaks", "console_pause_state",
 })
 
 # ── KEEP: market-data / collector / operator-authored — PRESERVE (27) ──

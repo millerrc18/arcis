@@ -251,6 +251,11 @@
       "file": "src/notifications/telegram_delivery.py",
       "lines": 1127,
       "rationale": "Phase 5 PR-C T11: the notify_* pre-formatted alert builders + their typed payload dataclasses + the 14 email-tier stubs, extracted from telegram.py to bring that module back under the structure-debt band (telegram.py shrank 1662 -> 821). 1127 lines. These are cohesive message-formatting functions (one per event type); each is short and independently testable. Splitting further by category is possible but deferred — they share the _tg late-binding transport seam and the XSS-escape discipline audited by tests/notifications/test_html_escape_siblings.py. Operator Option-A authorized the test re-targeting that made this extraction safe."
+    },
+    {
+      "file": "src/tools/_safety.py",
+      "lines": 406,
+      "rationale": "Pre-existing violation surfaced (not introduced) by Founder Console Phase-1 T1 test_repo_structure.py run. src/tools/_safety.py grew past 400 lines before this PR; T1 did not touch this file. File is the @prod_guard + @safety_window decorator implementation + audit-log helpers; the decorators are tightly coupled to the audit machinery they wrap. Real split deferred to post-W21-freeze cleanup track."
     }
   ],
   "oversized_functions": [
