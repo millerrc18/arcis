@@ -191,6 +191,115 @@ register(MetricDef(
     fmt="{:.1%}",
 ))
 
+
+# ---------------------------------------------------------------------------
+# North-star gate metrics (T6). The math reuses the existing kpis_compute
+# helpers — the registry stays the single owner; routes consume, never compute.
+# Each wrapper accepts an `as_of` so the envelope carries an honest timestamp
+# (T2 noted the legacy KPI wrappers returned as_of=None; routes thread the
+# cohort's latest close time or compute time through here).
+# ---------------------------------------------------------------------------
+
+
+def _wrap_closed_trade_count(
+    trades: list | None = None, as_of: str | None = None,
+) -> dict:
+    trades = trades or []
+    n = len(trades)
+    return {"value": n, "n": n, "as_of": as_of}
+
+
+def _wrap_excess_sharpe_vs_spy(
+    returns: list | None = None,
+    spy_returns: list | None = None,
+    as_of: str | None = None,
+) -> dict:
+    returns = returns or []
+    spy_returns = spy_returns or []
+    if not returns:
+        return {"value": None, "n": 0, "as_of": as_of}
+    raw = kpis_compute._compute_spy_relative_kpi(returns, spy_returns)
+    return {"value": raw.get("value"), "n": len(returns), "as_of": as_of}
+
+
+def _wrap_sharpe_t_stat(
+    returns: list | None = None, as_of: str | None = None,
+) -> dict:
+    returns = returns or []
+    n = len(returns)
+    if n < 2:
+        return {"value": None, "n": n, "as_of": as_of}
+    raw = kpis_compute._compute_rf_adjusted_kpi(returns)
+    sharpe = raw.get("value")
+    if sharpe is None:
+        return {"value": None, "n": n, "as_of": as_of}
+    t_stat, _, _ = kpis_compute._sharpe_t_stat_and_ci(sharpe, n, returns=returns)
+    if math.isnan(t_stat) or math.isinf(t_stat):
+        return {"value": None, "n": n, "as_of": as_of}
+    return {"value": t_stat, "n": n, "as_of": as_of}
+
+
+def _wrap_max_drawdown(
+    returns: list | None = None, as_of: str | None = None,
+) -> dict:
+    """Worst peak-to-trough drawdown of the cumulative return curve (fraction)."""
+    returns = returns or []
+    if not returns:
+        return {"value": None, "n": 0, "as_of": as_of}
+    equity = 1.0
+    peak = 1.0
+    max_dd = 0.0
+    for r in returns:
+        equity *= (1.0 + r)
+        if equity > peak:
+            peak = equity
+        if peak > 0:
+            dd = (peak - equity) / peak
+            if dd > max_dd:
+                max_dd = dd
+    return {"value": max_dd, "n": len(returns), "as_of": as_of}
+
+
+register(MetricDef(
+    id="closed_trade_count",
+    label="Closed-trade count",
+    compute=_wrap_closed_trade_count,
+    cohort="trades.all_closed",
+    window="all",
+    unit="count",
+    fmt="{:d}",
+))
+
+register(MetricDef(
+    id="excess_sharpe_vs_spy",
+    label="Excess Sharpe vs SPY",
+    compute=_wrap_excess_sharpe_vs_spy,
+    cohort="kpi.canonical",
+    window="all",
+    unit="ratio",
+    fmt="{:.2f}",
+))
+
+register(MetricDef(
+    id="sharpe_t_stat",
+    label="Sharpe t-stat",
+    compute=_wrap_sharpe_t_stat,
+    cohort="kpi.canonical",
+    window="all",
+    unit="tstat",
+    fmt="{:.2f}",
+))
+
+register(MetricDef(
+    id="max_drawdown",
+    label="Max drawdown",
+    compute=_wrap_max_drawdown,
+    cohort="trades.all_closed",
+    window="all",
+    unit="pct",
+    fmt="{:.1%}",
+))
+
 # Touch COHORT_LABELS so the cohort dependency is real (single-source proof:
 # every metric cohort must be a known taxonomy key).
 for _m in REGISTRY.values():
