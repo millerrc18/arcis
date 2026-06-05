@@ -2900,3 +2900,71 @@ _register(TableDef(
     sync_pk="id",
     sync_conflict_col="ticker, as_of_date",
 ))
+
+# ---------------------------------------------------------------------------
+# Founder Console Phase-1 (2 tables)
+# Break-event retention and graceful-PAUSE state for the operator console.
+# Design law #9: break evidence must survive auto-backfill of shadow_trades.
+# ---------------------------------------------------------------------------
+
+# reconciliation_breaks: Retained reconciliation break events.
+# Written by: reconciler (T3 — do NOT emit events here, only the schema).
+# Read by: console Now-region break ticker, audit trail.
+# Independent of shadow_trades auto-heal: a healed shadow_trade must NOT
+# delete the break record that triggered the heal (design law #9).
+_register(TableDef(
+    name="reconciliation_breaks",
+    description="Retained reconciliation break events — evidence survives auto-backfill "
+                "(design law #9). One row per detected break event.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef("break_type", "TEXT", nullable=False,
+                  description="Break category: 'orphan', 'stale', 'qty_mismatch', "
+                              "'marked_closed', etc."),
+        ColumnDef("symbol", "TEXT", nullable=False),
+        ColumnDef("magnitude", "REAL", nullable=True,
+                  description="Dollar or share magnitude of the break (nullable)"),
+        ColumnDef("desk", "TEXT", nullable=True),
+        ColumnDef("source", "TEXT", nullable=True,
+                  description="'paper' or 'live'"),
+        ColumnDef("detail", "TEXT", nullable=True),
+        ColumnDef("detected_at", "TEXT", nullable=False),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_reconciliation_breaks_created_at", ["created_at"]),
+        IndexDef("idx_reconciliation_breaks_break_type", ["break_type"]),
+    ],
+    sync_to_postgres=False,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="id",
+))
+
+# console_pause_state: Single-row canonical graceful-PAUSE state.
+# Written by: PAUSE endpoint (T4/T5 — not here, schema only).
+# Read by: console Now-region banner, watch loop governor.
+# Designed as single-row (id=1 only) so consumers can SELECT without
+# filtering; the primary key is just INTEGER (not AUTOINCREMENT) because
+# the row is never deleted, only updated.
+_register(TableDef(
+    name="console_pause_state",
+    description="Single-row canonical graceful-PAUSE state for the operator console. "
+                "id=1 always; UPDATE in-place, never INSERT a second row.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False),
+        ColumnDef("is_paused", "INTEGER", nullable=False, default="0",
+                  description="1 = system is paused; 0 = running normally"),
+        ColumnDef("paused_at", "TEXT", nullable=True),
+        ColumnDef("paused_by", "TEXT", nullable=True),
+        ColumnDef("reason", "TEXT", nullable=True),
+        ColumnDef("resumed_at", "TEXT", nullable=True),
+        ColumnDef("updated_at", "TEXT", nullable=False),
+    ],
+    primary_key="id",
+    sync_to_postgres=False,
+    sync_mode="full",
+    sync_time_column=None,
+    sync_pk="id",
+))
