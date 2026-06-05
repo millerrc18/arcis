@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### Added — Founder Operating Console, Phase 3 KNOW · Wave A (derived views + pinned analytics)
+
+First wave of the KNOW region (legibility + analytics; spec §3.3) — the new **derive-from-source** engineering (law #7) plus the operator's daily-reliance pins. Builds on the Phase-1 metric registry + render-boundary primitives + console shell; the old dashboard stays untouched (salvage = adapt into the console, originals retained). No new tables.
+
+- **Fund-ladder derivation (`src/console/fund_ladder.py`)** — Phase 1→6 ladder **derived** from trades + versions (replaces the hand-maintained Roadmap that drifted). Live gate progress computed via the metric registry; fail-closed (`generation_ok: false` + per-gate `unknown` on source failure, never a silently stale snapshot); git-SHA-stamped; future phases render `pending` (distinct from zero).
+- **System-map derivation (`src/console/system_map.py`)** — architecture/capability/schema summary **derived** from the capability registry (`ensure_bootstrapped` + `list_actions/states/systems/decisions`) and `src/schema/registry.TABLES` — counts computed, never typed; fail-closed per section; SHA-stamped.
+- **CI anti-drift guards (`tests/test_console_derived_drift.py`)** — oracle-derived, merge-blocking (generalize the #88 capability-registry guard): system-map table/capability counts must equal the live registries; fund-ladder gate ids must exist in `gate_targets` ∩ the metric registry; both must fail closed. Makes "CI-asserted against source" (law #7) real.
+- **`console_know` router (`src/api/cloud_routes/console_know.py`)** — `/api/console/know/{ladder, system-map, track-record, ledgers, calibration}`. Track-record headline stats (Sharpe, excess-Sharpe vs SPY, PSR, win rate, profit factor, max DD, expectancy, closed-trade count) single-sourced via the metric registry / existing pure helpers (DSR honestly listed `unavailable` — needs an `n_trials` source, not computed ad-hoc); calibration reuses the existing `cto_report._compute_confidence_calibration` (recommendation→trade→P&L join), fail-closed to `no_data` (empty buckets, never zeros).
+- **KNOW region frontend (`frontend/src/console/know/`)** — overview→drill-down shell (law #6; replaces the placeholder tab), the fund-ladder + system-map drill-downs (fail-closed UI: a `generation_ok: false` payload renders a visible "generation failed / stale as of `<sha>`" banner, never fabricated numbers), and the pinned **track record** (CTO synthesis + equity curve, salvaged `BacktestEquityChart`) + **trade ledgers** (open/closed/all, searchable, salvaged `ShadowLedger`/`TradeHistory`). Every number through the render-boundary primitives.
+
+Wave B (rigor stack, attribution + calibration view, research corpus + AI-Council panel, AI-dev scorecards — mostly frontend salvage against existing routes) is a follow-up run.
+
 ### Fixed
 
 - **`test_connect_db_complete_coverage` allowlist drift** — the `sqlite3.connect` guardrail allowlist was line-pinned `(file, line_no)` and had drifted RED on `main`: `watch.py`'s backup pair shifted (1671/1672→1715/1716, Phase-1 PAUSE gate), `tradingstate` shifted (176→190, #134), and `scripts/_clean_slate/sqlite_retire.py` (#95, 3 legit sites) was never added. Converted the allowlist to **content-keyed `(file, snippet)`** matching so unrelated edits no longer drift it, re-covered all 33 current legitimate sites, and added `test_no_dead_allowlist_entries` to stop the allowlist rotting (how the old `engine_helpers.py:61` entry went dead). Verified by mutation: drift-proof (line shifts still pass) and still catches new raw-connect violations.
