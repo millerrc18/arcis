@@ -528,6 +528,15 @@ def open_shadow_trade(
         logger.info("Shadow trading disabled, skipping")
         return None
 
+    # Graceful PAUSE gate (design D10): block NEW autonomous trades while the
+    # operator has engaged a graceful pause. Positions / monitoring / reconcile
+    # are NOT gated here — only this new-trade entry point. Distinct from the
+    # governor's hard kill switch; this is a cheap single-row DB read.
+    from src.console.pause import is_paused
+    if is_paused():
+        logger.info("[PAUSE] Graceful pause active — skipping new shadow trade for %s", packet.ticker)
+        return None
+
     # LLM output validation (catches hallucinated tickers, nonsensical prices, etc.)
     # WHY reject on ImportError: If the validator module can't load, we have no
     # guardrails against LLM hallucinations. Safer to skip the trade entirely.

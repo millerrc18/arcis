@@ -931,6 +931,17 @@ class WatchLoop(HandlerRegistryMixin):
         Delegates to universe_scanner.run_universe_scan() for the core
         pipeline, then handles state mutations (email, Telegram, metrics).
         """
+        # Graceful PAUSE gate (design D10): when the operator has engaged a
+        # graceful pause, skip the autonomous scan/recommend/execute work.
+        # This blocks NEW autonomous actions only — position monitoring and
+        # reconciliation run on separate _safe_run tasks and stay alive.
+        # Distinct from the governor's hard kill switch (which uses a halt
+        # file); this is a cheap single-row DB read.
+        from src.console.pause import is_paused
+        if is_paused():
+            logger.info("[PAUSE] Graceful pause active — skipping scan cycle")
+            return
+
         from src.scheduler.universe_scanner import run_universe_scan, ScanContext
         from src.email.notifier import send_email
 
