@@ -1,7 +1,20 @@
 """Sprint 0.C / C.1: every src/* + scripts/* sqlite3.connect site must
 either route through src.utils.db.connect_db OR be on the allowlist.
 
-Allowlist entries must include a comment explaining why."""
+Allowlist entries are CONTENT-KEYED — (file, code_snippet, reason) — not
+line-pinned. A site is allowed when its file matches and the snippet is a
+substring of the line. This deliberately replaces the old (file, line_no)
+allowlist, which drifted RED on every unrelated edit to a scanned file
+(reference: line-pinned-allowlist-fragility; #1192). Editing code elsewhere in
+a file no longer shifts these entries; only changing the actual sqlite3.connect
+call text requires a re-review (which is correct). `test_no_dead_allowlist_entries`
+guards the other direction — every entry must still match a real site, so the
+allowlist cannot rot (this is how the old `engine_helpers.py:61` entry went
+stale and dead).
+
+Each entry requires an explicit reason. Snippets are chosen to be distinctive
+within their file.
+"""
 
 import re
 from pathlib import Path
@@ -9,81 +22,49 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
-# (file, line_no, reason) tuples — each entry requires an explicit reason
-_ALLOWLIST: list[tuple[str, int, str]] = [
-    # src/utils/db.py: connect_db() itself — these ARE the definition site.
-    # Lines 607 (comment text referencing sqlite3.connect in docstring),
-    # 616 (force_sqlite branch inside connect_db), 638 (normal SQLite path inside connect_db).
-    ("src/utils/db.py", 607, "definition site — comment in connect_db() docstring referencing sqlite3.connect"),
-    ("src/utils/db.py", 616, "definition site — this IS connect_db() force_sqlite branch"),
-    ("src/utils/db.py", 638, "definition site — this IS connect_db() normal SQLite path"),
-    # scheduler/watch.py: _backup_database uses .backup() API which requires two raw
-    # connections opened simultaneously (src and dst). connect_db returns a single conn;
-    # the Online Backup API must hold both connections at once.
-    ("src/scheduler/watch.py", 1671, "backup API: src conn for sqlite3.backup() — needs raw pair"),
-    ("src/scheduler/watch.py", 1672, "backup API: dst conn for sqlite3.backup() — needs raw pair"),
-    # schema/sqlite.py: _sqlite_only_connect is the explicit SQLite-engine entry point
-    # (bypasses PG shim by design — all PRAGMA calls here are SQLite-only).
-    # Line 51: definition of _sqlite_only_connect.
-    # Line 247: retry-index path opens a short-lived raw conn for index CREATE IF NOT EXISTS.
-    ("src/schema/sqlite.py", 51, "schema/_sqlite_only_connect definition — SQLite-only entry point bypasses PG shim by design"),
-    ("src/schema/sqlite.py", 278, "schema bootstrap retry-index path — short-lived raw conn for index CREATE IF NOT EXISTS"),
-    # src/features/engine_helpers.py:61 is a comment explaining why connect_db is used
-    # (referencing the old raw sqlite3.connect pattern for historical context).
-    ("src/features/engine_helpers.py", 61, "comment text referencing old sqlite3.connect pattern — not a live call"),
-    # scripts/archive_bootcamp_2026_04_24.py: uses URI mode (mode=ro, mode=rw) which
-    # connect_db does not support. Read-only and URI-format connections are intentional.
-    # Line numbers re-pinned after PR-E2 #102b wave 5d-4 trimmed sync_state from
-    # VERIFIED_TABLES (-1) and removed the registry-count tripwire (-6 more).
-    ("scripts/archive_bootcamp_2026_04_24.py", 186, "URI mode=ro — connect_db does not support uri=True"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 223, "URI mode=ro — connect_db does not support uri=True"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 353, "URI mode=ro — connect_db does not support uri=True"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 394, "archive script: migrates legacy DB, short-lived one-off tool"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 528, "creates empty stub DB for test fixture — intentional init"),
-    ("scripts/archive_bootcamp_2026_04_24.py", 541, "URI mode=ro — connect_db does not support uri=True"),
-    # scripts/archive_bootcamp_2026_04_24.py line 507: comment text inside a docstring
-    # that mentions sqlite3.connect as part of documentation — not a live call.
-    ("scripts/archive_bootcamp_2026_04_24.py", 507, "comment/docstring text mentioning sqlite3.connect — not a live call"),
-    # scripts/recover_from_postgres.py: line 207 is a string literal inside print()
-    # showing the operator how to verify manual recovery — not a live call site.
-    ("scripts/recover_from_postgres.py", 207, "string literal in print() — operator help text, not a live call"),
-    # scripts/recover_from_postgres.py: uses raw connect then immediately sets WAL mode
-    # (PRAGMA journal_mode=WAL) and a conservative 5s busy_timeout for the recovery
-    # import loop. The 5s timeout is intentionally shorter than connect_db's 30s to
-    # avoid blocking during the long sequential row-by-row import from Postgres.
-    ("scripts/recover_from_postgres.py", 96, "recovery script: WAL mode setup + intentional 5s busy_timeout (shorter than connect_db 30s) for long Postgres import loop"),
-    # scripts/statusline.py: intentionally uses a short 2s timeout for a non-blocking
-    # terminal status bar display. connect_db default is 30s which would block the shell.
-    ("scripts/statusline.py", 154, "intentional 2s timeout for non-blocking terminal status bar"),
-    # scripts/cleanup_overshoot_zombies_2026_04_21.py: explicit 30s timeout, one-off
-    # cleanup script for a specific incident — not part of production code path.
-    ("scripts/cleanup_overshoot_zombies_2026_04_21.py", 187, "one-off cleanup script with explicit 30s timeout matching connect_db default"),
-    ("scripts/cleanup_overshoot_zombies_2026_04_21.py", 219, "one-off cleanup script with explicit 30s timeout matching connect_db default"),
-    # scripts/reconcile_2026_04_20.py: explicit 30s timeout, one-off reconcile script.
-    ("scripts/reconcile_2026_04_20.py", 149, "one-off reconcile script with explicit 30s timeout matching connect_db default"),
-    # scripts/scrub_validation_leaks.py: explicit 10s timeout, one-off data-scrub script.
-    ("scripts/scrub_validation_leaks.py", 27, "one-off data-scrub script with explicit 10s timeout"),
-    # src/tools/tradingstate/core.py: uses raw sqlite3.connect for the explicit SQLite
-    # fallback path. connect_db is not used here because this is a tools-layer module
-    # that intentionally opens its own low-level connection for the fallback snapshot.
-    ("src/tools/tradingstate/core.py", 176, "SQLite fallback snapshot — tools-layer explicit fallback path with intentional 5s timeout"),
-    # scripts/audit_db_sync.py: audit/diagnostic script that uses URI mode=ro for read-only
-    # inspection — connect_db does not support uri=True.
-    ("scripts/audit_db_sync.py", 105, "audit script: URI mode=ro — connect_db does not support uri=True"),
-    # scripts/audit_schema_drift.py: one-off schema audit script, direct connect for
-    # introspection of sqlite_master — not part of production code path.
-    ("scripts/audit_schema_drift.py", 47, "one-off schema audit script — direct sqlite_master introspection"),
-    # scripts/sqlite_to_pg_migrate.py: migration script that opens source SQLite DB
-    # for one-way data migration to Postgres — not part of production code path.
-    ("scripts/sqlite_to_pg_migrate.py", 72, "migration script: opens source SQLite for one-way Postgres migration"),
-    ("scripts/sqlite_to_pg_migrate.py", 101, "migration script: opens source SQLite for one-way Postgres migration"),
-    ("scripts/sqlite_to_pg_migrate.py", 270, "migration script: opens source SQLite for one-way Postgres migration"),
-    # logs/cutover-smoke-monitor.py: monitoring script that uses URI mode=ro for read-only
-    # inspection of the live SQLite DB — connect_db does not support uri=True.
-    ("logs/cutover-smoke-monitor.py", 61, "monitoring script: URI mode=ro — connect_db does not support uri=True"),
-    # scripts/diagnostics/attribution_readout.py: diagnostic script that uses URI mode=ro
-    # for read-only inspection — connect_db does not support uri=True.
-    ("scripts/diagnostics/attribution_readout.py", 38, "diagnostic script: URI mode=ro — connect_db does not support uri=True"),
+# (file, snippet, reason) — snippet is a distinctive substring of the
+# sqlite3.connect line; matched as a substring so unrelated edits don't drift it.
+_ALLOWLIST: list[tuple[str, str, str]] = [
+    # src/utils/db.py: connect_db() itself — the definition site.
+    ("src/utils/db.py", "call sqlite3.connect directly", "definition site — docstring comment referencing sqlite3.connect"),
+    ("src/utils/db.py", "sqlite3.connect(effective_path, timeout=BUSY_TIMEOUT_MS", "definition site — connect_db() SQLite path(s) (force_sqlite + normal)"),
+    # scheduler/watch.py: _backup_database uses the Online Backup API, which needs two
+    # raw connections (src + dst) held simultaneously; connect_db returns a single conn.
+    ("src/scheduler/watch.py", "src = sqlite3.connect(DB_PATH)", "backup API: src conn for sqlite3.backup() — needs raw pair"),
+    ("src/scheduler/watch.py", "dst = sqlite3.connect(str(backup_path))", "backup API: dst conn for sqlite3.backup() — needs raw pair"),
+    # schema/sqlite.py: the explicit SQLite-engine entry points (bypass PG shim by design).
+    ("src/schema/sqlite.py", "sqlite3.connect(db_path, timeout=30.0)", "_sqlite_only_connect definition — SQLite-only entry point bypasses PG shim by design"),
+    ("src/schema/sqlite.py", "conn_retry = sqlite3.connect(db_path)", "schema bootstrap retry-index path — short-lived raw conn for index CREATE IF NOT EXISTS"),
+    # src/tools/tradingstate/core.py: explicit SQLite fallback snapshot (tools-layer).
+    ("src/tools/tradingstate/core.py", "sqlite3.connect(str(sqlite_path), timeout=5)", "SQLite fallback snapshot — tools-layer explicit fallback path with intentional 5s timeout"),
+    # scripts/_clean_slate/sqlite_retire.py: archive-then-empty of the legacy SQLite DB
+    # during the clean-slate wipe (#95). URI mode=ro for the read-only archive check;
+    # raw connect for the one-off archive copy + the live source conn.
+    ("scripts/_clean_slate/sqlite_retire.py", 'sqlite3.connect(f"file:{db_path}?mode=ro"', "clean-slate retire: URI mode=ro read-only archive check — connect_db does not support uri=True"),
+    ("scripts/_clean_slate/sqlite_retire.py", "sqlite3.connect(str(src))", "clean-slate retire: one-off archive copy + live source conn for archive-then-empty"),
+    # scripts/archive_bootcamp_2026_04_24.py: legacy-DB archive tool — URI ro + one-offs.
+    ("scripts/archive_bootcamp_2026_04_24.py", 'sqlite3.connect(f"file:{source_path}?mode=ro"', "URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 'sqlite3.connect(f"file:{db_path}?mode=ro"', "URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/archive_bootcamp_2026_04_24.py", "sqlite3.connect(str(source_path))", "archive script: migrates legacy DB, short-lived one-off tool"),
+    ("scripts/archive_bootcamp_2026_04_24.py", "with sqlite3.connect(...)", "comment/docstring text mentioning sqlite3.connect — not a live call"),
+    ("scripts/archive_bootcamp_2026_04_24.py", "sqlite3.connect(str(fresh_path)).close()", "creates empty stub DB for test fixture — intentional init"),
+    ("scripts/archive_bootcamp_2026_04_24.py", 'sqlite3.connect(f"file:{fresh_path}?mode=ro"', "URI mode=ro verify — connect_db does not support uri=True"),
+    # scripts/recover_from_postgres.py: recovery import loop + operator help text.
+    ("scripts/recover_from_postgres.py", "sq = sqlite3.connect(LOCAL_DB)", "recovery script: WAL mode setup + intentional 5s busy_timeout for long Postgres import loop"),
+    ("scripts/recover_from_postgres.py", "c=sqlite3.connect('", "string literal in print() — operator help text, not a live call"),
+    # scripts/statusline.py: non-blocking terminal status bar — short 2s timeout.
+    ("scripts/statusline.py", "sqlite3.connect(str(DB), timeout=2)", "intentional 2s timeout for non-blocking terminal status bar"),
+    # one-off incident / maintenance scripts (not production code path).
+    ("scripts/cleanup_overshoot_zombies_2026_04_21.py", "sqlite3.connect(args.db, timeout=30.0)", "one-off cleanup script with explicit 30s timeout matching connect_db default"),
+    ("scripts/reconcile_2026_04_20.py", "sqlite3.connect(db_path, timeout=30)", "one-off reconcile script with explicit 30s timeout matching connect_db default"),
+    ("scripts/scrub_validation_leaks.py", "sqlite3.connect(db_path, timeout=10)", "one-off data-scrub script with explicit 10s timeout"),
+    # audit / diagnostic / migration scripts: URI ro inspection or one-way migration.
+    ("scripts/audit_db_sync.py", "sqlite3.connect(_sqlite_ro_uri(db_path)", "audit script: URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/audit_schema_drift.py", "conn = sqlite3.connect(db_path)", "one-off schema audit script — direct sqlite_master introspection"),
+    ("scripts/sqlite_to_pg_migrate.py", "sqlite3.connect(sqlite_path)", "migration script: opens source SQLite for one-way Postgres migration"),
+    ("scripts/sqlite_to_pg_migrate.py", "sqlite3.connect(source_path)", "migration script: opens source SQLite for one-way Postgres migration"),
+    ("logs/cutover-smoke-monitor.py", 'sqlite3.connect(f"file:{SQLITE}?mode=ro"', "monitoring script: URI mode=ro — connect_db does not support uri=True"),
+    ("scripts/diagnostics/attribution_readout.py", 'sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro"', "diagnostic script: URI mode=ro — connect_db does not support uri=True"),
 ]
 
 
@@ -105,12 +86,36 @@ def _scan_raw_connect_sites():
             continue
 
 
+def _is_allowed(filepath: str, line_text: str) -> bool:
+    return any(
+        filepath == af and snippet in line_text
+        for af, snippet, _reason in _ALLOWLIST
+    )
+
+
 def test_no_raw_sqlite3_connect_outside_allowlist():
     sites = list(_scan_raw_connect_sites())
-    allowed = {(f, ln) for f, ln, _ in _ALLOWLIST}
-    violations = [(f, ln, line) for f, ln, line in sites if (f, ln) not in allowed]
+    violations = [
+        (f, ln, line) for f, ln, line in sites if not _is_allowed(f, line)
+    ]
     if violations:
         msg = f"{len(violations)} raw sqlite3.connect sites outside allowlist:\n" + "\n".join(
             f"  {f}:{ln}  {line}" for f, ln, line in violations[:40]
         )
         pytest.fail(msg)
+
+
+def test_no_dead_allowlist_entries():
+    """Every allowlist entry must still match at least one real site — prevents
+    the allowlist from rotting (how the old engine_helpers.py:61 entry went dead
+    after its source line changed)."""
+    sites = list(_scan_raw_connect_sites())
+    dead = []
+    for af, snippet, _reason in _ALLOWLIST:
+        if not any(af == f and snippet in line for f, _ln, line in sites):
+            dead.append(f"{af}  ::  {snippet!r}")
+    if dead:
+        pytest.fail(
+            f"{len(dead)} allowlist entries match no live sqlite3.connect site "
+            f"(stale — remove or fix):\n" + "\n".join(f"  {d}" for d in dead)
+        )
