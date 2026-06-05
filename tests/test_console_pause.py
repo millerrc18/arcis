@@ -98,6 +98,21 @@ class TestPauseStateRoundTrip:
             assert state["is_paused"] is False
             assert pause.is_paused() is False
 
+    def test_is_paused_fails_closed_on_db_error(self):
+        """Operator decision 2026-06-05: if the pause state can't be READ at all
+        (DB error / table missing), is_paused() must fail CLOSED (return True)
+        so a paused desk never silently resumes trading on a transient glitch.
+        A successfully-read empty table is the separate not-paused default."""
+        from src.console import pause
+
+        def _boom():
+            raise RuntimeError("simulated DB outage")
+
+        with patch("src.console.pause.connect_db", side_effect=_boom):
+            assert pause.is_paused() is True, (
+                "is_paused() must fail CLOSED (True) when the state read raises"
+            )
+
     def test_set_pause_writes_single_row(self):
         from src.console import pause
 

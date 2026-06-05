@@ -136,11 +136,17 @@ def read_pause_state() -> dict:
 def is_paused() -> bool:
     """Cheap boolean read of the graceful-pause state (single-row SELECT).
 
-    Used by the scan / executor gates. Fail-open: if the state row can't be
-    read (DB error, table missing), returns False so a read failure never
-    silently blocks all autonomous activity — distinct from the governor's
-    fail-safe halt, because graceful pause is an operator convenience, not a
-    risk control.
+    Used by the scan / executor gates. Fail-CLOSED (operator decision
+    2026-06-05): if the state row can't be READ at all (DB error, table
+    missing), returns True so a paused desk can never silently RESUME
+    autonomous trading on a transient DB glitch — the spec's "make divergence
+    loud / never silent-green" principle (§1.3). Skipping a scan cycle is cheap
+    and reversible; trading the operator paused is not. A loud WARNING is
+    logged so the skip is visible, not silent.
+
+    Note: a successfully-read EMPTY table (row is None — no pause ever set) is
+    the legitimate not-paused default and returns False; only an actual read
+    FAILURE fails closed.
     """
     try:
         with connect_db() as conn:
@@ -148,8 +154,11 @@ def is_paused() -> bool:
                 "SELECT is_paused FROM console_pause_state WHERE id = 1"
             ).fetchone()
     except Exception as exc:
-        logger.debug("[PAUSE] is_paused read failed (fail-open): %s", exc)
-        return False
+        logger.warning(
+            "[PAUSE] is_paused read FAILED — failing CLOSED (treating as paused, "
+            "skipping autonomous action this cycle): %s", exc
+        )
+        return True
     if row is None:
         return False
     return bool(row["is_paused"])
