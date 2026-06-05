@@ -322,16 +322,22 @@ def test_dashboard_routes_have_pages():
     """Every Route in App.jsx must point to an existing page component file."""
     app_jsx = Path("frontend/src/App.jsx").read_text(encoding="utf-8")
     routes = re.findall(r'element=.*?<(\w+)', app_jsx)
-    imports = re.findall(r"import (\w+) from ['\"]./pages/(\w+)", app_jsx)
-    import_map = {name: file for name, file in imports}
+    # Route components live under ./pages/ (the old dashboard) OR ./console/
+    # (the Founder Console rebuild — a deliberate parallel structure). Both are
+    # validated to resolve to a real file; the import path is captured from the
+    # source so this never drifts when a new console route is added.
+    page_imports = re.findall(r"import (\w+) from ['\"]\./pages/([\w/]+)", app_jsx)
+    console_imports = re.findall(r"import (\w+) from ['\"]\./(console/[\w/]+)", app_jsx)
+    import_map = {name: f"frontend/src/pages/{file}.jsx" for name, file in page_imports}
+    import_map.update({name: f"frontend/src/{rel}.jsx" for name, rel in console_imports})
     missing = []
     for component in routes:
         if component in ("ErrorBoundary", "Layout"):
             continue
         if component in import_map:
-            page_file = Path(f"frontend/src/pages/{import_map[component]}.jsx")
-            if not page_file.exists():
-                missing.append(f"Route <{component}> → {page_file} does not exist")
+            comp_file = Path(import_map[component])
+            if not comp_file.exists():
+                missing.append(f"Route <{component}> → {comp_file} does not exist")
         # Also check the import exists
         if component not in import_map and component not in ("ErrorBoundary", "Layout", "Routes", "Route", "BrowserRouter"):
             missing.append(f"Route <{component}> has no import in App.jsx")
