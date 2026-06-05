@@ -25,11 +25,14 @@ def test_partition_is_exhaustive_and_disjoint():
     assert wipe & keep == set(), f"partition overlap: {sorted(wipe & keep)}"
 
 
-def test_counts_pinned_53_27_80():
-    assert len(cls.WIPE_TABLES) == 53
+def test_counts_pinned_55_27_82():
+    # +2 WIPE vs the 2026-06-03 review: reconciliation_breaks (T3) +
+    # console_pause_state (T4) — both per-run runtime state, ruled WIPE
+    # (Founder Console Phase-1).
+    assert len(cls.WIPE_TABLES) == 55
     assert len(cls.KEEP_TABLES) == 27
-    assert len(cls.WIPE_TABLES) + len(cls.KEEP_TABLES) == 80
-    assert len(set(registry.TABLES)) == cls.EXPECTED_REGISTRY_COUNT == 80
+    assert len(cls.WIPE_TABLES) + len(cls.KEEP_TABLES) == 82
+    assert len(set(registry.TABLES)) == cls.EXPECTED_REGISTRY_COUNT == 82
 
 
 def test_assert_partition_complete_passes_on_real_registry():
