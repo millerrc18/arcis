@@ -871,10 +871,6 @@ export function TradeLedgersView() {
   )
 }
 
-export function ResearchStub() {
-  return <DrillStub testId="know-research" label="Research & calibration" />
-}
-
 export function ScorecardsStub() {
   return <DrillStub testId="know-scorecards" label="AI dev-team scorecards" />
 }
