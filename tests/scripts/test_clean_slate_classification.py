@@ -25,18 +25,26 @@ def test_partition_is_exhaustive_and_disjoint():
     assert wipe & keep == set(), f"partition overlap: {sorted(wipe & keep)}"
 
 
-def test_counts_pinned_56_27_83():
+def test_counts_pinned_57_27_84():
     # +2 WIPE vs the 2026-06-03 review: reconciliation_breaks (T3) +
     # console_pause_state (T4) — both per-run runtime state, ruled WIPE
     # (Founder Console Phase-1).
     # +1 WIPE: console_decisions (Phase-2 T1) — per-run verdict state.
-    assert len(cls.WIPE_TABLES) == 56
+    # +1 WIPE: agent_task_outcomes (F1) — per-run dev telemetry.
+    assert len(cls.WIPE_TABLES) == 57
     assert len(cls.KEEP_TABLES) == 27
-    assert len(cls.WIPE_TABLES) + len(cls.KEEP_TABLES) == 83
-    assert len(set(registry.TABLES)) == cls.EXPECTED_REGISTRY_COUNT == 83
+    assert len(cls.WIPE_TABLES) + len(cls.KEEP_TABLES) == 84
+    assert len(set(registry.TABLES)) == cls.EXPECTED_REGISTRY_COUNT == 84
     assert "console_decisions" in cls.WIPE_TABLES, (
         "console_decisions must be in WIPE_TABLES "
         "(per-run verdict state — add to classification.py)"
+    )
+    assert "agent_task_outcomes" in cls.WIPE_TABLES, (
+        "agent_task_outcomes must be in WIPE_TABLES "
+        "(per-run dev telemetry — add to classification.py)"
+    )
+    assert "agent_task_outcomes" not in cls.KEEP_TABLES, (
+        "agent_task_outcomes must NOT be in KEEP_TABLES"
     )
 
 
