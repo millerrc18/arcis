@@ -172,17 +172,17 @@ function ActivityRow({ entry }) {
 export default function ScorecardsView() {
   const modelPerfQuery = useQuery({
     queryKey: ['scorecards-model-performance'],
-    queryFn: () => fetchApi('/api/model-performance'),
+    queryFn: () => fetchApi('/model-performance'),
   })
 
   const activityQuery = useQuery({
     queryKey: ['scorecards-activity-feed'],
-    queryFn: () => fetchApi('/api/activity/feed?limit=30'),
+    queryFn: () => fetchApi('/activity/feed?limit=30'),
   })
 
   const versionsQuery = useQuery({
     queryKey: ['scorecards-training-versions'],
-    queryFn: () => fetchApi('/api/training/versions'),
+    queryFn: () => fetchApi('/training/versions'),
   })
 
   const mp = modelPerfQuery.data

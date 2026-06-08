@@ -160,10 +160,15 @@ function mockScorecardsApis(overrides = {}) {
     versions: MOCK_VERSIONS,
     ...overrides,
   }
+  // Path-EXACT matching (startsWith the single-/api-prefixed route). fetchApi
+  // prepends API_BASE='/api', so the correct call yields '/api/model-performance';
+  // a double-prefix bug ('/api/api/model-performance') will NOT match and the
+  // section degrades to its empty state — so this mock CATCHES the prefix defect
+  // instead of masking it (was a substring `.includes` that matched both).
   const fetchMock = vi.fn((url) => {
-    if (url.includes('/model-performance')) return jsonResponse(payloads.modelPerf)
-    if (url.includes('/activity/feed')) return jsonResponse(payloads.activity)
-    if (url.includes('/training/versions')) return jsonResponse(payloads.versions)
+    if (url.startsWith('/api/model-performance')) return jsonResponse(payloads.modelPerf)
+    if (url.startsWith('/api/activity/feed')) return jsonResponse(payloads.activity)
+    if (url.startsWith('/api/training/versions')) return jsonResponse(payloads.versions)
     return jsonResponse({})
   })
   vi.stubGlobal('fetch', fetchMock)
