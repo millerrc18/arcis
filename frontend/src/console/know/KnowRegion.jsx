@@ -10,11 +10,11 @@ import {
   TrackRecordView,
   TradeLedgersView,
   SystemMapView,
-  ScorecardsStub,
 } from './components'
 import RigorStack from './RigorStack'
 import AttributionView from './AttributionView'
 import ResearchView from './ResearchView'
+import ScorecardsView from './ScorecardsView'
 
 export default function KnowRegion() {
   return (
@@ -28,7 +28,7 @@ export default function KnowRegion() {
         <Route path="rigor" element={<RigorStack />} />
         <Route path="attribution" element={<AttributionView />} />
         <Route path="research" element={<ResearchView />} />
-        <Route path="scorecards" element={<ScorecardsStub />} />
+        <Route path="scorecards" element={<ScorecardsView />} />
       </Routes>
     </div>
   )
