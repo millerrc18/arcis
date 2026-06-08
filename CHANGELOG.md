@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Added — Founder Operating Console, Phase 3 KNOW · Wave B (salvage drill-downs — completes KNOW)
+
+Second wave of the KNOW region: the analytics drill-downs salvaged into the console under overview→drill-down. All frontend — consumes existing backend routes (and the Wave-A `/console/know/calibration`) verbatim; no new backend, no new tables. The old `frontend/src/pages/*` originals are retained (salvage adapts the rendering). Completes the KNOW region.
+
+- **Rigor stack (`frontend/src/console/know/RigorStack.jsx`)** — Validation / Walkforward (OOS windows) / Stress Test sub-views, consuming `/walkforward/runs(+windows/trades)`, `/stress-test/results`, `/system/validation`. (Dedicated PSR/DSR/PBO rigor metrics shown in track record; a per-metric rigor endpoint is a noted follow-up — the panel honestly shows the validation checks the endpoint provides.)
+- **Attribution + calibration (`frontend/src/console/know/AttributionView.jsx`)** — alpha vs SPY-beta + strategy/pipeline/LLM breakdown (`/attribution/stats`, `/shadow/sharpe-attribution`), plus the **outcome-tagged calibration view** ("do high-conviction theses win?") consuming the Wave-A `/console/know/calibration`; `no_data` renders an explicit "no joined outcomes yet" message (never a fabricated 0% win rate); `join_source`/`state` surfaced.
+- **Research & calibration corpus (`frontend/src/console/know/ResearchView.jsx`)** — searchable thesis/packet/notes corpus (`/packets`, `/notes`), the weekly "what we learned" digest (`/research/digest`, honest "not yet synthesized" empty state) + papers (`/research/papers`), and the **AI Council demoted to a panel** (§5: panel inside KNOW, not its own page) (`/council/latest`, `/council/history`).
+- **AI dev-team scorecards (`frontend/src/console/know/ScorecardsView.jsx`)** — per-model-version win-rate/profit-factor/Sharpe (`/model-performance`), training version history (`/training/versions`), and the dev-activity feed (`/activity/feed`). Per-role (Planner/Developer/Reviewer) and scope-drift/trajectory signals render an explicit **"not yet instrumented"** state (the `activity_log` carries no agent-role column yet) — never fabricated, flagged as a future instrumentation task.
+
+Every displayed number flows through the render-boundary primitives; honest no-data/empty states throughout (no_data ≠ zero). With KNOW complete, the new `/console` (NOW + DECIDE + KNOW) reaches feature parity with the old 28-page dashboard, which can now be retired in a separate step.
+
 ### Added — Founder Operating Console, Phase 3 KNOW · Wave A (derived views + pinned analytics)
 
 First wave of the KNOW region (legibility + analytics; spec §3.3) — the new **derive-from-source** engineering (law #7) plus the operator's daily-reliance pins. Builds on the Phase-1 metric registry + render-boundary primitives + console shell; the old dashboard stays untouched (salvage = adapt into the console, originals retained). No new tables.
