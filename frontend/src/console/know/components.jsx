@@ -871,10 +871,6 @@ export function TradeLedgersView() {
   )
 }
 
-export function RigorStub() {
-  return <DrillStub testId="know-rigor" label="Rigor stack" />
-}
-
 export function AttributionStub() {
   return <DrillStub testId="know-attribution" label="Attribution" />
 }
