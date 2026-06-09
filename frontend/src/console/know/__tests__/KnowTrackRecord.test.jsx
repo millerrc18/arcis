@@ -389,6 +389,18 @@ describe('TrackRecordView — unavailable metrics', () => {
       expect(within(view).queryByText(/dsr.*not available/i)).not.toBeInTheDocument()
     })
   })
+
+  it('F6: DSR is rendered as a headline metric TILE (value 0.91, label dsr) — workstream #1 end-to-end', async () => {
+    mockKnow()
+    renderKnow('/console/know/track-record')
+    const view = await screen.findByTestId('know-track-record')
+    await waitFor(() => {
+      // 'dsr' is now in HEADLINE_STAT_IDS, so the backend-delivered dsr metric
+      // renders as a real tile (label + value), not silently dropped.
+      expect(within(view).getAllByText(/dsr/i).length).toBeGreaterThan(0)
+      expect(within(view).getByText('0.91')).toBeInTheDocument()
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------

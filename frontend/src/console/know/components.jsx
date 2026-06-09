@@ -577,6 +577,7 @@ const HEADLINE_STAT_IDS = [
   'rf_adjusted_sharpe',
   'excess_sharpe_vs_spy',
   'psr',
+  'dsr',
   'win_rate',
   'profit_factor',
   'max_drawdown',
