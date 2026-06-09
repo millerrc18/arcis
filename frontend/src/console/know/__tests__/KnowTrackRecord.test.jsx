@@ -69,6 +69,14 @@ const MOCK_TRACK_RECORD = {
       unit: '',
       state: 'ok',
     },
+    dsr: {
+      value: 0.91,
+      n: 120,
+      as_of: NOW,
+      cohort: 'paper-90d',
+      unit: '',
+      state: 'ok',
+    },
     profit_factor: {
       value: 1.65,
       n: 120,
@@ -86,7 +94,7 @@ const MOCK_TRACK_RECORD = {
       state: 'ok',
     },
   },
-  unavailable: ['dsr'],
+  unavailable: [],
   equity_curve: [
     { t: '2026-03-01', equity: 100000 },
     { t: '2026-04-01', equity: 104200 },
@@ -359,24 +367,26 @@ describe('TrackRecordView — headline metrics', () => {
 // TrackRecordView — unavailable list
 // ---------------------------------------------------------------------------
 describe('TrackRecordView — unavailable metrics', () => {
-  it('renders "dsr" from the unavailable list as an explicit not-available item', async () => {
+  it('F6: DSR is in metrics dict — "dsr not available" item does NOT appear in the UI', async () => {
     mockKnow()
     renderKnow('/console/know/track-record')
     const view = await screen.findByTestId('know-track-record')
+    // Give queries time to resolve
     await waitFor(() => {
-      // "dsr" must appear as a labeled unavailable item
-      expect(within(view).getByText(/dsr/i)).toBeInTheDocument()
+      // Unavailable section for dsr must be absent — backend moved dsr from unavailable to metrics
+      expect(within(view).queryByTestId('know-track-record-unavailable-dsr')).not.toBeInTheDocument()
     })
   })
 
-  it('unavailable item is labeled "not available", not shown as 0 or blank', async () => {
+  it('F6: no "dsr not available" text rendered when dsr is in the metrics dict (not in unavailable [])', async () => {
     mockKnow()
     renderKnow('/console/know/track-record')
     const view = await screen.findByTestId('know-track-record')
     await waitFor(() => {
-      const unavailItem = within(view).getByTestId('know-track-record-unavailable-dsr')
-      expect(unavailItem.textContent).toMatch(/not available|unavailable/i)
-      expect(unavailItem.textContent).not.toMatch(/^0$/)
+      // unavailable array is [] so the whole "Not available" section is absent
+      expect(within(view).queryByTestId('know-track-record-unavailable-dsr')).not.toBeInTheDocument()
+      // The text "dsr: not available" must not appear
+      expect(within(view).queryByText(/dsr.*not available/i)).not.toBeInTheDocument()
     })
   })
 })

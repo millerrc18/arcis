@@ -1,5 +1,5 @@
 /**
- * RigorStack — Rigor drill-down for the KNOW region (P3-T8).
+ * RigorStack — Rigor drill-down for the KNOW region (P3-T8 + F6).
  * Three sub-views: Validation, Walkforward, Stress Test.
  * Consumes existing backend routes verbatim (no new routes added).
  *
@@ -8,6 +8,10 @@
  *   GET /api/walkforward/runs/{id}/windows (walkforward.py:108-137)
  *   GET /api/stress-test/results       (analytics.py:921-943)
  *   GET /api/system/validation         (via api.js: fetchApi('/system/validation'))
+ *
+ * F6 NEW:
+ *   GET /console/know/rigor-metrics (BARE path — fetchApi prepends /api)
+ *   Shape: { psr, dsr, pbo } each { value, n, as_of, cohort, unit, state }
  *
  * Render laws:
  *   Every metric goes through Metric (requires cohort/n/asOf) + SentinelGuard.
@@ -124,15 +128,67 @@ const TABS = [
 ]
 
 // ---------------------------------------------------------------------------
-// ValidationPanel — consumes GET /api/system/validation
-// Shape (from Validation.jsx + api.js:170):
+// ValidationPanel — consumes GET /api/system/validation + /console/know/rigor-metrics
+// Validation shape (from Validation.jsx + api.js:170):
 //   { overall_status, checks_passed, checks_warning, checks_failed,
 //     checks_total, timestamp, categories: { [name]: [{status,name,detail}] } }
+// Rigor-metrics shape (F6):
+//   { psr, dsr, pbo } each { value, n, as_of, cohort, unit, state }
 // ---------------------------------------------------------------------------
+
+function RigorMetricTile({ testId, label, envelope }) {
+  const { value, n, as_of, cohort, state } = envelope ?? {}
+
+  if (state === 'insufficient_configs') {
+    return (
+      <div data-testid={testId}>
+        <Metric
+          label={label}
+          value={<span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>insufficient configs for PBO</span>}
+          cohort={cohort ?? 'rigor'}
+          n={n ?? 0}
+          asOf={as_of ?? 'unknown'}
+        />
+      </div>
+    )
+  }
+
+  if (state === 'no_data' || state === 'unknown' || value == null) {
+    return (
+      <div data-testid={testId}>
+        <Metric
+          label={label}
+          value={<SentinelGuard value={null} />}
+          cohort={cohort ?? 'rigor'}
+          n={n ?? 0}
+          asOf={as_of ?? 'unknown'}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid={testId}>
+      <Metric
+        label={label}
+        value={<SentinelGuard value={value} />}
+        cohort={cohort}
+        n={n}
+        asOf={as_of}
+      />
+    </div>
+  )
+}
+
 function ValidationPanel() {
   const query = useQuery({
     queryKey: ['rigor-validation'],
     queryFn: () => fetchApi('/system/validation'),
+  })
+
+  const rigorQuery = useQuery({
+    queryKey: ['rigor-metrics'],
+    queryFn: () => fetchApi('/console/know/rigor-metrics'),
   })
 
   const data = query.data
@@ -144,6 +200,8 @@ function ValidationPanel() {
   const timestamp = data?.timestamp ?? null
   const isSettled = query.status !== 'pending'
   const hasData = overall != null || (total != null && total > 0)
+
+  const rigorData = rigorQuery.data
 
   return (
     <div data-testid="rigor-validation-panel">
@@ -198,6 +256,18 @@ function ValidationPanel() {
           </>
         )}
       </section>
+
+      {/* F6: PSR / DSR / PBO rigor-metrics tiles */}
+      {rigorData && (
+        <section style={SECTION_STYLE}>
+          <div style={{ ...SECTION_TITLE_STYLE, marginBottom: 12 }}>PSR / DSR / PBO</div>
+          <div style={CARD_GRID_STYLE}>
+            <RigorMetricTile testId="rigor-psr-tile" label="PSR" envelope={rigorData.psr} />
+            <RigorMetricTile testId="rigor-dsr-tile" label="DSR" envelope={rigorData.dsr} />
+            <RigorMetricTile testId="rigor-pbo-tile" label="PBO" envelope={rigorData.pbo} />
+          </div>
+        </section>
+      )}
     </div>
   )
 }
