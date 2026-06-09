@@ -5,12 +5,15 @@ Calls: src.console.fund_ladder (generate_fund_ladder — verbatim),
        src.console.system_map (generate_system_map — verbatim),
        src.metrics.registry (headline stats — law #1, never recompute Sharpe),
        src.api.cloud_routes.kpis_compute (_fetch_closed_trades — trade source),
-       src.methods.psr (psr — pure helper, wrapped not reimplemented),
+       src.methods.psr (psr / dsr — pure helpers, wrapped not reimplemented),
        src.evaluation.statistics / src.evaluation.metrics (profit_factor /
        expectancy — pure helpers, wrapped),
        src.tools.tradingstate.core (open positions — #134 canonical book),
        src.evaluation.cto_report (_compute_confidence_calibration — REUSED join),
-       src.journal.store (closed trades + recommendations for calibration)
+       src.journal.store (closed trades + recommendations for calibration),
+       src.console.agent_outcomes (get_agent_scorecards — verbatim, scorecards),
+       src.console.rigor_metrics (build_pbo_envelope — verbatim, PBO),
+       src.utils.db (connect_db — read-only n_trials for the Deflated Sharpe)
 Owns tables: none (pure consumer / orchestrator)
 Config keys: none
 Tests: tests/api/test_console_know.py
@@ -29,13 +32,20 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
+from src.api.cloud_routes.console_know_metrics import (
+    dsr_envelope,
+    equity_curve,
+    expectancy_envelope,
+    profit_factor_envelope,
+    psr_envelope,
+    sum_n_trials,
+)
 from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
+from src.console.agent_outcomes import get_agent_scorecards
 from src.console.fund_ladder import generate_fund_ladder
+from src.console.rigor_metrics import build_pbo_envelope
 from src.console.system_map import generate_system_map
 from src.evaluation.cto_report import _compute_confidence_calibration
-from src.evaluation.metrics import expectancy as expectancy_fn
-from src.evaluation.statistics import profit_factor as profit_factor_fn
-from src.methods.psr import psr as psr_fn
 from src.metrics import registry as metric_registry
 from src.tools.tradingstate.core import state as tradingstate_state
 
@@ -44,9 +54,10 @@ _log = logging.getLogger(__name__)
 router = APIRouter()
 
 # Headline stats with no genuine single-source helper for a track-record number.
-# dsr requires an n_trials multiple-testing context (with n_trials=1 it collapses
-# to psr); there is no honest standalone source, so it is omitted (law #1).
-_UNAVAILABLE_STATS: tuple[str, ...] = ("dsr",)
+# dsr is now a real metric: it wraps src.methods.psr.dsr with an n_trials count
+# derived from trials_registry, and degrades to an honest no_data state when the
+# multiple-testing context is missing — so it is no longer listed here (law #1/#4).
+_UNAVAILABLE_STATS: tuple[str, ...] = ()
 
 
 def verify_auth() -> None:
@@ -90,80 +101,14 @@ def get_know_system_map() -> dict:
 
 # ── /api/console/know/track-record ───────────────────────────────────────────
 
-def _equity_curve(trades: list[dict]) -> list[dict] | None:
-    """Best-effort cumulative equity curve from closed trades (None if unavailable).
-
-    Cumulative product of (1 + per-trade return), ordered by exit time. Returns
-    None when no trade carries an exit time — emptiness is honest, not a flat
-    line implying a real curve.
-    """
-    dated = [t for t in trades if t.get("actual_exit_time")]
-    if not dated:
-        return None
-    dated = sorted(dated, key=lambda t: t["actual_exit_time"])
-    equity = 1.0
-    curve: list[dict] = []
-    for t in dated:
-        equity *= (1.0 + float(t.get("pnl_pct") or 0) / 100.0)
-        curve.append({"t": t["actual_exit_time"], "equity": round(equity, 6)})
-    return curve
-
-
-def _psr_envelope(returns: list[float], as_of: str | None) -> dict:
-    """Wrap the pure psr() helper into the canonical envelope (law #1).
-
-    psr() raises ValueError below 5 observations; that degrades to no_data with
-    value=None rather than a fabricated probability.
-    """
-    n = len(returns)
-    try:
-        value = psr_fn(returns)
-    except Exception as exc:  # noqa: BLE001 — too-few-obs / source issue -> no_data
-        _log.debug("[console-know] psr unavailable: %s", exc)
-        return {"value": None, "n": n, "as_of": as_of,
-                "cohort": "kpi.canonical", "unit": "probability", "state": "no_data"}
-    return {"value": round(float(value), 4), "n": n, "as_of": as_of,
-            "cohort": "kpi.canonical", "unit": "probability", "state": "ok"}
-
-
-def _profit_factor_envelope(trades: list[dict], as_of: str | None) -> dict:
-    """Wrap the pure profit_factor() helper into the canonical envelope (law #1)."""
-    if not trades:
-        return {"value": None, "n": 0, "as_of": as_of,
-                "cohort": "trades.all_closed", "unit": "ratio", "state": "no_data"}
-    wins = sum(float(t.get("pnl_dollars") or 0) for t in trades
-               if (t.get("pnl_dollars") or 0) > 0)
-    losses = sum(float(t.get("pnl_dollars") or 0) for t in trades
-                 if (t.get("pnl_dollars") or 0) < 0)
-    pf = profit_factor_fn(wins, losses)
-    # Undefined / no-loss inf is not a real ratio -> no_data (never a sentinel).
-    if pf in (float("inf"), 0.0) and losses == 0:
-        state, value = "no_data", None
-    else:
-        state, value = "ok", round(float(pf), 4)
-    return {"value": value, "n": len(trades), "as_of": as_of,
-            "cohort": "trades.all_closed", "unit": "ratio", "state": state}
-
-
-def _expectancy_envelope(trades: list[dict], as_of: str | None) -> dict:
-    """Wrap the pure expectancy() helper into the canonical envelope (law #1)."""
-    if not trades:
-        return {"value": None, "n": 0, "as_of": as_of,
-                "cohort": "trades.all_closed", "unit": "usd", "state": "no_data"}
-    value = expectancy_fn(float(t.get("pnl_dollars") or 0) for t in trades)
-    return {"value": round(float(value), 4), "n": len(trades), "as_of": as_of,
-            "cohort": "trades.all_closed", "unit": "usd", "state": "ok"}
-
-
 @router.get("/console/know/track-record", dependencies=[Depends(verify_auth)])
 def get_know_track_record() -> dict:
     """Audit-grade headline stats THROUGH the metric registry + pure helpers.
 
-    Registry-sourced: rf_adjusted_sharpe / excess_sharpe_vs_spy / win_rate /
-    max_drawdown / closed_trade_count. Pure-helper-wrapped: psr / profit_factor /
-    expectancy. dsr is omitted (no honest single-source) and listed in
-    `unavailable`. A failing trade source degrades every metric to unknown — never
-    a green reading (law #4).
+    Registry-sourced Sharpe/win-rate/drawdown plus pure-helper-wrapped psr / dsr
+    / profit_factor / expectancy. dsr derives n_trials from trials_registry
+    (SUM(n_params_searched)). A failing trade source degrades every metric to
+    unknown — never a green reading (law #4).
     """
     unavailable = list(_UNAVAILABLE_STATS)
     try:
@@ -172,7 +117,7 @@ def get_know_track_record() -> dict:
         _log.warning("[console-know] trade source unavailable: %s", exc)
         metric_ids = (
             "rf_adjusted_sharpe", "excess_sharpe_vs_spy", "win_rate",
-            "max_drawdown", "closed_trade_count", "psr", "profit_factor",
+            "max_drawdown", "closed_trade_count", "psr", "dsr", "profit_factor",
             "expectancy",
         )
         return {
@@ -188,6 +133,7 @@ def get_know_track_record() -> dict:
     spy_aligned = [float(t.get("pnl_pct") or 0) / 100.0 for t in spy_with_data]
     spy_returns = [float(t.get("spy_return_over_hold") or 0) for t in spy_with_data]
     as_of = _latest_close_time(trades) or _now_utc_iso()
+    n_trials = sum_n_trials()
 
     metrics = {
         "rf_adjusted_sharpe": metric_registry.compute_metric(
@@ -204,14 +150,15 @@ def get_know_track_record() -> dict:
         "closed_trade_count": metric_registry.compute_metric(
             "closed_trade_count", trades=trades, as_of=as_of,
         ),
-        "psr": _psr_envelope(returns, as_of),
-        "profit_factor": _profit_factor_envelope(trades, as_of),
-        "expectancy": _expectancy_envelope(trades, as_of),
+        "psr": psr_envelope(returns, as_of),
+        "dsr": dsr_envelope(returns, n_trials, as_of),
+        "profit_factor": profit_factor_envelope(trades, as_of),
+        "expectancy": expectancy_envelope(trades, as_of),
     }
     return {
         "metrics": metrics,
         "unavailable": unavailable,
-        "equity_curve": _equity_curve(trades),
+        "equity_curve": equity_curve(trades),
         "cto_report_link": "/api/cto-report",
         "as_of": as_of,
     }
@@ -344,3 +291,64 @@ def get_know_calibration() -> dict:
         "as_of": _now_utc_iso(),
         "state": "ok",
     }
+
+
+# ── /api/console/know/scorecards ─────────────────────────────────────────────
+
+@router.get("/console/know/scorecards", dependencies=[Depends(verify_auth)])
+def get_know_scorecards() -> dict:
+    """Per-role / per-task-type agent scorecards VERBATIM from the aggregator.
+
+    Delegates entirely to src.console.agent_outcomes.get_agent_scorecards (which
+    already carries state / as_of / per_role / per_task_type / scope_drift / n).
+    A source that raises degrades to an explicit unknown state with empty
+    buckets — never a silently-green 'all good' reading (law #4).
+    """
+    try:
+        return get_agent_scorecards()
+    except Exception as exc:  # noqa: BLE001 — fail-closed: unknown, never green
+        _log.warning("[console-know] scorecards source unavailable: %s", exc)
+        return {
+            "per_role": {},
+            "per_task_type": {},
+            "scope_drift": {"total_scope_violations": 0, "n": 0},
+            "n": 0,
+            "state": "unknown",
+            "as_of": _now_utc_iso(),
+        }
+
+
+# ── /api/console/know/rigor-metrics ──────────────────────────────────────────
+
+@router.get("/console/know/rigor-metrics", dependencies=[Depends(verify_auth)])
+def get_know_rigor_metrics() -> dict:
+    """PSR / DSR / PBO rigor panel — each the canonical envelope (law #1/#4).
+
+    PSR and DSR wrap the pure src.methods.psr helpers over the closed-trade
+    return series (DSR's n_trials = SUM(n_params_searched) over trials_registry);
+    a dead trade source degrades both to no_data, never green. PBO is
+    src.console.rigor_metrics.build_pbo_envelope() VERBATIM (state
+    'insufficient_configs' with value=None when fewer than 2 backtested configs
+    exist — the live state today, which is honest, not fabricated).
+    """
+    as_of = _now_utc_iso()
+    try:
+        trades = _fetch_closed_trades()
+    except Exception as exc:  # noqa: BLE001 — fail-closed: no_data, never green
+        _log.warning("[console-know] rigor trade source unavailable: %s", exc)
+        psr_env = psr_envelope([], as_of)
+        dsr_env = dsr_envelope([], 0, as_of)
+    else:
+        returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in trades]
+        trade_as_of = _latest_close_time(trades) or as_of
+        psr_env = psr_envelope(returns, trade_as_of)
+        dsr_env = dsr_envelope(returns, sum_n_trials(), trade_as_of)
+
+    try:
+        pbo_env = build_pbo_envelope()
+    except Exception as exc:  # noqa: BLE001 — fail-closed: no_data, never green
+        _log.warning("[console-know] PBO source unavailable: %s", exc)
+        pbo_env = {"value": None, "n": 0, "as_of": as_of, "cohort": "rigor",
+                   "unit": "probability", "state": "no_data"}
+
+    return {"psr": psr_env, "dsr": dsr_env, "pbo": pbo_env, "as_of": as_of}
