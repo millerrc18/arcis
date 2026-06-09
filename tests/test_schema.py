@@ -119,6 +119,8 @@ EXPECTED_TABLES = {
     "reconciliation_breaks", "console_pause_state",
     # Founder Console Phase-2 T1 — decision outcomes persistence
     "console_decisions",
+    # Founder Console F1 — per-coding-task agent outcome telemetry (KNOW scorecards)
+    "agent_task_outcomes",
 }
 
 
@@ -1187,4 +1189,120 @@ def test_console_decisions_sync_to_postgres():
     )
     assert td.sync_pk == "id", (
         f"console_decisions sync_pk must be 'id', got {td.sync_pk!r}"
+    )
+
+
+# ── Founder Console F1 — agent_task_outcomes ─────────────────────────────────
+
+
+def test_agent_task_outcomes_in_registry():
+    """agent_task_outcomes must be registered (Founder Console F1)."""
+    assert "agent_task_outcomes" in TABLES, (
+        "agent_task_outcomes not in registry — "
+        "add TableDef to src/schema/registry.py"
+    )
+
+
+def test_agent_task_outcomes_columns():
+    """agent_task_outcomes must have all required columns with correct types/nullability."""
+    assert "agent_task_outcomes" in TABLES
+    td = TABLES["agent_task_outcomes"]
+    col_map = {c.name: c for c in td.columns}
+
+    assert "id" in col_map, "agent_task_outcomes missing id"
+    assert col_map["id"].type == "INTEGER"
+    assert col_map["id"].nullable is False
+    assert col_map["id"].autoincrement is True
+
+    assert "created_at" in col_map, "agent_task_outcomes missing created_at"
+    assert col_map["created_at"].type == "TEXT"
+    assert col_map["created_at"].nullable is False
+
+    assert "run_id" in col_map, "agent_task_outcomes missing run_id"
+    assert col_map["run_id"].type == "TEXT"
+    assert col_map["run_id"].nullable is False
+
+    assert "task_id" in col_map, "agent_task_outcomes missing task_id"
+    assert col_map["task_id"].type == "TEXT"
+    assert col_map["task_id"].nullable is False
+
+    assert "agent_role" in col_map, "agent_task_outcomes missing agent_role"
+    assert col_map["agent_role"].type == "TEXT"
+    assert col_map["agent_role"].nullable is False
+
+    assert "task_type" in col_map, "agent_task_outcomes missing task_type"
+    assert col_map["task_type"].nullable is True
+
+    assert "outcome" in col_map, "agent_task_outcomes missing outcome"
+    assert col_map["outcome"].type == "TEXT"
+    assert col_map["outcome"].nullable is False
+
+    assert "rework_count" in col_map, "agent_task_outcomes missing rework_count"
+    assert col_map["rework_count"].type == "INTEGER"
+    assert col_map["rework_count"].default == "0"
+
+    assert "scope_violation" in col_map, "agent_task_outcomes missing scope_violation"
+    assert col_map["scope_violation"].type == "INTEGER"
+    assert col_map["scope_violation"].default == "0"
+
+    assert "review_cycles" in col_map, "agent_task_outcomes missing review_cycles"
+    assert col_map["review_cycles"].type == "INTEGER"
+    assert col_map["review_cycles"].default == "0"
+
+    assert "model" in col_map, "agent_task_outcomes missing model"
+    assert col_map["model"].nullable is True
+
+
+def test_agent_task_outcomes_indexes():
+    """agent_task_outcomes must have indexes on run_id, agent_role, and created_at."""
+    assert "agent_task_outcomes" in TABLES
+    td = TABLES["agent_task_outcomes"]
+    idx_names = {idx.name for idx in td.indexes}
+    indexed_cols = {col for idx in td.indexes for col in idx.columns}
+    assert "idx_agent_outcomes_run" in idx_names, (
+        "agent_task_outcomes missing index idx_agent_outcomes_run"
+    )
+    assert "idx_agent_outcomes_role" in idx_names, (
+        "agent_task_outcomes missing index idx_agent_outcomes_role"
+    )
+    assert "idx_agent_outcomes_created" in idx_names, (
+        "agent_task_outcomes missing index idx_agent_outcomes_created"
+    )
+    assert "run_id" in indexed_cols, "agent_task_outcomes missing index on run_id"
+    assert "agent_role" in indexed_cols, "agent_task_outcomes missing index on agent_role"
+    assert "created_at" in indexed_cols, "agent_task_outcomes missing index on created_at"
+
+
+def test_agent_task_outcomes_sync_to_postgres():
+    """agent_task_outcomes must sync to postgres incrementally."""
+    assert "agent_task_outcomes" in TABLES
+    td = TABLES["agent_task_outcomes"]
+    assert td.sync_to_postgres is True, (
+        "agent_task_outcomes sync_to_postgres must be True"
+    )
+    assert td.sync_mode == "incremental", (
+        f"agent_task_outcomes sync_mode must be 'incremental', got {td.sync_mode!r}"
+    )
+    assert td.sync_time_column == "created_at", (
+        f"agent_task_outcomes sync_time_column must be 'created_at', got {td.sync_time_column!r}"
+    )
+    assert td.sync_pk == "id", (
+        f"agent_task_outcomes sync_pk must be 'id', got {td.sync_pk!r}"
+    )
+
+
+def test_agent_task_outcomes_primary_key():
+    """agent_task_outcomes primary_key must be 'id'."""
+    assert "agent_task_outcomes" in TABLES
+    td = TABLES["agent_task_outcomes"]
+    assert td.primary_key == "id", (
+        f"agent_task_outcomes primary_key must be 'id', got {td.primary_key!r}"
+    )
+
+
+def test_registry_count_is_84():
+    """Registry must have exactly 84 tables after agent_task_outcomes addition."""
+    assert len(TABLES) == 84, (
+        f"Registry has {len(TABLES)} tables, expected 84. "
+        "If you added/removed a table, update this count."
     )

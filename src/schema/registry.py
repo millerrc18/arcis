@@ -2990,6 +2990,45 @@ _register(TableDef(
     sync_pk="id",
 ))
 
+# agent_task_outcomes: Per-coding-task agent outcome telemetry.
+# Powers the KNOW scorecards per-role + scope-drift panels in the Founder Console.
+# Written by: coding-team run recorder (F2 — not here, schema only).
+# Read by: KNOW region scorecards, scope-drift analysis.
+_register(TableDef(
+    name="agent_task_outcomes",
+    description="Per-coding-task agent outcome telemetry. One row per agent task "
+                "execution within a coding-team run. Powers KNOW scorecards per-role "
+                "and scope-drift panels.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef("run_id", "TEXT", nullable=False,
+                  description="coding-team run identifier"),
+        ColumnDef("task_id", "TEXT", nullable=False,
+                  description="task id within the run"),
+        ColumnDef("agent_role", "TEXT", nullable=False,
+                  description="planner | developer | qa_reviewer | security_reviewer "
+                              "| performance_reviewer | integrator | documentarian"),
+        ColumnDef("task_type", "TEXT", nullable=True),
+        ColumnDef("outcome", "TEXT", nullable=False,
+                  description="success | rework | escalation | blocked"),
+        ColumnDef("rework_count", "INTEGER", nullable=True, default="0"),
+        ColumnDef("scope_violation", "INTEGER", nullable=True, default="0"),
+        ColumnDef("review_cycles", "INTEGER", nullable=True, default="0"),
+        ColumnDef("model", "TEXT", nullable=True),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_agent_outcomes_run", ["run_id"]),
+        IndexDef("idx_agent_outcomes_role", ["agent_role"]),
+        IndexDef("idx_agent_outcomes_created", ["created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="id",
+))
+
 _register(TableDef(
     name="console_pause_state",
     description="Single-row canonical graceful-PAUSE state for the operator console. "

@@ -7,7 +7,7 @@ are trade/learning state (TRUNCATE-d) vs market-data/operator-authored
 (`assert_partition_complete`, mirroring src/utils/db.py:820-836's
 `_require_classified_replace`).
 
-Counts: WIPE=56, KEEP=27, sum=83 == len(registry.TABLES).
+Counts: WIPE=57, KEEP=27, sum=84 == len(registry.TABLES).
 
 This module is PURE data + set algebra. It deliberately imports NO
 DB-connection / TRUNCATE / information_schema logic — the live reconciliation
@@ -23,9 +23,9 @@ from src.schema import registry
 
 # Pinned count of the registered universe. A registry add/remove that happens
 # to keep the partition valid still trips the guard via this count-pin.
-EXPECTED_REGISTRY_COUNT = 83
+EXPECTED_REGISTRY_COUNT = 84
 
-# ── WIPE: trade/learning state — TRUNCATE ... RESTART IDENTITY CASCADE (56) ──
+# ── WIPE: trade/learning state — TRUNCATE ... RESTART IDENTITY CASCADE (57) ──
 WIPE_TABLES: frozenset[str] = frozenset({
     # core trade + recommendation
     "recommendations", "shadow_trades", "ib_shadow_log", "attribution_trades",
@@ -61,6 +61,9 @@ WIPE_TABLES: frozenset[str] = frozenset({
     # Founder Console Phase-2 (per-run verdict state — reset on relaunch):
     # decided outcomes trail (T1, audit/forensic, like audit_reports).
     "console_decisions",
+    # Founder Console F1 (per-run dev telemetry — reset on relaunch):
+    # per-coding-task agent outcomes (KNOW scorecards + scope-drift panels).
+    "agent_task_outcomes",
 })
 
 # ── KEEP: market-data / collector / operator-authored — PRESERVE (27) ──

@@ -1,5 +1,5 @@
 /**
- * ScorecardsView tests (P3-T11).
+ * ScorecardsView tests (P3-T11 + F6).
  *
  * Endpoints consumed (all via fetchApi):
  *   /api/model-performance  — training.py:553-617
@@ -8,10 +8,8 @@
  *     array of {id, event_type, detail, created_at, ...} from activity_log
  *   /api/training/versions  — training.py:231-239
  *     { versions: [{version_id, version_name, created_at, training_examples_count, holdout_score, status}] }
- *
- * Per-role (Planner/Developer/Reviewer) and scope-drift signals are NOT
- * provided by any backend endpoint — tests assert the "not yet instrumented"
- * state renders (never fabricated zeros).
+ *   /console/know/scorecards (F6 — BARE path)
+ *     { per_role, per_task_type, scope_drift, n, state, as_of }
  *
  * Non-vacuous: mocked values appear only when the component consumes them.
  */
@@ -42,6 +40,56 @@ import ScorecardsView from '../ScorecardsView'
 //                 holdout_score,status}] }
 
 const NOW = '2026-06-08T10:00:00Z'
+
+// ---------------------------------------------------------------------------
+// F6: /console/know/scorecards frozen backend contract shapes
+// ---------------------------------------------------------------------------
+const MOCK_SCORECARDS_OK = {
+  per_role: {
+    developer: {
+      n: 12,
+      success_rate: 0.833,
+      rework_rate: 0.167,
+      escalation_rate: 0.083,
+      blocked_rate: 0.0,
+      scope_violations: 1,
+      avg_review_cycles: 1.4,
+    },
+    reviewer: {
+      n: 8,
+      success_rate: 0.875,
+      rework_rate: 0.125,
+      escalation_rate: 0.0,
+      blocked_rate: 0.0,
+      scope_violations: 0,
+      avg_review_cycles: 1.1,
+    },
+  },
+  per_task_type: {
+    feature: {
+      n: 7,
+      success_rate: 0.857,
+      rework_rate: 0.143,
+      escalation_rate: 0.0,
+      blocked_rate: 0.0,
+      scope_violations: 0,
+      avg_review_cycles: 1.2,
+    },
+  },
+  scope_drift: { total_scope_violations: 1, n: 12 },
+  n: 12,
+  state: 'ok',
+  as_of: NOW,
+}
+
+const MOCK_SCORECARDS_NO_DATA = {
+  per_role: {},
+  per_task_type: {},
+  scope_drift: { total_scope_violations: 0, n: 0 },
+  n: 0,
+  state: 'no_data',
+  as_of: NOW,
+}
 
 const MOCK_MODEL_PERF = {
   models: [
@@ -158,6 +206,7 @@ function mockScorecardsApis(overrides = {}) {
     modelPerf: MOCK_MODEL_PERF,
     activity: MOCK_ACTIVITY,
     versions: MOCK_VERSIONS,
+    scorecards: MOCK_SCORECARDS_OK,
     ...overrides,
   }
   // Path-EXACT matching (startsWith the single-/api-prefixed route). fetchApi
@@ -165,10 +214,12 @@ function mockScorecardsApis(overrides = {}) {
   // a double-prefix bug ('/api/api/model-performance') will NOT match and the
   // section degrades to its empty state — so this mock CATCHES the prefix defect
   // instead of masking it (was a substring `.includes` that matched both).
+  // F6: '/console/know/scorecards' → fetchApi prepends /api → '/api/console/know/scorecards'
   const fetchMock = vi.fn((url) => {
     if (url.startsWith('/api/model-performance')) return jsonResponse(payloads.modelPerf)
     if (url.startsWith('/api/activity/feed')) return jsonResponse(payloads.activity)
     if (url.startsWith('/api/training/versions')) return jsonResponse(payloads.versions)
+    if (url.startsWith('/api/console/know/scorecards')) return jsonResponse(payloads.scorecards)
     return jsonResponse({})
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -334,49 +385,43 @@ describe('ScorecardsView — activity feed (REAL event types)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// "Not yet instrumented" honest state — per-role + scope-drift dimensions
+// Per-role / scope-drift honest rendering (F6 replaced the "not-instrumented" panels)
 // ---------------------------------------------------------------------------
-describe('ScorecardsView — not-yet-instrumented dimensions', () => {
-  it('renders the per-role section with "not yet instrumented" for Planner/Developer/Reviewer', async () => {
+describe('ScorecardsView — per-role / scope-drift honest rendering', () => {
+  it('renders per-role REAL section when scorecards data is present (not "not yet instrumented")', async () => {
     mockScorecardsApis()
     renderScorecardsView()
     const panel = screen.getByTestId('know-scorecards')
     await waitFor(() => {
-      expect(within(panel).getByTestId('scorecards-per-role-not-instrumented')).toBeInTheDocument()
+      // Old "not instrumented" testids are GONE — replaced with real rendering
+      expect(within(panel).queryByTestId('scorecards-per-role-not-instrumented')).not.toBeInTheDocument()
+      expect(within(panel).queryByTestId('scorecards-scope-drift-not-instrumented')).not.toBeInTheDocument()
     })
-    const niSection = within(panel).getByTestId('scorecards-per-role-not-instrumented')
-    // Must mention the three role types
-    expect(niSection.textContent).toMatch(/Planner/i)
-    expect(niSection.textContent).toMatch(/Developer/i)
-    expect(niSection.textContent).toMatch(/Reviewer/i)
-    // Must explicitly say "not yet instrumented" — never fabricate zeros
-    expect(niSection.textContent).toMatch(/not yet instrumented/i)
+    // Real per-role data renders
+    expect(within(panel).getByTestId('scorecards-per-role-real')).toBeInTheDocument()
   })
 
-  it('renders the scope-drift section with "not yet instrumented" (never fabricated zeros)', async () => {
+  it('scope-drift and per-task-type data render from the scorecards endpoint', async () => {
     mockScorecardsApis()
     renderScorecardsView()
     const panel = screen.getByTestId('know-scorecards')
     await waitFor(() => {
-      expect(within(panel).getByTestId('scorecards-scope-drift-not-instrumented')).toBeInTheDocument()
+      // scope violations from mock (1 total)
+      expect(within(panel).getByTestId('scorecards-per-role-real')).toBeInTheDocument()
     })
-    const niSection = within(panel).getByTestId('scorecards-scope-drift-not-instrumented')
-    expect(niSection.textContent).toMatch(/not yet instrumented/i)
-    // Must NOT render "0" as a fabricated metric value — only explicit text
-    expect(niSection.textContent).not.toMatch(/\b0\b/)
   })
 
-  it('per-role section does NOT fabricate numbers from the empty omitted mock', async () => {
-    // When activity feed omits role breakdown, no zeros should appear as fabricated metrics
-    mockScorecardsApis({ activity: [] })
+  it('per-role section does NOT fabricate zeros when scorecards returns no_data', async () => {
+    mockScorecardsApis({ scorecards: MOCK_SCORECARDS_NO_DATA })
     renderScorecardsView()
     const panel = screen.getByTestId('know-scorecards')
     await waitFor(() => {
-      expect(within(panel).getByTestId('scorecards-per-role-not-instrumented')).toBeInTheDocument()
+      expect(within(panel).getByTestId('scorecards-per-role-no-data')).toBeInTheDocument()
     })
-    // The not-instrumented badge is always present — not only when data is missing
-    const niSection = within(panel).getByTestId('scorecards-per-role-not-instrumented')
-    expect(niSection.textContent).toMatch(/not yet instrumented/i)
+    // No fabricated numeric metric values
+    const sentinelValues = within(panel).queryAllByTestId('sentinel-value')
+    const zeroValues = sentinelValues.filter((el) => el.textContent === '0')
+    expect(zeroValues.length).toBe(0)
   })
 })
 
@@ -391,6 +436,81 @@ describe('ScorecardsView — LAW #3 no raw sentinels', () => {
     await waitFor(() => {
       expect(within(panel).queryByText('999')).not.toBeInTheDocument()
       expect(within(panel).queryByText('-1')).not.toBeInTheDocument()
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// F6: Per-role + scope-drift REAL rendering via /console/know/scorecards
+// ---------------------------------------------------------------------------
+describe('ScorecardsView — F6 per-role real rendering', () => {
+  it('fetchApi is called with BARE path /console/know/scorecards (no /api double-prefix)', async () => {
+    const fetchMock = mockScorecardsApis()
+    renderScorecardsView()
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.map(([url]) => url)
+      // Must call /api/console/know/scorecards (fetchApi prepends /api)
+      expect(calls.some((u) => u.startsWith('/api/console/know/scorecards'))).toBe(true)
+      // Must NOT call the double-prefixed /api/api/... path
+      expect(calls.some((u) => u.startsWith('/api/api/'))).toBe(false)
+    })
+  })
+
+  it('renders per-role section with real data rows when per_role is non-empty (not "not yet instrumented")', async () => {
+    mockScorecardsApis()
+    renderScorecardsView()
+    const panel = screen.getByTestId('know-scorecards')
+    await waitFor(() => {
+      // Per-role data present: the "not yet instrumented" placeholder must be GONE
+      expect(within(panel).queryByTestId('scorecards-per-role-not-instrumented')).not.toBeInTheDocument()
+      // Role names from the mock should appear
+      expect(within(panel).getByText(/developer/i)).toBeInTheDocument()
+    })
+  })
+
+  it('renders success_rate as percentage (non-vacuous: 83.3% from 0.833 developer mock)', async () => {
+    mockScorecardsApis()
+    renderScorecardsView()
+    const panel = screen.getByTestId('know-scorecards')
+    await waitFor(() => {
+      expect(within(panel).getByText(/83\.3%/)).toBeInTheDocument()
+    })
+  })
+
+  it('renders scope-drift section with real data when per_role is non-empty (not "not yet instrumented")', async () => {
+    mockScorecardsApis()
+    renderScorecardsView()
+    const panel = screen.getByTestId('know-scorecards')
+    await waitFor(() => {
+      // Scope-drift "not yet instrumented" placeholder must be GONE
+      expect(within(panel).queryByTestId('scorecards-scope-drift-not-instrumented')).not.toBeInTheDocument()
+      // scope_violations value (1) from mock scope_drift
+      expect(within(panel).getByTestId('scorecards-per-role-real')).toBeInTheDocument()
+    })
+  })
+
+  it('state no_data → honest empty state, NOT zeros (non-vacuous: zeros do NOT appear)', async () => {
+    mockScorecardsApis({ scorecards: MOCK_SCORECARDS_NO_DATA })
+    renderScorecardsView()
+    const panel = screen.getByTestId('know-scorecards')
+    await waitFor(() => {
+      expect(within(panel).getByTestId('scorecards-per-role-no-data')).toBeInTheDocument()
+    })
+    const noDataEl = within(panel).getByTestId('scorecards-per-role-no-data')
+    expect(noDataEl.textContent).toMatch(/no instrumented runs yet/i)
+    // Must not render fabricated zero rates
+    const sentinelValues = within(panel).queryAllByTestId('sentinel-value')
+    const zeroValues = sentinelValues.filter((el) => el.textContent === '0')
+    // Zero must NOT appear as a fabricated metric rate in the no-data state
+    expect(zeroValues.length).toBe(0)
+  })
+
+  it('empty per_role {} → honest empty state (non-vacuous: mocked numbers appear only when per_role non-empty)', async () => {
+    mockScorecardsApis({ scorecards: { ...MOCK_SCORECARDS_NO_DATA, state: 'ok', per_role: {} } })
+    renderScorecardsView()
+    const panel = screen.getByTestId('know-scorecards')
+    await waitFor(() => {
+      expect(within(panel).getByTestId('scorecards-per-role-no-data')).toBeInTheDocument()
     })
   })
 })

@@ -1,18 +1,21 @@
 /**
- * ScorecardsView — AI dev-team scorecards drill-down (P3-T11).
+ * ScorecardsView — AI dev-team scorecards drill-down (P3-T11 + F6).
  *
  * Consumes existing endpoints (no new backend):
  *   GET /api/model-performance  — training.py:553-617
  *   GET /api/activity/feed      — council.py:94-117
  *   GET /api/training/versions  — training.py:231-239
  *
+ * F6 NEW:
+ *   GET /console/know/scorecards (BARE path — fetchApi prepends /api)
+ *   Shape: { per_role, per_task_type, scope_drift, n, state, as_of }
+ *
  * HONEST INSTRUMENTATION:
  *   REAL dimensions: per-model win-rate/profit-factor/sharpe/trades, training
- *     version history, activity event types (pr_merged, deploy, regression).
- *   NOT YET INSTRUMENTED: per-role (Planner/Developer/Reviewer) breakdown,
- *     scope-drift signal, trajectory-vs-output signal — the activity_log and
- *     model tables do NOT carry agent-role attribution. These render an
- *     explicit "not yet instrumented" state — never fabricated zeros.
+ *     version history, activity event types (pr_merged, deploy, regression),
+ *     per-role success/rework/escalation/scope-drift from scorecards endpoint.
+ *   HONEST no-data: when state=no_data or per_role is empty, renders an
+ *     explicit forward-looking copy rather than fabricated zeros.
  */
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
@@ -185,6 +188,11 @@ export default function ScorecardsView() {
     queryFn: () => fetchApi('/training/versions'),
   })
 
+  const scorecardsQuery = useQuery({
+    queryKey: ['scorecards'],
+    queryFn: () => fetchApi('/console/know/scorecards'),
+  })
+
   const mp = modelPerfQuery.data
   const models = Array.isArray(mp?.models) ? mp.models : []
   const overall = mp?.overall ?? {}
@@ -199,6 +207,17 @@ export default function ScorecardsView() {
   // Active model for headline metrics
   const activeModel = models.find((m) => m.meta?.status === 'active') || models[0] || null
   const alm = activeModel?.live_metrics ?? {}
+
+  // F6: per-role / scope-drift scorecards
+  const scData = scorecardsQuery.data
+  const scState = scData?.state ?? null
+  const perRole = scData?.per_role ?? null
+  const perTaskType = scData?.per_task_type ?? null
+  const scopeDrift = scData?.scope_drift ?? null
+  const scAsOf = scData?.as_of ?? null
+  const hasPerRoleData = perRole != null && Object.keys(perRole).length > 0
+  const scIsSettled = scorecardsQuery.status !== 'pending'
+  const showNoData = scIsSettled && (scState === 'no_data' || !hasPerRoleData)
 
   return (
     <div>
@@ -307,61 +326,94 @@ export default function ScorecardsView() {
           )}
         </section>
 
-        {/* ── Section: Per-role breakdown — NOT YET INSTRUMENTED ── */}
+        {/* ── Section: Per-role + scope-drift scorecards (F6 REAL) ── */}
         <section style={SECTION_STYLE}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={SECTION_TITLE_STYLE}>Per-role scorecards (Planner / Developer / Reviewer)</div>
-            <span style={NI_BADGE_STYLE}>not yet instrumented</span>
+            {scAsOf && <StalenessBadge asOf={scAsOf} maxAge={3600} />}
           </div>
-          <div
-            data-testid="scorecards-per-role-not-instrumented"
-            style={{
-              padding: '14px 18px',
-              border: '1px dashed var(--arcis-text-muted, #71717a)',
-              borderRadius: 6,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12,
-              color: 'var(--arcis-text-muted, #71717a)',
-              lineHeight: 1.7,
-            }}
-          >
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>not yet instrumented</div>
-            <div>
-              Per-role breakdown for <strong>Planner</strong>, <strong>Developer</strong>, and{' '}
-              <strong>Reviewer</strong> agent types is not yet available. The activity_log and
-              model_versions tables do not carry agent-role attribution. When role tags are
-              added to the activity schema, success / rework / escalation trends per role will
-              appear here automatically.
-            </div>
-          </div>
-        </section>
 
-        {/* ── Section: Scope-drift + trajectory signals — NOT YET INSTRUMENTED ── */}
-        <section style={SECTION_STYLE}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={SECTION_TITLE_STYLE}>Silent-failure signals (scope-drift / trajectory-vs-output)</div>
-            <span style={NI_BADGE_STYLE}>not yet instrumented</span>
-          </div>
-          <div
-            data-testid="scorecards-scope-drift-not-instrumented"
-            style={{
-              padding: '14px 18px',
-              border: '1px dashed var(--arcis-text-muted, #71717a)',
-              borderRadius: 6,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12,
-              color: 'var(--arcis-text-muted, #71717a)',
-              lineHeight: 1.7,
-            }}
-          >
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>not yet instrumented</div>
-            <div>
-              Scope-drift detection (task scope changes vs. delivered output) and
-              trajectory-vs-output signals require structured per-task outcome records
-              that are not yet captured by any backend route. These signals will appear
-              here when the relevant instrumentation lands in the agent pipeline.
+          {showNoData ? (
+            <div
+              data-testid="scorecards-per-role-no-data"
+              style={NO_DATA_STYLE}
+            >
+              no instrumented runs yet — per-role scorecards populate once coding-team runs record outcomes
             </div>
-          </div>
+          ) : (
+            <div data-testid="scorecards-per-role-real">
+              {/* Per-role table */}
+              {perRole && Object.keys(perRole).length > 0 && (
+                <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                        {['Role', 'n', 'Success', 'Rework', 'Escalation', 'Scope violations', 'Avg review cycles'].map((h) => (
+                          <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(perRole).map(([role, m]) => (
+                        <tr key={role} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                          <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{role}</td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.n} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.success_rate)} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.rework_rate)} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.escalation_rate)} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.scope_violations} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtFixed(m.avg_review_cycles)} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Per-task-type table */}
+              {perTaskType && Object.keys(perTaskType).length > 0 && (
+                <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: 6 }}>By task type</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                        {['Type', 'n', 'Success', 'Rework', 'Escalation', 'Scope violations', 'Avg review cycles'].map((h) => (
+                          <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(perTaskType).map(([type, m]) => (
+                        <tr key={type} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                          <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{type}</td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.n} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.success_rate)} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.rework_rate)} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.escalation_rate)} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.scope_violations} /></td>
+                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtFixed(m.avg_review_cycles)} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Scope drift summary */}
+              {scopeDrift != null && (
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={CARD_STYLE}>
+                    <div style={CARD_LABEL_STYLE}>Total scope violations</div>
+                    <div style={CARD_VALUE_STYLE}><SentinelGuard value={scopeDrift.total_scope_violations} /></div>
+                  </div>
+                  <div style={CARD_STYLE}>
+                    <div style={CARD_LABEL_STYLE}>Tasks tracked</div>
+                    <div style={CARD_VALUE_STYLE}><SentinelGuard value={scopeDrift.n} /></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
       </div>

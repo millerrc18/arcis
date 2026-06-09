@@ -59,6 +59,22 @@ def _seed_trades():
     ]
 
 
+def _seed_trades_5():
+    """Five closed trades — enough observations for psr()/dsr() (>=5 obs)."""
+    pcts = [1.0, -0.5, 2.0, 0.8, -0.3]
+    out = []
+    for i, p in enumerate(pcts, start=1):
+        out.append({
+            "trade_id": i, "recommendation_id": f"r{i}", "ticker": "AAPL",
+            "pnl_pct": p, "pnl_dollars": p * 100.0,
+            "spy_return_over_hold": 0.1, "exit_reason": "target_hit",
+            "status": "closed",
+            "actual_entry_time": f"2026-06-0{i}T10:00:00+00:00",
+            "actual_exit_time": f"2026-06-0{i}T15:00:00+00:00",
+        })
+    return out
+
+
 def _seed_recommendations():
     # High / mid / low conviction so calibration bands populate.
     return [
@@ -170,7 +186,7 @@ class TestTrackRecord:
             "src.api.cloud_routes.console_know._fetch_closed_trades",
             return_value=_seed_trades(),
         ), patch(
-            "src.api.cloud_routes.console_know.psr_fn", return_value=0.77,
+            "src.api.cloud_routes.console_know_metrics.psr_fn", return_value=0.77,
         ) as mock_psr:
             data = client.get("/api/console/know/track-record").json()
         assert mock_psr.called, "PSR must be sourced from the pure psr() helper"
@@ -183,7 +199,7 @@ class TestTrackRecord:
             "src.api.cloud_routes.console_know._fetch_closed_trades",
             return_value=_seed_trades(),
         ), patch(
-            "src.api.cloud_routes.console_know.psr_fn",
+            "src.api.cloud_routes.console_know_metrics.psr_fn",
             side_effect=ValueError("need >=5 obs"),
         ):
             data = client.get("/api/console/know/track-record").json()
@@ -191,16 +207,97 @@ class TestTrackRecord:
         assert psr_env["value"] is None
         assert psr_env["state"] in ("no_data", "unknown")
 
-    def test_track_record_dsr_is_unavailable(self):
-        """dsr has no independent single-source headline -> honest unavailable list."""
+    def test_track_record_dsr_is_a_real_metric_not_unavailable(self):
+        """dsr is now a real headline metric (honest no_data when uncomputable)."""
         client = _make_client()
         with patch(
             "src.api.cloud_routes.console_know._fetch_closed_trades",
             return_value=_seed_trades(),
         ):
             data = client.get("/api/console/know/track-record").json()
-        assert "dsr" in data["unavailable"]
-        assert "dsr" not in data["metrics"]
+        assert "dsr" not in data["unavailable"]
+        assert "dsr" in data["metrics"]
+        env = data["metrics"]["dsr"]
+        for k in ("value", "n", "as_of", "cohort", "unit", "state"):
+            assert k in env, f"dsr envelope missing key {k}"
+
+    def test_track_record_dsr_ok_when_enough_trades_and_trials(self):
+        """>=5 trades + positive n_trials -> dsr state='ok', value in (0,1)."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades_5(),
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=7,
+        ):
+            data = client.get("/api/console/know/track-record").json()
+        env = data["metrics"]["dsr"]
+        assert env["state"] == "ok"
+        assert env["value"] is not None
+        assert 0.0 < env["value"] < 1.0
+        assert env["unit"] == "probability"
+
+    def test_track_record_dsr_no_data_when_too_few_trades(self):
+        """<5 trades -> dsr() raises -> honest no_data with value None (not fabricated)."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades(),  # only 3 trades
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=7,
+        ):
+            data = client.get("/api/console/know/track-record").json()
+        env = data["metrics"]["dsr"]
+        assert env["value"] is None
+        assert env["state"] == "no_data"
+
+    def test_track_record_dsr_no_data_when_empty_trials(self):
+        """Empty trials_registry (sum=0) -> n_trials<1 -> honest no_data, value None."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades_5(),
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=0,
+        ):
+            data = client.get("/api/console/know/track-record").json()
+        env = data["metrics"]["dsr"]
+        assert env["value"] is None
+        assert env["state"] == "no_data"
+
+    def test_track_record_dsr_uses_n_trials_sum_not_count(self):
+        """n_trials is SUM(n_params_searched), not COUNT(*): the value passed to
+        dsr() must be the summed parameter count (20 for two 10-param trials)."""
+        client = _make_client()
+        captured = {}
+
+        def _capture_dsr(returns, n_trials):
+            captured["n_trials"] = n_trials
+            return 0.6
+
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades_5(),
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=20,
+        ), patch(
+            "src.api.cloud_routes.console_know_metrics.dsr_fn", side_effect=_capture_dsr,
+        ):
+            data = client.get("/api/console/know/track-record").json()
+        assert captured["n_trials"] == 20, "dsr must receive SUM(n_params_searched)=20"
+        assert data["metrics"]["dsr"]["value"] == 0.6
+
+    def test_track_record_dsr_unknown_when_trade_source_raises(self):
+        """law #4: a dead trade source makes dsr unknown too (in the fail-closed branch)."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            side_effect=RuntimeError("journal down"),
+        ):
+            data = client.get("/api/console/know/track-record").json()
+        assert "dsr" in data["metrics"]
+        assert data["metrics"]["dsr"]["state"] in ("unknown", "no_data")
+        assert data["metrics"]["dsr"]["value"] is None
 
     def test_track_record_degrades_to_unknown_when_source_raises(self):
         """law #4: trade source raising -> degraded, never green."""
@@ -392,3 +489,135 @@ class TestRegistration:
         # the route resolves (not 404). It may be 200; it must NOT be 404.
         resp = client.get("/api/console/know/ladder")
         assert resp.status_code != 404, "console_know router must be registered under /api"
+
+
+# ── /api/console/know/scorecards ─────────────────────────────────────────────
+
+class TestScorecards:
+
+    def test_scorecards_returns_aggregator_verbatim(self):
+        """The route returns get_agent_scorecards() VERBATIM (no reshape)."""
+        sentinel = {
+            "per_role": {"developer": {"n": 3, "success_rate": 0.67,
+                                       "rework_rate": 0.33, "escalation_rate": 0.0,
+                                       "blocked_rate": 0.0, "scope_violations": 1,
+                                       "avg_review_cycles": 1.0}},
+            "per_task_type": {},
+            "scope_drift": {"total_scope_violations": 1, "n": 3},
+            "n": 3, "state": "ok", "as_of": "2026-06-08T00:00:00+00:00",
+        }
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know.get_agent_scorecards",
+            return_value=sentinel,
+        ) as mock_sc:
+            resp = client.get("/api/console/know/scorecards")
+        assert resp.status_code == 200
+        assert mock_sc.called
+        assert resp.json() == sentinel, "scorecards must be the aggregator dict verbatim"
+
+    def test_scorecards_degrades_to_unknown_when_source_raises(self):
+        """law #4: aggregator raising -> state='unknown', never green/empty-OK."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know.get_agent_scorecards",
+            side_effect=RuntimeError("agent_task_outcomes down"),
+        ):
+            resp = client.get("/api/console/know/scorecards")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["state"] == "unknown"
+        assert data["per_role"] == {}
+        assert data["per_task_type"] == {}
+        assert data["scope_drift"] == {"total_scope_violations": 0, "n": 0}
+        assert data["n"] == 0
+        assert "as_of" in data
+
+
+# ── /api/console/know/rigor-metrics ──────────────────────────────────────────
+
+class TestRigorMetrics:
+
+    def test_rigor_metrics_canonical_envelopes(self):
+        """psr / dsr / pbo each carry the canonical {value,n,as_of,cohort,unit,state}."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades_5(),
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=7,
+        ):
+            resp = client.get("/api/console/know/rigor-metrics")
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in ("psr", "dsr", "pbo"):
+            assert key in data, f"rigor-metrics missing {key}"
+            env = data[key]
+            for k in ("value", "n", "as_of", "cohort", "unit", "state"):
+                assert k in env, f"{key} envelope missing key {k}"
+        assert "as_of" in data
+        # psr/dsr computed from 5 obs -> ok with a real probability.
+        assert data["psr"]["state"] == "ok"
+        assert 0.0 < data["psr"]["value"] < 1.0
+        assert data["dsr"]["state"] == "ok"
+        assert 0.0 < data["dsr"]["value"] < 1.0
+
+    def test_rigor_metrics_pbo_insufficient_configs_path(self):
+        """PBO with 0 backtested configs -> insufficient_configs, value None (not fabricated)."""
+        client = _make_client()
+        pbo_env = {
+            "value": None, "n": 0, "as_of": "2026-06-08T00:00:00+00:00",
+            "cohort": "rigor", "unit": "probability",
+            "state": "insufficient_configs",
+        }
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades_5(),
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=7,
+        ), patch(
+            "src.api.cloud_routes.console_know.build_pbo_envelope",
+            return_value=pbo_env,
+        ) as mock_pbo:
+            data = client.get("/api/console/know/rigor-metrics").json()
+        assert mock_pbo.called, "PBO must be sourced from build_pbo_envelope() verbatim"
+        assert data["pbo"]["state"] in ("insufficient_configs", "no_data")
+        assert data["pbo"]["value"] is None
+
+    def test_rigor_metrics_pbo_returned_verbatim(self):
+        """build_pbo_envelope() result flows through unchanged (law #1: no reshape)."""
+        client = _make_client()
+        pbo_env = {
+            "value": 0.42, "n": 4, "as_of": "2026-06-08T00:00:00+00:00",
+            "cohort": "rigor", "unit": "probability", "state": "ok",
+        }
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            return_value=_seed_trades_5(),
+        ), patch(
+            "src.api.cloud_routes.console_know.sum_n_trials", return_value=7,
+        ), patch(
+            "src.api.cloud_routes.console_know.build_pbo_envelope",
+            return_value=pbo_env,
+        ):
+            data = client.get("/api/console/know/rigor-metrics").json()
+        assert data["pbo"] == pbo_env
+
+    def test_rigor_metrics_dsr_no_data_when_trade_source_raises(self):
+        """law #4: trade source raising -> psr/dsr degrade to no_data, never green."""
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_know._fetch_closed_trades",
+            side_effect=RuntimeError("journal down"),
+        ), patch(
+            "src.api.cloud_routes.console_know.build_pbo_envelope",
+            return_value={"value": None, "n": 0, "as_of": "X", "cohort": "rigor",
+                          "unit": "probability", "state": "insufficient_configs"},
+        ):
+            resp = client.get("/api/console/know/rigor-metrics")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["psr"]["value"] is None
+        assert data["psr"]["state"] in ("no_data", "unknown")
+        assert data["dsr"]["value"] is None
+        assert data["dsr"]["state"] in ("no_data", "unknown")

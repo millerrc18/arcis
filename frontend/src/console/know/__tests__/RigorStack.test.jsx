@@ -1,8 +1,10 @@
 /**
- * RigorStack tests (P3-T8).
- * Three sub-views: Validation (PSR/DSR/PBO via /system/validation),
+ * RigorStack tests (P3-T8 + F6).
+ * Three sub-views: Validation (PSR/DSR/PBO via /system/validation + /console/know/rigor-metrics),
  * Walkforward (OOS windows via /walkforward/runs + /windows + /trades),
  * Stress Test (scenarios via /stress-test/results).
+ *
+ * F6: /console/know/rigor-metrics (BARE path) — PSR/DSR/PBO envelopes.
  *
  * Mirrors NowRegion test idiom: MemoryRouter + QueryClientProvider, mock fetchApi.
  * Mocks mirror the REAL route handler shapes (read from walkforward.py + analytics.py).
@@ -50,6 +52,44 @@ import RigorStack from '../RigorStack'
 //             checks_total, timestamp, categories: { [name]: [{status, name, detail}] } }
 
 const NOW = '2026-06-08T10:00:00Z'
+
+// ---------------------------------------------------------------------------
+// F6: /console/know/rigor-metrics frozen backend contract shapes
+// ---------------------------------------------------------------------------
+const MOCK_RIGOR_METRICS_OK = {
+  psr: {
+    value: 0.78,
+    n: 120,
+    as_of: NOW,
+    cohort: 'paper-90d',
+    unit: '',
+    state: 'ok',
+  },
+  dsr: {
+    value: 0.91,
+    n: 120,
+    as_of: NOW,
+    cohort: 'paper-90d',
+    unit: '',
+    state: 'ok',
+  },
+  pbo: {
+    value: null,
+    n: 0,
+    as_of: NOW,
+    cohort: null,
+    unit: '',
+    state: 'insufficient_configs',
+  },
+  as_of: NOW,
+}
+
+const MOCK_RIGOR_METRICS_NO_DATA = {
+  psr: { value: null, n: 0, as_of: null, cohort: null, unit: '', state: 'no_data' },
+  dsr: { value: null, n: 0, as_of: null, cohort: null, unit: '', state: 'no_data' },
+  pbo: { value: null, n: 0, as_of: null, cohort: null, unit: '', state: 'insufficient_configs' },
+  as_of: null,
+}
 
 const MOCK_RUN_ID = 'run-abc-123-def'
 
@@ -199,9 +239,11 @@ function mockRigor(overrides = {}) {
     wfTrades: MOCK_WF_TRADES,
     stress: MOCK_STRESS,
     validation: MOCK_VALIDATION,
+    rigorMetrics: MOCK_RIGOR_METRICS_OK,
     ...overrides,
   }
 
+  // F6: '/console/know/rigor-metrics' → fetchApi prepends /api → '/api/console/know/rigor-metrics'
   const fetchMock = vi.fn((url) => {
     if (url.includes('/walkforward/runs') && url.includes('/windows')) {
       return jsonResponse(payloads.wfWindows)
@@ -217,6 +259,9 @@ function mockRigor(overrides = {}) {
     }
     if (url.includes('/system/validation')) {
       return jsonResponse(payloads.validation)
+    }
+    if (url.includes('/console/know/rigor-metrics')) {
+      return jsonResponse(payloads.rigorMetrics)
     }
     return jsonResponse({})
   })
@@ -469,6 +514,86 @@ describe('RigorStack — Stress Test sub-view', () => {
     await waitFor(() => {
       expect(within(panel).queryByText('999')).not.toBeInTheDocument()
       expect(within(panel).queryByText('-1')).not.toBeInTheDocument()
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// F6: PSR / DSR / PBO rigor-metrics rendering in ValidationPanel
+// ---------------------------------------------------------------------------
+describe('RigorStack — F6 PSR/DSR/PBO rigor-metrics', () => {
+  it('fetchApi is called with BARE path /console/know/rigor-metrics (no /api double-prefix)', async () => {
+    const fetchMock = mockRigor()
+    renderRigor()
+    await screen.findByTestId('rigor-validation-panel')
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.map(([url]) => url)
+      // fetchApi prepends /api, so bare '/console/know/rigor-metrics' → '/api/console/know/rigor-metrics'
+      expect(calls.some((u) => u.startsWith('/api/console/know/rigor-metrics'))).toBe(true)
+      // Must NOT use double-prefix
+      expect(calls.some((u) => u.startsWith('/api/api/'))).toBe(false)
+    })
+  })
+
+  it('renders PSR tile when state=ok (non-vacuous: 0.78 from mock)', async () => {
+    mockRigor()
+    renderRigor()
+    const panel = await screen.findByTestId('rigor-validation-panel')
+    await waitFor(() => {
+      expect(within(panel).getByTestId('rigor-psr-tile')).toBeInTheDocument()
+      expect(within(panel).getByText('0.78')).toBeInTheDocument()
+    })
+  })
+
+  it('renders DSR tile when state=ok (non-vacuous: 0.91 from mock)', async () => {
+    mockRigor()
+    renderRigor()
+    const panel = await screen.findByTestId('rigor-validation-panel')
+    await waitFor(() => {
+      expect(within(panel).getByTestId('rigor-dsr-tile')).toBeInTheDocument()
+      expect(within(panel).getByText('0.91')).toBeInTheDocument()
+    })
+  })
+
+  it('renders PBO tile with insufficient_configs honest label (not a fabricated number)', async () => {
+    mockRigor()
+    renderRigor()
+    const panel = await screen.findByTestId('rigor-validation-panel')
+    await waitFor(() => {
+      expect(within(panel).getByTestId('rigor-pbo-tile')).toBeInTheDocument()
+      expect(within(panel).getByText(/insufficient configs for PBO/i)).toBeInTheDocument()
+    })
+    // Must NOT render NaN or a raw object as text
+    expect(within(panel).queryByText('NaN')).not.toBeInTheDocument()
+    expect(within(panel).queryByText('[object Object]')).not.toBeInTheDocument()
+  })
+
+  it('PSR/DSR tiles show no_data state without fabricated zeros in the rigor tiles', async () => {
+    mockRigor({ rigorMetrics: MOCK_RIGOR_METRICS_NO_DATA })
+    renderRigor()
+    const panel = await screen.findByTestId('rigor-validation-panel')
+    await waitFor(() => {
+      // Tiles still render but show no-data state
+      expect(within(panel).getByTestId('rigor-psr-tile')).toBeInTheDocument()
+      expect(within(panel).getByTestId('rigor-dsr-tile')).toBeInTheDocument()
+    })
+    // PSR and DSR tiles must not render a sentinel-value (they should be sentinel-no-data for null values)
+    const psrTile = within(panel).getByTestId('rigor-psr-tile')
+    const dsrTile = within(panel).getByTestId('rigor-dsr-tile')
+    // sentinel-no-data (null value) must appear; sentinel-value (fabricated number) must not
+    expect(within(psrTile).getByTestId('sentinel-no-data')).toBeInTheDocument()
+    expect(within(dsrTile).getByTestId('sentinel-no-data')).toBeInTheDocument()
+    expect(within(psrTile).queryByTestId('sentinel-value')).not.toBeInTheDocument()
+    expect(within(dsrTile).queryByTestId('sentinel-value')).not.toBeInTheDocument()
+  })
+
+  it('LAW #3: no raw objects or NaN rendered in validation panel with rigor-metrics data', async () => {
+    mockRigor()
+    renderRigor()
+    const panel = await screen.findByTestId('rigor-validation-panel')
+    await waitFor(() => {
+      expect(within(panel).queryByText('[object Object]')).not.toBeInTheDocument()
+      expect(within(panel).queryByText('NaN')).not.toBeInTheDocument()
     })
   })
 })
