@@ -95,6 +95,16 @@ On Windows with `core.autocrlf=true` and 71+ legacy CRLF-indexed files, the Edit
 
 **Evidence:** PR #747 has +9549/-9403 diff, of which only ~1500 lines is substantive (~156 connect_db swaps); the rest is line-ending churn from 71 legacy CRLF-indexed files.
 
+## Outcome Instrumentation
+
+After each Developer task completes AND after each Reviewer cycle resolves, record the outcome:
+
+```
+python -m src.console.agent_outcomes record --run-id <sprint/run id> --task-id <task id> --role <planner|developer|qa_reviewer|security_reviewer|performance_reviewer|integrator|documentarian> --outcome <success|rework|escalation|blocked> [--task-type <category>] [--rework-count N] [--scope-violation] [--review-cycles N] [--model <sonnet|opus>]
+```
+
+This is the persistent, queryable mirror of the `.arcis/coding-dashboard.json` scorecard the PM already tracks; it populates the KNOW `/console/know/scorecards` per-role + scope-drift panels (which stay empty until runs record outcomes).
+
 ## Reviewer Dispatch Logic
 
 | Task touches... | QA | Security | Performance |
