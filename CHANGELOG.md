@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added — Founder Console KNOW analytics completion (DSR + dev-team scorecard instrumentation + PSR/DSR/PBO rigor)
+
+Closes the honest "unavailable" / "not yet instrumented" gaps the KNOW region shipped with — building the real data paths (or honest no-data scaffolds where the data genuinely doesn't exist yet). No rewrite; augments existing modules.
+
+- **DSR in the track record** — `/console/know/track-record` now computes the Deflated Sharpe Ratio: `n_trials = SUM(n_params_searched)` from `trials_registry` (Bailey-López de Prado — counts every parameter combination, *not* `COUNT(*)`), wrapping the existing `src/methods/psr.py::dsr`. `dsr` removed from `unavailable` and rendered as a real headline tile (honest `no_data` when `n_trials<1` or <5 trades). Metric-envelope helpers extracted to `src/api/cloud_routes/console_know_metrics.py`.
+- **AI dev-team scorecard instrumentation (genuinely new)** — a `agent_task_outcomes` table (registry; `sync_to_postgres=True`, WIPE-classified, count-pin 83→84), `src/console/agent_outcomes.py` (`record_agent_outcome` + `get_agent_scorecards` + a `python -m src.console.agent_outcomes record …` CLI), and an "Outcome Instrumentation" hook added to the `arcis:code` skill so the PM records per-task/per-review outcomes. `GET /console/know/scorecards` + the frontend per-role / per-task-type / scope-drift panels replace the "not yet instrumented" placeholders. **Forward-looking by design**: the table starts empty (no historical backfill exists) and the UI honestly shows "no instrumented runs yet" until instrumented coding-team runs populate it — never fabricated.
+- **PSR/DSR/PBO rigor metrics** — `src/console/rigor_metrics.py` builds an N-config × T-period returns matrix from `backtest_trades` (by config, aligned on trade-sequence index) and wraps `src/methods/pbo.py::pbo`; `GET /console/know/rigor-metrics` serves PSR/DSR/PBO as canonical envelopes, surfaced as tiles in the RigorStack Validation panel. **PBO honestly degrades to `insufficient_configs`** today (0 distinct backtested configs in the DB — CSCV needs ≥2 configs × ≥8 periods); the plumbing flips to a real value the moment a param-sweep persists configs. No fabricated PBO.
+- **CI anti-drift / honesty:** every new metric is single-sourced (laws #1/#3/#4) — insufficient/empty data renders an explicit honest state, never a zero; new endpoints fail-closed to `unknown` on source error. Backend 167 + frontend 468 tests.
+
 ### Added — Founder Operating Console, Phase 3 KNOW · Wave B (salvage drill-downs — completes KNOW)
 
 Second wave of the KNOW region: the analytics drill-downs salvaged into the console under overview→drill-down. All frontend — consumes existing backend routes (and the Wave-A `/console/know/calibration`) verbatim; no new backend, no new tables. The old `frontend/src/pages/*` originals are retained (salvage adapts the rendering). Completes the KNOW region.
