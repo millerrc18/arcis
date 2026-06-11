@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Removed — Old 28-page dashboard retired; `/console` is now the sole UI
+
+The Founder Operating Console (NOW · DECIDE · KNOW) reached parity across Phases 1–3 + the analytics follow-ups, so the legacy React dashboard it replaced has been deleted — the deliberate *"delete the old app only once the console is complete"* cutover.
+
+- **Deleted 100 files** — all of `frontend/src/pages/*` (28 page components + 19 co-located tests) and the 35 now-orphaned shared widgets those pages used: `frontend/src/components/Layout.jsx` (the 28-link nav), the entire `components/{dashboard,system,diagrams}/` trees, and 23 standalone widgets (`BacktestEquityChart`, `KPIStrip`, `MetricCard`, `DataTable`, `ShadowLedger`-harness tests, …) plus their tests/snapshots. The safe-to-delete set was computed by **transitive import-reachability** from the post-cutover keep-roots — `/console` is provably page-independent (0 pages reachable from it), and only `ErrorBoundary`, `Toast`, `AuthGate` survive as shared app infra (the console carries its own `src/console/components/` primitives).
+- **`frontend/src/App.jsx` rewired** — the `<Route element={<Layout/>}>` tree (28 routes) is gone; `/console/*` is the only mounted route and every legacy path (`/`, `/shadow`, `/training`, …) redirects into it via `<Route path="*" element={<Navigate to="/console" replace />} />` (the specific `/console/*` route outranks the catch-all, so no redirect loop). All app-level providers (QueryClient, WebSocket cache-invalidation, Toasts, ErrorBoundary, AuthGate) are preserved — infrastructure, not dashboard-specific.
+- **Backend API untouched** — runtime `src/` is byte-identical to `main`; the console consumes the same cloud routes the old pages did (`/walkforward`, `/attribution`, `/packets`, …). Only the old *frontend* was retired.
+- **`tests/test_repo_structure.py::test_dashboard_routes_have_pages`** updated to validate `/console` route resolution and exclude the `Navigate` redirect built-in; the `./pages/` guard re-arms automatically if a page is ever reintroduced.
+- **Verified:** `vite build` clean (650 modules, zero missing imports), frontend suite **228 passing** (14 files), `test_repo_structure.py` **27 passing**. Browser-verified `/`→`/console/now` and legacy `/shadow`→`/console/now` redirects; NOW/DECIDE/KNOW all render with **0 console errors**. (Two pre-existing backend 500s — `/api/console/pause`, `/api/console/now/gate` — are unrelated to this frontend-only change [`src/` unchanged] and render as honest `DEGRADED`/`UNKNOWN` states; noted as a separate local-env data follow-up.)
+
 ### Added — Founder Console KNOW analytics completion (DSR + dev-team scorecard instrumentation + PSR/DSR/PBO rigor)
 
 Closes the honest "unavailable" / "not yet instrumented" gaps the KNOW region shipped with — building the real data paths (or honest no-data scaffolds where the data genuinely doesn't exist yet). No rewrite; augments existing modules.

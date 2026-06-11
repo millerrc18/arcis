@@ -1,40 +1,12 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext'
-import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import ToastContainer, { toast } from './components/Toast'
 import AuthGate from './components/AuthGate'
 import { IS_CLOUD } from './config'
 import { configureStatusBar, onAppStateChange } from './native'
-import Dashboard from './pages/Dashboard'
-import Packets from './pages/Packets'
-import ShadowLedger from './pages/ShadowLedger'
-import Training from './pages/Training'
-import LiveLedger from './pages/LiveLedger'
-import CTOReport from './pages/CTOReport'
-import Settings from './pages/Settings'
-import Roadmap from './pages/Roadmap'
-import Docs from './pages/Docs'
-import Council from './pages/Council'
-import Health from './pages/Health'
-import Notes from './pages/Notes'
-import Validation from './pages/Validation'
-import Logs from './pages/Logs'
-import Architecture from './pages/Architecture'
-import DBSchema from './pages/DBSchema'
-import Attribution from './pages/Attribution'
-import StressTest from './pages/StressTest'
-import Simulation from './pages/Simulation'
-import ModelPerformance from './pages/ModelPerformance'
-import Monitoring from './pages/Monitoring'
-import Strategy from './pages/Strategy'
-import TradeHistory from './pages/TradeHistory'
-import Velocity from './pages/Velocity'
-import StrategyResearch from './pages/StrategyResearch'
-import WalkforwardResults from './pages/WalkforwardResults'
-import Diagnostics from './pages/Diagnostics'
 import ConsoleShell from './console/ConsoleShell'
 
 // staleTime 5s: dashboard values age fast; refetchInterval 30s for most
@@ -135,35 +107,9 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/console/*" element={<ConsoleShell />} />
-              <Route element={<Layout />}>
-                <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
-                <Route path="/packets" element={<ErrorBoundary><Packets /></ErrorBoundary>} />
-                <Route path="/shadow" element={<ErrorBoundary><ShadowLedger /></ErrorBoundary>} />
-                <Route path="/training" element={<ErrorBoundary><Training /></ErrorBoundary>} />
-                <Route path="/live" element={<ErrorBoundary><LiveLedger /></ErrorBoundary>} />
-                <Route path="/cto-report" element={<ErrorBoundary><CTOReport /></ErrorBoundary>} />
-                <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-                <Route path="/roadmap" element={<ErrorBoundary><Roadmap /></ErrorBoundary>} />
-                <Route path="/docs" element={<ErrorBoundary><Docs /></ErrorBoundary>} />
-                <Route path="/notes" element={<ErrorBoundary><Notes /></ErrorBoundary>} />
-                <Route path="/council" element={<ErrorBoundary><Council /></ErrorBoundary>} />
-                <Route path="/health" element={<ErrorBoundary><Health /></ErrorBoundary>} />
-                <Route path="/validation" element={<ErrorBoundary><Validation /></ErrorBoundary>} />
-                <Route path="/logs" element={<ErrorBoundary><Logs /></ErrorBoundary>} />
-                <Route path="/architecture" element={<ErrorBoundary><Architecture /></ErrorBoundary>} />
-                <Route path="/schema" element={<ErrorBoundary><DBSchema /></ErrorBoundary>} />
-                <Route path="/attribution" element={<ErrorBoundary><Attribution /></ErrorBoundary>} />
-                <Route path="/stress-test" element={<ErrorBoundary><StressTest /></ErrorBoundary>} />
-                <Route path="/simulation" element={<ErrorBoundary><Simulation /></ErrorBoundary>} />
-                <Route path="/model-performance" element={<ErrorBoundary><ModelPerformance /></ErrorBoundary>} />
-                <Route path="/monitoring" element={<ErrorBoundary><Monitoring /></ErrorBoundary>} />
-                <Route path="/strategy" element={<ErrorBoundary><Strategy /></ErrorBoundary>} />
-                <Route path="/trade-history" element={<ErrorBoundary><TradeHistory /></ErrorBoundary>} />
-                <Route path="/velocity" element={<ErrorBoundary><Velocity /></ErrorBoundary>} />
-                <Route path="/research-platform" element={<ErrorBoundary><StrategyResearch /></ErrorBoundary>} />
-                <Route path="/walkforward-results" element={<ErrorBoundary><WalkforwardResults /></ErrorBoundary>} />
-                <Route path="/diagnostics" element={<ErrorBoundary><Diagnostics /></ErrorBoundary>} />
-              </Route>
+              {/* Old 28-page dashboard retired 2026-06-10 (chore/retire-old-dashboard).
+                  /console is the sole UI; every legacy path redirects into it. */}
+              <Route path="*" element={<Navigate to="/console" replace />} />
             </Routes>
           </BrowserRouter>
           <ToastContainer />

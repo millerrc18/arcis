@@ -319,27 +319,33 @@ def test_todos_have_issue_numbers():
 
 
 def test_dashboard_routes_have_pages():
-    """Every Route in App.jsx must point to an existing page component file."""
+    """Every Route in App.jsx must resolve to an existing route component file.
+
+    The old 28-page dashboard (./pages/) was retired 2026-06-10 — /console is now
+    the sole UI, so route components resolve under ./console/. The ./pages/ regex
+    is retained (it now matches nothing) so this guard re-arms automatically if a
+    page is ever reintroduced. The import path is captured from source so it never
+    drifts when a new console route is added.
+    """
     app_jsx = Path("frontend/src/App.jsx").read_text(encoding="utf-8")
     routes = re.findall(r'element=.*?<(\w+)', app_jsx)
-    # Route components live under ./pages/ (the old dashboard) OR ./console/
-    # (the Founder Console rebuild — a deliberate parallel structure). Both are
-    # validated to resolve to a real file; the import path is captured from the
-    # source so this never drifts when a new console route is added.
     page_imports = re.findall(r"import (\w+) from ['\"]\./pages/([\w/]+)", app_jsx)
     console_imports = re.findall(r"import (\w+) from ['\"]\./(console/[\w/]+)", app_jsx)
     import_map = {name: f"frontend/src/pages/{file}.jsx" for name, file in page_imports}
     import_map.update({name: f"frontend/src/{rel}.jsx" for name, rel in console_imports})
+    # Wrapper elements / react-router built-ins that have no local file import
+    # (Navigate backs the legacy-path → /console redirect).
+    NON_FILE_ELEMENTS = ("ErrorBoundary", "Layout", "Routes", "Route", "BrowserRouter", "Navigate")
     missing = []
     for component in routes:
-        if component in ("ErrorBoundary", "Layout"):
+        if component in ("ErrorBoundary", "Layout", "Navigate"):
             continue
         if component in import_map:
             comp_file = Path(import_map[component])
             if not comp_file.exists():
                 missing.append(f"Route <{component}> → {comp_file} does not exist")
         # Also check the import exists
-        if component not in import_map and component not in ("ErrorBoundary", "Layout", "Routes", "Route", "BrowserRouter"):
+        if component not in import_map and component not in NON_FILE_ELEMENTS:
             missing.append(f"Route <{component}> has no import in App.jsx")
     assert not missing, f"Broken dashboard routes:\n" + "\n".join(missing)
 
