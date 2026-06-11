@@ -135,8 +135,23 @@ def enqueue_for_email_digest(
         source_tag = f"email:{tier}"
     if config is None:
         config = _default_notifications_config()
-    queue = DigestQueue(conn, config=config)
-    return queue.enqueue(
+    if conn is None:
+        # No caller-supplied connection: open + own one so a standalone enqueue
+        # works. Callers that want to share a transaction pass conn explicitly
+        # (e.g. auditor.py wraps the enqueue in `with connect_db(...) as conn`).
+        # Without this, the conn-less production callers (morning watchlist,
+        # overnight, recap, scan, watchlist, watch routers) hit
+        # 'NoneType object has no attribute execute' in DigestQueue.enqueue —
+        # the 2026-06-11 morning-watchlist daily failure.
+        from src.utils.db import connect_db
+        with connect_db() as own_conn:
+            return DigestQueue(own_conn, config=config).enqueue(
+                event_type=event_type,
+                severity=severity,
+                payload=payload,
+                source_tag=source_tag,
+            )
+    return DigestQueue(conn, config=config).enqueue(
         event_type=event_type,
         severity=severity,
         payload=payload,

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Fixed — Morning watchlist (and 5 sibling digest callers) crashed daily on `enqueue_for_email_digest` with no connection
+
+`src/notifications/email_digest.py::enqueue_for_email_digest()` defaulted `conn=None` and passed it straight to `DigestQueue(conn)`, so a caller that didn't inject a connection hit `'NoneType' object has no attribute 'execute'` in `DigestQueue.enqueue`. **6 of 7 production callers** call it without a `conn` (morning-watchlist via `reports.py`, plus the overnight / recap / scan / watchlist / watch routers) — only `auditor.py` injects one. Result: the **morning watchlist failed every morning** (08–09 ET, PG-independent — observed 2026-06-09/10/11). The per-caller email-routing tests *mocked* `enqueue_for_email_digest`, so they passed while production crashed (a vacuous-coverage gap).
+
+- **Fix at the source:** `enqueue_for_email_digest` now **self-connects** via `connect_db()` when `conn is None` (and commits/closes through the `with` block); callers that want to share a transaction still inject a `conn` (e.g. `auditor.py`). This fixes all 6 conn-less callers at once and prevents recurrence.
+- **Tests:** real verify-by-mutation — `tests/notifications/test_email_digest_module.py` adds a conn=None self-connect test (fails pre-fix with the exact `AttributeError`) + an injected-conn test (must NOT self-connect, preserving the auditor transaction-sharing path). Full notifications suite + `test_repo_structure` green.
+
 ### Added — Console `AsyncBoundary`: distinguish loading / error / no-data (law-#4 refinement)
 
 The console collapsed three distinct TanStack-Query states into one UNKNOWN/no-data render, so every section flashed UNKNOWN for ~1s on first paint (data undefined while the first fetch is in flight) and an unreachable API server looked identical to genuinely-empty data. (This was the root cause of the "integrity signals showing UNKNOWN" observation — the first-load flash, not a render bug; the signals render correctly in steady state.)
