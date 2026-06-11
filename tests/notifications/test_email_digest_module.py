@@ -283,3 +283,68 @@ def test_handover_check_returns_documented_dict_shape():
     assert isinstance(result["tripwires"], dict)
     assert "details" in result
     assert isinstance(result["details"], dict)
+
+
+# ── conn=None self-connect — regression for the 2026-06-11 morning-watchlist
+# daily 'NoneType object has no attribute execute' failure ────────────────────
+
+def test_enqueue_for_email_digest_self_connects_when_conn_is_none():
+    """conn=None must self-connect, not crash. The 6 conn-less production callers
+    (morning watchlist, overnight, recap, scan, watchlist, watch routers) all
+    call enqueue_for_email_digest(...) with no conn; before the fix that hit
+    `self._conn.execute` on a None connection in DigestQueue.enqueue, so the
+    morning watchlist failed every morning. Verify-by-mutation: without the
+    self-connect branch the patched connect_db is never reached and the call
+    raises AttributeError (proven by the 2026-06-11 reproduction)."""
+    from unittest.mock import MagicMock
+
+    import src.utils.db as dbmod
+    from src.notifications.email_digest import enqueue_for_email_digest
+
+    cur = MagicMock()
+    cur.lastrowid = 4242
+    conn = MagicMock()
+    conn.execute.return_value = cur
+    cm = MagicMock()
+    cm.__enter__.return_value = conn
+    cm.__exit__.return_value = False
+
+    with patch.object(dbmod, "connect_db", MagicMock(return_value=cm)) as cd:
+        rid = enqueue_for_email_digest(
+            "morning_watchlist",
+            severity="normal",
+            payload={"subject": "s", "body": "b", "date_str": "2026-06-11"},
+            source_tag="email:preopen",
+        )
+
+    assert rid == 4242, "must return the enqueued row id from the self-opened conn"
+    cd.assert_called_once()             # self-connected (never called pre-fix)
+    conn.execute.assert_called_once()   # the INSERT ran on the owned connection
+    conn.commit.assert_called_once()
+
+
+def test_enqueue_for_email_digest_uses_injected_conn_without_self_connecting():
+    """When a caller injects conn (e.g. auditor.py shares a transaction), the
+    function must use it and NOT open its own connection."""
+    from unittest.mock import MagicMock
+
+    import src.utils.db as dbmod
+    from src.notifications.email_digest import enqueue_for_email_digest
+
+    cur = MagicMock()
+    cur.lastrowid = 7
+    injected = MagicMock()
+    injected.execute.return_value = cur
+
+    with patch.object(dbmod, "connect_db", MagicMock()) as cd:
+        rid = enqueue_for_email_digest(
+            "morning_watchlist",
+            severity="normal",
+            payload={"subject": "s", "body": "b", "date_str": "2026-06-11"},
+            source_tag="email:preopen",
+            conn=injected,
+        )
+
+    assert rid == 7
+    cd.assert_not_called()              # injected conn → no self-connect
+    injected.execute.assert_called_once()
