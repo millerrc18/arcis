@@ -13,6 +13,7 @@ import {
   SinceBand,
   DevTeamStrip,
 } from './components'
+import AsyncBoundary from '../components/AsyncBoundary'
 
 const SINCE_HOURS = 6
 
@@ -44,12 +45,24 @@ export default function NowRegion() {
 
   return (
     <div data-testid="now-region">
-      <GateHero data={gate.data} />
-      <AttentionRow data={attention.data} />
-      <SignalRow data={signals.data} />
-      <PositionsSection data={positions.data} />
-      <SinceBand data={since.data} />
-      <DevTeamStrip data={devteam.data} />
+      <AsyncBoundary query={gate} label="North-star gate">
+        <GateHero data={gate.data} />
+      </AsyncBoundary>
+      <AsyncBoundary query={attention} label="Attention">
+        <AttentionRow data={attention.data} />
+      </AsyncBoundary>
+      <AsyncBoundary query={signals} label="Integrity / liveness">
+        <SignalRow data={signals.data} />
+      </AsyncBoundary>
+      <AsyncBoundary query={positions} label="Open positions">
+        <PositionsSection data={positions.data} />
+      </AsyncBoundary>
+      <AsyncBoundary query={since} label="Since you last looked">
+        <SinceBand data={since.data} />
+      </AsyncBoundary>
+      <AsyncBoundary query={devteam} label="AI dev team">
+        <DevTeamStrip data={devteam.data} />
+      </AsyncBoundary>
     </div>
   )
 }
