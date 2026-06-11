@@ -194,6 +194,33 @@ describe('HonestHeader', () => {
     expect(control.textContent).toMatch(/paused|resume/i)
   })
 
+  // Law #4: a missing/unknown pause source must NEVER render green "RUNNING"
+  // (false-green). Regression-locks the 2026-06-11 PG-down incident where the
+  // backend now returns {is_paused: null, state: "unavailable"} (HTTP 200).
+  it('does NOT show RUNNING (false-green) when pause source is unavailable', async () => {
+    mockFetch(MOCK_HEADER, {
+      is_paused: null,
+      state: 'unavailable',
+      paused_at: null,
+      paused_by: null,
+      reason: null,
+      resumed_at: null,
+      updated_at: null,
+      detail: 'pause state source unavailable',
+    })
+    renderHeader()
+    await waitFor(() => {
+      expect(screen.getByTestId('pause-control')).toBeInTheDocument()
+    })
+    const control = screen.getByTestId('pause-control')
+    // The crux: an unknown source is never rendered as the green RUNNING state.
+    expect(control.textContent).not.toMatch(/running/i)
+    // And no Pause/Resume toggle is offered for a state we cannot read.
+    expect(screen.queryByTestId('pause-toggle-btn')).not.toBeInTheDocument()
+    // An explicit unknown indicator is shown instead.
+    expect(screen.getByTestId('pause-unknown')).toBeInTheDocument()
+  })
+
   it('fires POST /api/console/pause with action=pause when running and toggled', async () => {
     const fetchMock = vi.fn((url, opts) => {
       if (url.includes('/console/header')) {

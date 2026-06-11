@@ -109,6 +109,31 @@ class TestGate:
             resp = client.get("/api/console/now/gate")
         assert resp.status_code == 200
 
+    def test_gate_degrades_to_unknown_when_source_unavailable(self):
+        """DB/source unavailable (e.g. cutover PG down) → HTTP 200 with EVERY gate
+        metric in 'unknown' state, NEVER a 500 (design law #4: the sole console
+        UI must not break on a DB hiccup). Regression-locks the 2026-06-11 PG-down
+        incident where /now/gate 500'd the north-star hero. Boundary-touch: drives
+        the real connect_db failure mode (psycopg2.OperationalError)."""
+        import psycopg2
+
+        client = _make_client()
+        with patch(
+            "src.api.cloud_routes.console_now._fetch_closed_trades",
+            side_effect=psycopg2.OperationalError("connection to server ... refused"),
+        ):
+            resp = client.get("/api/console/now/gate")
+        assert resp.status_code == 200, (
+            f"gate must degrade, not 500, on source failure — got {resp.status_code}"
+        )
+        body = resp.json()
+        for mid in ("closed_trade_count", "excess_sharpe_vs_spy", "sharpe_t_stat", "max_drawdown"):
+            assert body["metrics"][mid]["state"] == "unknown", (
+                f"{mid} must be 'unknown' on source failure, got {body['metrics'][mid]}"
+            )
+        # targets still present so the UI can render the bar shell honestly.
+        assert body["targets"], "targets must remain present in the degraded envelope"
+
     def test_gate_metrics_are_registry_sourced_envelopes(self):
         """Each gate metric is a canonical envelope with cohort/unit/state keys."""
         client = _make_client()

@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Fixed — Console NOW gate + PAUSE degrade honestly when the DB source is down (law #4)
+
+Now that `/console` is the sole UI, a Postgres hiccup must not break the cockpit. The 2026-06-11 pre-market PG-down incident (Docker Desktop hadn't auto-started after a reboot) surfaced that two console read endpoints let `psycopg2.OperationalError` propagate → HTTP 500, while their sibling NOW endpoints (`/now/signals`, `/now/positions`) already degrade to an honest `unknown` state.
+
+- **`GET /api/console/now/gate`** now wraps `_fetch_closed_trades()` — on any source failure it returns HTTP 200 with every gate metric in an explicit `state: "unknown"` envelope (rendered by the existing `<Metric>` "missing required context" path), never a 500. Targets remain present so the bar shell renders honestly.
+- **`GET /api/console/pause`** now wraps `read_pause_state()` — on a source failure it returns `{is_paused: null, state: "unavailable", …}` (HTTP 200). `is_paused` is **null (unknown), not false** — a false "RUNNING" on a missing source is the never-green-on-missing violation. `read_pause_state()` itself stays pure (raises); the guard lives at the route boundary. The scan/executor gate `is_paused()` independently fails **closed**, so a paused desk never silently resumes while the source is down.
+- **`HonestHeader` (frontend)** no longer renders the green "RUNNING" state (or a Pause/Resume toggle) when the pause source is unavailable — it shows an explicit muted **"pause n/a"** indicator. Verified in a live browser (forced-unavailable → "PAUSE N/A", no false-green) and by a real-render vitest.
+- Backend untouched elsewhere; TDD (RED→GREEN, verify-by-mutation that `read_pause_state` raises without the guard). Tests: backend `tests/api/test_console_now.py` + `test_console_pause_route.py` (+3), frontend `HonestHeader.test.jsx` (+1) — full suites green (backend 70 incl. structure, frontend 229).
+- Ops follow-up (separate): Docker Desktop "start on login" **enabled** to stop the recurrence (a reboot was silently downing the desk's sole write target); a heartbeat/PG-down alert remains open.
+
 ### Removed — Old 28-page dashboard retired; `/console` is now the sole UI
 
 The Founder Operating Console (NOW · DECIDE · KNOW) reached parity across Phases 1–3 + the analytics follow-ups, so the legacy React dashboard it replaced has been deleted — the deliberate *"delete the old app only once the console is complete"* cutover.
