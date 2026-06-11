@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [v0.37.0] - 2026-06-11 — Founder Operating Console: `/console` replaces the 28-page dashboard (+ DB-down hardening & heartbeat watchdog)
+
+**Release summary:** Replaces the legacy 28-page React dashboard with the 3-region **Founder Operating Console** (NOW · DECIDE · KNOW) — single-source metrics with honest no-data/degraded states (9 design laws), a challenge-and-response veto queue (law #8, record-only), and derive-from-source legibility + analytics (fund ladder, system map, track record, rigor stack, attribution/calibration, research corpus, AI-dev scorecards). The old dashboard was retired (#1209 — `/console` is now the sole UI); every console read endpoint degrades to an honest `unknown`/`unavailable` state — never a 500 — on a DB hiccup (#1210/#1211); and an independent `ArcisHeartbeatMonitor` watchdog pages Telegram if prod PG or the watch-loop heartbeat goes down, so an outage can't go unnoticed. Spans Phase 0 (#1200) + #1202→#1211; the SQLite/PG single-source backend is preserved; the PAPER-only / bootcamp-OFF desk reality is rendered honestly throughout. Operator ops: Docker Desktop auto-start enabled; see `docs/operator-guide.md`.
+
 ### Added — Heartbeat/PG-down alert watchdog + DECIDE law-#4 degrade (incident follow-ups)
 
 Robustness follow-ups from the 2026-06-11 pre-market PG-down incident (prod PG 5433 down ~21h, unnoticed, because Docker Desktop hadn't auto-started after a reboot and the crash-looping watch loop couldn't send its own alert):

@@ -38,4 +38,10 @@ update CHANGELOG.md alongside.
 # preserved), live-schema+FK reconciliation, SQLite archive-then-empty, forensic
 # WIPE_COMMITTED marker, + full verify-by-mutation test suite. EXECUTION stays
 # operator-gated. Found+fixed a Windows fsync(O_RDONLY)->EBADF portability bug.
-VERSION = "v0.36.85"
+# v0.37.0 (#1200/#1202->#1211): Founder Operating Console — the 3-region /console
+# (NOW/DECIDE/KNOW) replaces the retired 28-page dashboard (#1209, sole UI now);
+# honest single-source metrics (9 design laws), record-only veto queue (law #8),
+# derive-from-source legibility + analytics. Every console read degrades to an
+# honest unknown/unavailable state (never 500) on a DB hiccup (#1210/#1211); an
+# independent ArcisHeartbeatMonitor watchdog pages Telegram on PG/heartbeat down.
+VERSION = "v0.37.0"

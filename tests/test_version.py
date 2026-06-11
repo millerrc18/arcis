@@ -14,8 +14,8 @@ import os
 import pytest
 
 
-_EXPECTED_VERSION = "v0.36.85"
-_EXPECTED_BARE_SEMVER = "0.36.85"
+_EXPECTED_VERSION = "v0.37.0"
+_EXPECTED_BARE_SEMVER = "0.37.0"
 
 
 def test_version_constant():
