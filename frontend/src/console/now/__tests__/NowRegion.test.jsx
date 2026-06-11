@@ -384,3 +384,40 @@ describe('NowRegion — AI dev-team strip', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// AsyncBoundary — loading/error states distinct from no-data UNKNOWN. Law-#4
+// refinement: a first-load flash or an unreachable API server must NOT render
+// as the no-data/UNKNOWN state. Regression for the 2026-06-11 "integrity
+// signals showing UNKNOWN" investigation (the UNKNOWN was the load-flash).
+// ---------------------------------------------------------------------------
+describe('NowRegion — AsyncBoundary loading/error vs no-data', () => {
+  it('renders "loading…" for a first-loading section (NOT its UNKNOWN no-data tiles)', async () => {
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('/console/now/signals')) return new Promise(() => {}) // never resolves
+      return jsonResponse({})
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderNow()
+    await waitFor(() => {
+      const loadings = screen.getAllByTestId('async-loading')
+      expect(loadings.some((el) => /Integrity/i.test(el.textContent))).toBe(true)
+    })
+    // crux: the signals SECTION shows loading, so its UNKNOWN tiles are NOT rendered
+    expect(screen.queryByTestId('signal-heartbeat')).not.toBeInTheDocument()
+  })
+
+  it('renders "source unavailable" when a section fetch errors (NOT UNKNOWN)', async () => {
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('/console/now/signals')) return Promise.reject(new Error('api server down'))
+      return jsonResponse({})
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderNow()
+    await waitFor(() => {
+      const errors = screen.getAllByTestId('async-error')
+      expect(errors.some((el) => /unavailable/i.test(el.textContent))).toBe(true)
+    })
+    expect(screen.queryByTestId('signal-heartbeat')).not.toBeInTheDocument()
+  })
+})

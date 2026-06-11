@@ -350,3 +350,40 @@ describe('DecideRegion — action mutation', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// AsyncBoundary — DECIDE region loading/error vs no-data. Mirror of the NOW
+// region describe block. Law-#4: first-load and unreachable-server states must
+// NOT render as the no-data/"No decisions waiting" text. Regression guard for
+// the 2026-06-11 incident pattern.
+// ---------------------------------------------------------------------------
+describe('DecideRegion — AsyncBoundary loading/error vs no-data', () => {
+  it('renders "loading…" for a first-loading section (NOT "No decisions waiting")', async () => {
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('/console/decide/pending')) return new Promise(() => {}) // never resolves
+      return jsonResponse({})
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderDecide()
+    await waitFor(() => {
+      const loadings = screen.getAllByTestId('async-loading')
+      expect(loadings.some((el) => /Decisions waiting/i.test(el.textContent))).toBe(true)
+    })
+    // crux: the section shows loading, so "No decisions waiting" must NOT appear
+    expect(screen.queryByText(/No decisions waiting/i)).not.toBeInTheDocument()
+  })
+
+  it('renders "source unavailable" when a section fetch errors (NOT "No decisions waiting")', async () => {
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('/console/decide/pending')) return Promise.reject(new Error('api server down'))
+      return jsonResponse({})
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderDecide()
+    await waitFor(() => {
+      const errors = screen.getAllByTestId('async-error')
+      expect(errors.some((el) => /unavailable/i.test(el.textContent))).toBe(true)
+    })
+    expect(screen.queryByText(/No decisions waiting/i)).not.toBeInTheDocument()
+  })
+})

@@ -17,6 +17,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
+import AsyncBoundary from '../components/AsyncBoundary'
 import StalenessBadge from '../components/StalenessBadge'
 import { BackToOverview } from './components'
 
@@ -150,64 +151,64 @@ function CouncilPanel() {
     <div data-testid="research-council-panel" style={PANEL_STYLE}>
       <div style={{ ...SECTION_TITLE_STYLE, marginBottom: 12 }}>AI Council</div>
 
-      {latestQuery.isLoading ? (
-        <div style={EMPTY_STYLE}>Loading council session...</div>
-      ) : !session ? (
-        <div data-testid="council-no-session" style={EMPTY_STYLE}>
-          No council session yet — run the council to populate.
-        </div>
-      ) : (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            {consensus && (
-              <span style={consensusBadgeStyle(consensus)}>{consensus}</span>
-            )}
-            {confidenceAvg != null && (
-              <span style={META_STYLE}>conf: {(confidenceAvg * 100).toFixed(0)}%</span>
-            )}
-            {roundsCompleted != null && (
-              <span style={META_STYLE}>rounds: {roundsCompleted}</span>
-            )}
-            {asOf && <StalenessBadge asOf={asOf} maxAge={7 * 24 * 3600} />}
+      <AsyncBoundary query={latestQuery} label="Council session">
+        {!session ? (
+          <div data-testid="council-no-session" style={EMPTY_STYLE}>
+            No council session yet — run the council to populate.
           </div>
-          {summary && (
-            <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', lineHeight: 1.6, marginTop: 8 }}>
-              {summary}
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              {consensus && (
+                <span style={consensusBadgeStyle(consensus)}>{consensus}</span>
+              )}
+              {confidenceAvg != null && (
+                <span style={META_STYLE}>conf: {(confidenceAvg * 100).toFixed(0)}%</span>
+              )}
+              {roundsCompleted != null && (
+                <span style={META_STYLE}>rounds: {roundsCompleted}</span>
+              )}
+              {asOf && <StalenessBadge asOf={asOf} maxAge={7 * 24 * 3600} />}
             </div>
-          )}
-        </div>
-      )}
+            {summary && (
+              <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', lineHeight: 1.6, marginTop: 8 }}>
+                {summary}
+              </div>
+            )}
+          </div>
+        )}
+      </AsyncBoundary>
 
       <div style={{ ...SECTION_TITLE_STYLE, marginTop: 12 }}>Recent sessions</div>
-      {historyQuery.isLoading ? (
-        <div style={EMPTY_STYLE}>Loading history...</div>
-      ) : sessions.length === 0 ? (
-        <div data-testid="council-history-empty" style={EMPTY_STYLE}>
-          No historical sessions.
-        </div>
-      ) : (
-        <ul data-testid="council-history-list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {sessions.slice(0, 5).map((s, i) => {
-            const c = s.consensus ?? null
-            return (
-              <li
-                key={s.session_id ?? i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '6px 0',
-                  borderBottom: i < sessions.length - 1 ? '1px solid var(--arcis-border, rgba(255,255,255,0.08))' : 'none',
-                }}
-              >
-                <span style={META_STYLE}>{formatShortDate(s.created_at)}</span>
-                <span style={META_STYLE}>{s.session_type ?? 'session'}</span>
-                {c && <span style={consensusBadgeStyle(c)}>{c}</span>}
-              </li>
-            )
-          })}
-        </ul>
-      )}
+      <AsyncBoundary query={historyQuery} label="Council history">
+        {sessions.length === 0 ? (
+          <div data-testid="council-history-empty" style={EMPTY_STYLE}>
+            No historical sessions.
+          </div>
+        ) : (
+          <ul data-testid="council-history-list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {sessions.slice(0, 5).map((s, i) => {
+              const c = s.consensus ?? null
+              return (
+                <li
+                  key={s.session_id ?? i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '6px 0',
+                    borderBottom: i < sessions.length - 1 ? '1px solid var(--arcis-border, rgba(255,255,255,0.08))' : 'none',
+                  }}
+                >
+                  <span style={META_STYLE}>{formatShortDate(s.created_at)}</span>
+                  <span style={META_STYLE}>{s.session_type ?? 'session'}</span>
+                  {c && <span style={consensusBadgeStyle(c)}>{c}</span>}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </AsyncBoundary>
     </div>
   )
 }
@@ -290,137 +291,137 @@ export default function ResearchView() {
       </section>
 
       {/* Packets */}
-      <section style={SECTION_STYLE}>
-        <div style={SECTION_TITLE_STYLE}>Signal packets</div>
-        {packetsQuery.isLoading ? (
-          <div style={EMPTY_STYLE}>Loading packets...</div>
-        ) : filteredPackets.length === 0 ? (
-          <div data-testid="research-packets-empty" style={EMPTY_STYLE}>
-            {allPackets.length === 0 ? 'No packets in corpus.' : 'No packets match this search.'}
-          </div>
-        ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {filteredPackets.map((p, i) => (
-              <li key={p.recommendation_id ?? i} style={CARD_STYLE}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={TICKER_STYLE}>{p.ticker}</span>
-                  {p.company_name && (
-                    <span style={META_STYLE}>{p.company_name}</span>
-                  )}
-                  <span style={META_STYLE}>score: {(p.priority_score ?? 0).toFixed(0)}</span>
-                  <span style={{ flex: 1 }} />
-                  <span style={META_STYLE}>{formatShortDate(p.created_at)}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <AsyncBoundary query={packetsQuery} label="Signal packets">
+        <section style={SECTION_STYLE}>
+          <div style={SECTION_TITLE_STYLE}>Signal packets</div>
+          {filteredPackets.length === 0 ? (
+            <div data-testid="research-packets-empty" style={EMPTY_STYLE}>
+              {allPackets.length === 0 ? 'No packets in corpus.' : 'No packets match this search.'}
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {filteredPackets.map((p, i) => (
+                <li key={p.recommendation_id ?? i} style={CARD_STYLE}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={TICKER_STYLE}>{p.ticker}</span>
+                    {p.company_name && (
+                      <span style={META_STYLE}>{p.company_name}</span>
+                    )}
+                    <span style={META_STYLE}>score: {(p.priority_score ?? 0).toFixed(0)}</span>
+                    <span style={{ flex: 1 }} />
+                    <span style={META_STYLE}>{formatShortDate(p.created_at)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </AsyncBoundary>
 
       {/* Notes */}
-      <section style={SECTION_STYLE}>
-        <div style={SECTION_TITLE_STYLE}>Notes</div>
-        {notesQuery.isLoading ? (
-          <div style={EMPTY_STYLE}>Loading notes...</div>
-        ) : filteredNotes.length === 0 ? (
-          <div data-testid="research-notes-empty" style={EMPTY_STYLE}>
-            {allNotes.length === 0 ? 'No notes yet.' : 'No notes match this search.'}
-          </div>
-        ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {filteredNotes.map((n, i) => (
-              <li key={n.note_id ?? i} style={CARD_STYLE}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  {n.pinned && (
-                    <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--arcis-accent, #6366f1)' }}>pinned</span>
-                  )}
-                  <span style={NOTE_TITLE_STYLE}>{n.title}</span>
-                  <span style={{ flex: 1 }} />
-                  <span style={META_STYLE}>{formatShortDate(n.updated_at ?? n.created_at)}</span>
-                </div>
-                {(n.tags ?? []).length > 0 && (
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                    {n.tags.map((tag) => (
-                      <span key={tag} style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', background: 'rgba(113,113,122,0.15)', padding: '1px 6px', borderRadius: 3 }}>
-                        {tag}
-                      </span>
-                    ))}
+      <AsyncBoundary query={notesQuery} label="Notes">
+        <section style={SECTION_STYLE}>
+          <div style={SECTION_TITLE_STYLE}>Notes</div>
+          {filteredNotes.length === 0 ? (
+            <div data-testid="research-notes-empty" style={EMPTY_STYLE}>
+              {allNotes.length === 0 ? 'No notes yet.' : 'No notes match this search.'}
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {filteredNotes.map((n, i) => (
+                <li key={n.note_id ?? i} style={CARD_STYLE}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    {n.pinned && (
+                      <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--arcis-accent, #6366f1)' }}>pinned</span>
+                    )}
+                    <span style={NOTE_TITLE_STYLE}>{n.title}</span>
+                    <span style={{ flex: 1 }} />
+                    <span style={META_STYLE}>{formatShortDate(n.updated_at ?? n.created_at)}</span>
                   </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  {(n.tags ?? []).length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                      {n.tags.map((tag) => (
+                        <span key={tag} style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', background: 'rgba(113,113,122,0.15)', padding: '1px 6px', borderRadius: 3 }}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </AsyncBoundary>
 
       {/* Weekly digest */}
-      <section style={SECTION_STYLE}>
-        <div style={SECTION_TITLE_STYLE}>Weekly digest</div>
-        {digestQuery.isLoading ? (
-          <div style={EMPTY_STYLE}>Loading digest...</div>
-        ) : !digest ? (
-          <div data-testid="research-digest-empty" style={EMPTY_STYLE}>
-            Digest not yet synthesized.
-          </div>
-        ) : (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              {digest.week_start && digest.week_end && (
-                <span style={META_STYLE}>{digest.week_start} — {digest.week_end}</span>
-              )}
-              {digest.created_at && <StalenessBadge asOf={digest.created_at} maxAge={7 * 24 * 3600} />}
+      <AsyncBoundary query={digestQuery} label="Weekly digest">
+        <section style={SECTION_STYLE}>
+          <div style={SECTION_TITLE_STYLE}>Weekly digest</div>
+          {!digest ? (
+            <div data-testid="research-digest-empty" style={EMPTY_STYLE}>
+              Digest not yet synthesized.
             </div>
-            {digest.summary && (
-              <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', lineHeight: 1.6 }}>
-                {digest.summary}
+          ) : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                {digest.week_start && digest.week_end && (
+                  <span style={META_STYLE}>{digest.week_start} — {digest.week_end}</span>
+                )}
+                {digest.created_at && <StalenessBadge asOf={digest.created_at} maxAge={7 * 24 * 3600} />}
               </div>
-            )}
-          </div>
-        )}
-      </section>
+              {digest.summary && (
+                <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', lineHeight: 1.6 }}>
+                  {digest.summary}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      </AsyncBoundary>
 
       {/* Research papers */}
-      <section style={SECTION_STYLE}>
-        <div style={SECTION_TITLE_STYLE}>Research papers</div>
-        {papersQuery.isLoading ? (
-          <div style={EMPTY_STYLE}>Loading papers...</div>
-        ) : papers.length === 0 ? (
-          <div data-testid="research-papers-empty" style={EMPTY_STYLE}>
-            No recent papers.
-          </div>
-        ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {papers.map((p, i) => (
-              <li key={p.id ?? i} style={CARD_STYLE}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    {p.url ? (
-                      <a
-                        href={p.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--arcis-accent, #6366f1)', textDecoration: 'none' }}
-                      >
-                        {p.title}
-                      </a>
-                    ) : (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--arcis-text-primary, #fff)' }}>{p.title}</span>
-                    )}
-                    {p.authors && <div style={META_STYLE}>{p.authors}</div>}
+      <AsyncBoundary query={papersQuery} label="Research papers">
+        <section style={SECTION_STYLE}>
+          <div style={SECTION_TITLE_STYLE}>Research papers</div>
+          {papers.length === 0 ? (
+            <div data-testid="research-papers-empty" style={EMPTY_STYLE}>
+              No recent papers.
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {papers.map((p, i) => (
+                <li key={p.id ?? i} style={CARD_STYLE}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      {p.url ? (
+                        <a
+                          href={p.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--arcis-accent, #6366f1)', textDecoration: 'none' }}
+                        >
+                          {p.title}
+                        </a>
+                      ) : (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--arcis-text-primary, #fff)' }}>{p.title}</span>
+                      )}
+                      {p.authors && <div style={META_STYLE}>{p.authors}</div>}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <span style={META_STYLE}>score: {p.relevance_score != null ? p.relevance_score.toFixed(2) : '--'}</span>
+                      <span style={META_STYLE}>{formatShortDate(p.published_date)}</span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                    <span style={META_STYLE}>score: {p.relevance_score != null ? p.relevance_score.toFixed(2) : '--'}</span>
-                    <span style={META_STYLE}>{formatShortDate(p.published_date)}</span>
-                  </div>
-                </div>
-                {p.relevance_reason && (
-                  <div style={{ ...META_STYLE, marginTop: 6, lineHeight: 1.5 }}>{p.relevance_reason}</div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  {p.relevance_reason && (
+                    <div style={{ ...META_STYLE, marginTop: 6, lineHeight: 1.5 }}>{p.relevance_reason}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </AsyncBoundary>
 
       {/* AI Council panel */}
       <CouncilPanel />

@@ -21,6 +21,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
+import AsyncBoundary from '../components/AsyncBoundary'
 import Metric from '../components/Metric'
 import SentinelGuard from '../components/SentinelGuard'
 import StalenessBadge from '../components/StalenessBadge'
@@ -205,69 +206,71 @@ function ValidationPanel() {
 
   return (
     <div data-testid="rigor-validation-panel">
-      <section style={SECTION_STYLE}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={SECTION_TITLE_STYLE}>System Validation (PSR / DSR / PBO)</div>
-          <StalenessBadge asOf={timestamp} maxAge={3600} />
-        </div>
-
-        {!hasData && isSettled ? (
-          <div data-testid="rigor-validation-no-data" style={NO_DATA_STYLE}>
-            No validation data available
+      <AsyncBoundary query={query} label="System validation">
+        <section style={SECTION_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={SECTION_TITLE_STYLE}>System Validation (PSR / DSR / PBO)</div>
+            <StalenessBadge asOf={timestamp} maxAge={3600} />
           </div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, textTransform: 'uppercase', color: 'var(--arcis-text-primary, #fff)' }}>
-                <SentinelGuard value={overall} />
-              </div>
-            </div>
 
-            <div style={CARD_GRID_STYLE}>
-              <Metric
-                label="Passed"
-                value={<SentinelGuard value={passed} />}
-                cohort="system"
-                n={total ?? 0}
-                asOf={timestamp ?? 'unknown'}
-              />
-              <Metric
-                label="Warnings"
-                value={<SentinelGuard value={warning} />}
-                cohort="system"
-                n={total ?? 0}
-                asOf={timestamp ?? 'unknown'}
-              />
-              <Metric
-                label="Failed"
-                value={<SentinelGuard value={failed} />}
-                cohort="system"
-                n={total ?? 0}
-                asOf={timestamp ?? 'unknown'}
-              />
-              <Metric
-                label="Total checks"
-                value={<SentinelGuard value={total} />}
-                cohort="system"
-                n={total ?? 0}
-                asOf={timestamp ?? 'unknown'}
-              />
+          {!hasData && isSettled ? (
+            <div data-testid="rigor-validation-no-data" style={NO_DATA_STYLE}>
+              No validation data available
             </div>
-          </>
-        )}
-      </section>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, textTransform: 'uppercase', color: 'var(--arcis-text-primary, #fff)' }}>
+                  <SentinelGuard value={overall} />
+                </div>
+              </div>
+
+              <div style={CARD_GRID_STYLE}>
+                <Metric
+                  label="Passed"
+                  value={<SentinelGuard value={passed} />}
+                  cohort="system"
+                  n={total ?? 0}
+                  asOf={timestamp ?? 'unknown'}
+                />
+                <Metric
+                  label="Warnings"
+                  value={<SentinelGuard value={warning} />}
+                  cohort="system"
+                  n={total ?? 0}
+                  asOf={timestamp ?? 'unknown'}
+                />
+                <Metric
+                  label="Failed"
+                  value={<SentinelGuard value={failed} />}
+                  cohort="system"
+                  n={total ?? 0}
+                  asOf={timestamp ?? 'unknown'}
+                />
+                <Metric
+                  label="Total checks"
+                  value={<SentinelGuard value={total} />}
+                  cohort="system"
+                  n={total ?? 0}
+                  asOf={timestamp ?? 'unknown'}
+                />
+              </div>
+            </>
+          )}
+        </section>
+      </AsyncBoundary>
 
       {/* F6: PSR / DSR / PBO rigor-metrics tiles */}
-      {rigorData && (
+      <AsyncBoundary query={rigorQuery} label="PSR / DSR / PBO">
         <section style={SECTION_STYLE}>
           <div style={{ ...SECTION_TITLE_STYLE, marginBottom: 12 }}>PSR / DSR / PBO</div>
           <div style={CARD_GRID_STYLE}>
-            <RigorMetricTile testId="rigor-psr-tile" label="PSR" envelope={rigorData.psr} />
-            <RigorMetricTile testId="rigor-dsr-tile" label="DSR" envelope={rigorData.dsr} />
-            <RigorMetricTile testId="rigor-pbo-tile" label="PBO" envelope={rigorData.pbo} />
+            <RigorMetricTile testId="rigor-psr-tile" label="PSR" envelope={rigorData?.psr} />
+            <RigorMetricTile testId="rigor-dsr-tile" label="DSR" envelope={rigorData?.dsr} />
+            <RigorMetricTile testId="rigor-pbo-tile" label="PBO" envelope={rigorData?.pbo} />
           </div>
         </section>
-      )}
+      </AsyncBoundary>
     </div>
   )
 }
@@ -305,104 +308,106 @@ function WalkforwardPanel() {
 
   return (
     <div data-testid="rigor-walkforward-panel">
-      <section style={SECTION_STYLE}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={SECTION_TITLE_STYLE}>Walk-forward Validation (OOS Windows)</div>
-          <StalenessBadge asOf={runsAsOf} maxAge={3600} />
-        </div>
-
-        {!hasRuns && runsQuery.status !== 'pending' ? (
-          <div data-testid="rigor-walkforward-no-data" style={NO_DATA_STYLE}>
-            No walk-forward runs recorded yet. Run{' '}
-            <code style={{ background: 'var(--arcis-surface, #18181b)', padding: '1px 4px' }}>
-              python -m scripts.backtest.run_walkforward --strategy &lt;id&gt;
-            </code>{' '}
-            to generate the first result.
+      <AsyncBoundary query={runsQuery} label="Walk-forward runs">
+        <section style={SECTION_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={SECTION_TITLE_STYLE}>Walk-forward Validation (OOS Windows)</div>
+            <StalenessBadge asOf={runsAsOf} maxAge={3600} />
           </div>
-        ) : latestRun ? (
-          <>
-            {/* Latest run summary */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-              <OutcomeBadge state={latestRun.outcome_state} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--arcis-text-secondary, #a1a1aa)' }}>
-                {latestRun.strategy_id}
-              </span>
-              {latestRun.reason && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--arcis-text-muted, #71717a)' }}>
-                  {latestRun.reason}
+
+          {!hasRuns && runsQuery.status !== 'pending' ? (
+            <div data-testid="rigor-walkforward-no-data" style={NO_DATA_STYLE}>
+              No walk-forward runs recorded yet. Run{' '}
+              <code style={{ background: 'var(--arcis-surface, #18181b)', padding: '1px 4px' }}>
+                python -m scripts.backtest.run_walkforward --strategy &lt;id&gt;
+              </code>{' '}
+              to generate the first result.
+            </div>
+          ) : latestRun ? (
+            <>
+              {/* Latest run summary */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                <OutcomeBadge state={latestRun.outcome_state} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--arcis-text-secondary, #a1a1aa)' }}>
+                  {latestRun.strategy_id}
                 </span>
-              )}
-            </div>
-
-            <div style={{ ...CARD_GRID_STYLE, marginBottom: 16 }}>
-              <Metric
-                label="Pooled Sharpe"
-                value={<SentinelGuard value={latestRun.pooled_sharpe != null ? Number(latestRun.pooled_sharpe).toFixed(3) : null} />}
-                cohort="walkforward"
-                n={latestRun.n_windows ?? 0}
-                asOf={latestRun.created_at ?? 'unknown'}
-              />
-              <Metric
-                label="Pooled MDE"
-                value={<SentinelGuard value={latestRun.pooled_mde != null ? Number(latestRun.pooled_mde).toFixed(3) : null} />}
-                cohort="walkforward"
-                n={latestRun.n_windows ?? 0}
-                asOf={latestRun.created_at ?? 'unknown'}
-              />
-              <Metric
-                label="Windows (P/F/I)"
-                value={
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-                    {latestRun.n_windows_pass ?? 0}/{latestRun.n_windows_fail ?? 0}/{(latestRun.n_windows_inconclusive_data ?? 0) + (latestRun.n_windows_inconclusive_power ?? 0)}
+                {latestRun.reason && (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--arcis-text-muted, #71717a)' }}>
+                    {latestRun.reason}
                   </span>
-                }
-                cohort="walkforward"
-                n={latestRun.n_windows ?? 0}
-                asOf={latestRun.created_at ?? 'unknown'}
-              />
-              <Metric
-                label="Max Drawdown"
-                value={<SentinelGuard value={latestRun.max_drawdown_pct != null ? `${Number(latestRun.max_drawdown_pct).toFixed(1)}%` : null} />}
-                cohort="walkforward"
-                n={latestRun.n_windows ?? 0}
-                asOf={latestRun.created_at ?? 'unknown'}
-              />
-            </div>
-
-            {/* Per-window breakdown */}
-            {windows.length > 0 && (
-              <div>
-                <div style={{ ...SECTION_TITLE_STYLE, marginBottom: 8 }}>Per-window breakdown</div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                        {['Window', 'Trades', 'Sharpe', 'MDE', 'Bootstrap SE', 'VIX tiers'].map((h) => (
-                          <th key={h} style={{ padding: '4px 8px', textAlign: h === 'Window' ? 'left' : 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {windows.map((w) => (
-                        <tr key={w.window_index} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                          <td style={{ padding: '6px 8px', color: 'var(--arcis-text-primary, #fff)' }}>{w.window_index}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.n_trades}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{numberOrDash(w.sharpe)}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{numberOrDash(w.mde)}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{numberOrDash(w.bootstrap_se)}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.distinct_vix_tiers}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                )}
               </div>
-            )}
-          </>
-        ) : null}
-      </section>
+
+              <div style={{ ...CARD_GRID_STYLE, marginBottom: 16 }}>
+                <Metric
+                  label="Pooled Sharpe"
+                  value={<SentinelGuard value={latestRun.pooled_sharpe != null ? Number(latestRun.pooled_sharpe).toFixed(3) : null} />}
+                  cohort="walkforward"
+                  n={latestRun.n_windows ?? 0}
+                  asOf={latestRun.created_at ?? 'unknown'}
+                />
+                <Metric
+                  label="Pooled MDE"
+                  value={<SentinelGuard value={latestRun.pooled_mde != null ? Number(latestRun.pooled_mde).toFixed(3) : null} />}
+                  cohort="walkforward"
+                  n={latestRun.n_windows ?? 0}
+                  asOf={latestRun.created_at ?? 'unknown'}
+                />
+                <Metric
+                  label="Windows (P/F/I)"
+                  value={
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                      {latestRun.n_windows_pass ?? 0}/{latestRun.n_windows_fail ?? 0}/{(latestRun.n_windows_inconclusive_data ?? 0) + (latestRun.n_windows_inconclusive_power ?? 0)}
+                    </span>
+                  }
+                  cohort="walkforward"
+                  n={latestRun.n_windows ?? 0}
+                  asOf={latestRun.created_at ?? 'unknown'}
+                />
+                <Metric
+                  label="Max Drawdown"
+                  value={<SentinelGuard value={latestRun.max_drawdown_pct != null ? `${Number(latestRun.max_drawdown_pct).toFixed(1)}%` : null} />}
+                  cohort="walkforward"
+                  n={latestRun.n_windows ?? 0}
+                  asOf={latestRun.created_at ?? 'unknown'}
+                />
+              </div>
+
+              {/* Per-window breakdown */}
+              {windows.length > 0 && (
+                <div>
+                  <div style={{ ...SECTION_TITLE_STYLE, marginBottom: 8 }}>Per-window breakdown</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                          {['Window', 'Trades', 'Sharpe', 'MDE', 'Bootstrap SE', 'VIX tiers'].map((h) => (
+                            <th key={h} style={{ padding: '4px 8px', textAlign: h === 'Window' ? 'left' : 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {windows.map((w) => (
+                          <tr key={w.window_index} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                            <td style={{ padding: '6px 8px', color: 'var(--arcis-text-primary, #fff)' }}>{w.window_index}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.n_trades}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right' }}>{numberOrDash(w.sharpe)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right' }}>{numberOrDash(w.mde)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right' }}>{numberOrDash(w.bootstrap_se)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.distinct_vix_tiers}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : null}
+        </section>
+      </AsyncBoundary>
     </div>
   )
 }
@@ -438,80 +443,82 @@ function StressPanel() {
 
   return (
     <div data-testid="rigor-stress-panel">
-      <section style={SECTION_STYLE}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={SECTION_TITLE_STYLE}>Historical Stress Testing</div>
-          <StalenessBadge asOf={asOf} maxAge={3600} />
-        </div>
+      <AsyncBoundary query={query} label="Stress test results">
+        <section style={SECTION_STYLE}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={SECTION_TITLE_STYLE}>Historical Stress Testing</div>
+            <StalenessBadge asOf={asOf} maxAge={3600} />
+          </div>
 
-        {!hasResults && query.status !== 'pending' ? (
-          <div data-testid="rigor-stress-no-data" style={NO_DATA_STYLE}>
-            No stress test results yet. Run{' '}
-            <code style={{ background: 'var(--arcis-surface, #18181b)', padding: '1px 4px' }}>
-              python -m scripts.backtest.run_stress_test
-            </code>{' '}
-            to generate the first result.
-          </div>
-        ) : (
-          <div style={CARD_GRID_STYLE}>
-            {results.map((r) => (
-              <div
-                key={r.result_id}
-                style={{
-                  padding: '14px 16px',
-                  border: '1px solid var(--arcis-border, rgba(255,255,255,0.08))',
-                  borderRadius: 6,
-                  background: 'var(--arcis-surface, #18181b)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}
-              >
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--arcis-text-primary, #fff)' }}>
-                  {SCENARIO_LABELS[r.scenario] ?? r.scenario}
+          {!hasResults && query.status !== 'pending' ? (
+            <div data-testid="rigor-stress-no-data" style={NO_DATA_STYLE}>
+              No stress test results yet. Run{' '}
+              <code style={{ background: 'var(--arcis-surface, #18181b)', padding: '1px 4px' }}>
+                python -m scripts.backtest.run_stress_test
+              </code>{' '}
+              to generate the first result.
+            </div>
+          ) : (
+            <div style={CARD_GRID_STYLE}>
+              {results.map((r) => (
+                <div
+                  key={r.result_id}
+                  style={{
+                    padding: '14px 16px',
+                    border: '1px solid var(--arcis-border, rgba(255,255,255,0.08))',
+                    borderRadius: 6,
+                    background: 'var(--arcis-surface, #18181b)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--arcis-text-primary, #fff)' }}>
+                    {SCENARIO_LABELS[r.scenario] ?? r.scenario}
+                  </div>
+                  <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)' }}>
+                    {r.start_date} — {r.end_date}
+                  </div>
+                  <div style={CARD_GRID_STYLE}>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                        Trades
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+                        <SentinelGuard value={r.total_trades ?? null} />
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                        Win Rate
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+                        {r.win_rate != null ? `${(r.win_rate * 100).toFixed(1)}%` : <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>no data</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                        Max DD
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13, color: 'var(--arcis-danger, #ef4444)' }}>
+                        {r.max_drawdown_pct != null ? `${r.max_drawdown_pct.toFixed(1)}%` : <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>no data</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                        Calmar
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+                        {r.calmar_ratio != null ? r.calmar_ratio.toFixed(2) : <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>no data</span>}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)' }}>
-                  {r.start_date} — {r.end_date}
-                </div>
-                <div style={CARD_GRID_STYLE}>
-                  <div>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                      Trades
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
-                      <SentinelGuard value={r.total_trades ?? null} />
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                      Win Rate
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
-                      {r.win_rate != null ? `${(r.win_rate * 100).toFixed(1)}%` : <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>no data</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                      Max DD
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13, color: 'var(--arcis-danger, #ef4444)' }}>
-                      {r.max_drawdown_pct != null ? `${r.max_drawdown_pct.toFixed(1)}%` : <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>no data</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-secondary, #a1a1aa)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                      Calmar
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
-                      {r.calmar_ratio != null ? r.calmar_ratio.toFixed(2) : <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontStyle: 'italic' }}>no data</span>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      </AsyncBoundary>
     </div>
   )
 }

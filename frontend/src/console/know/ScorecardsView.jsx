@@ -20,6 +20,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
 import { BackToOverview } from './components'
+import AsyncBoundary from '../components/AsyncBoundary'
 import StalenessBadge from '../components/StalenessBadge'
 import SentinelGuard from '../components/SentinelGuard'
 
@@ -225,108 +226,116 @@ export default function ScorecardsView() {
       <div data-testid="know-scorecards">
 
         {/* ── Section: Headline — Overall Model Performance ── */}
-        <section style={SECTION_STYLE}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={SECTION_TITLE_STYLE}>AI dev-team scorecards</div>
-            <StalenessBadge asOf={mpAsOf} maxAge={300} />
-          </div>
-
-          <div style={{ ...CARD_GRID_STYLE, marginBottom: 16 }}>
-            <div style={CARD_STYLE}>
-              <div style={CARD_LABEL_STYLE}>Total closed trades</div>
-              <div style={CARD_VALUE_STYLE}><SentinelGuard value={totalTrades > 0 ? totalTrades : null} /></div>
-            </div>
-            <div style={CARD_STYLE}>
-              <div style={CARD_LABEL_STYLE}>Overall win rate</div>
-              <div style={CARD_VALUE_STYLE}><SentinelGuard value={fmtPct(overall.win_rate)} /></div>
-            </div>
-            <div style={CARD_STYLE}>
-              <div style={CARD_LABEL_STYLE}>Overall profit factor</div>
-              <div style={CARD_VALUE_STYLE}><SentinelGuard value={fmtFixed(overall.profit_factor)} /></div>
-            </div>
-            <div style={CARD_STYLE}>
-              <div style={CARD_LABEL_STYLE}>Overall sharpe</div>
-              <div style={CARD_VALUE_STYLE}><SentinelGuard value={fmtFixed(overall.sharpe_ratio)} /></div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Section: Per-version model metrics (REAL) ── */}
-        <section style={SECTION_STYLE}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={SECTION_TITLE_STYLE}>Per-model-version performance</div>
-            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>real · /api/model-performance</span>
-          </div>
-
-          {models.length === 0 && modelPerfQuery.isFetched ? (
-            <div data-testid="scorecards-model-no-data" style={NO_DATA_STYLE}>
-              No model versions available
-            </div>
-          ) : (
-            <div>
-              {models.map((m) => (
-                <VersionRow key={m.version} model={m} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* ── Section: Training version history (REAL) ── */}
-        {versions.length > 0 && (
+        <AsyncBoundary query={modelPerfQuery} label="AI dev-team scorecards">
           <section style={SECTION_STYLE}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <div style={SECTION_TITLE_STYLE}>Training version history</div>
-              <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>real · /api/training/versions</span>
+              <div style={SECTION_TITLE_STYLE}>AI dev-team scorecards</div>
+              <StalenessBadge asOf={mpAsOf} maxAge={300} />
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                    {['Version', 'Created', 'Examples', 'Holdout', 'Status'].map((h) => (
-                      <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {versions.map((v) => (
-                    <tr key={v.version_id} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                      <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{v.version_name}</td>
-                      <td style={{ padding: '6px 10px', color: 'var(--arcis-text-secondary, #a1a1aa)' }}>{(v.created_at || '').slice(0, 10)}</td>
-                      <td style={{ padding: '6px 10px' }}><SentinelGuard value={v.training_examples_count} /></td>
-                      <td style={{ padding: '6px 10px' }}><SentinelGuard value={v.holdout_score != null ? fmtFixed(v.holdout_score) : null} /></td>
-                      <td style={{ padding: '6px 10px', color: v.status === 'active' ? 'var(--arcis-accent, #6366f1)' : 'var(--arcis-text-muted, #71717a)' }}>{v.status}</td>
-                    </tr>
+
+            <div style={{ ...CARD_GRID_STYLE, marginBottom: 16 }}>
+              <div style={CARD_STYLE}>
+                <div style={CARD_LABEL_STYLE}>Total closed trades</div>
+                <div style={CARD_VALUE_STYLE}><SentinelGuard value={totalTrades > 0 ? totalTrades : null} /></div>
+              </div>
+              <div style={CARD_STYLE}>
+                <div style={CARD_LABEL_STYLE}>Overall win rate</div>
+                <div style={CARD_VALUE_STYLE}><SentinelGuard value={fmtPct(overall.win_rate)} /></div>
+              </div>
+              <div style={CARD_STYLE}>
+                <div style={CARD_LABEL_STYLE}>Overall profit factor</div>
+                <div style={CARD_VALUE_STYLE}><SentinelGuard value={fmtFixed(overall.profit_factor)} /></div>
+              </div>
+              <div style={CARD_STYLE}>
+                <div style={CARD_LABEL_STYLE}>Overall sharpe</div>
+                <div style={CARD_VALUE_STYLE}><SentinelGuard value={fmtFixed(overall.sharpe_ratio)} /></div>
+              </div>
+            </div>
+
+            {/* Per-version model metrics inline (same query) */}
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={SECTION_TITLE_STYLE}>Per-model-version performance</div>
+                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>real · /api/model-performance</span>
+              </div>
+              {models.length === 0 && modelPerfQuery.isFetched ? (
+                <div data-testid="scorecards-model-no-data" style={NO_DATA_STYLE}>
+                  No model versions available
+                </div>
+              ) : (
+                <div>
+                  {models.map((m) => (
+                    <VersionRow key={m.version} model={m} />
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
             </div>
           </section>
-        )}
+        </AsyncBoundary>
+
+        {/* ── Section: Training version history (REAL) ── */}
+        <AsyncBoundary query={versionsQuery} label="Training versions">
+          {versions.length > 0 && (
+            <section style={SECTION_STYLE}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={SECTION_TITLE_STYLE}>Training version history</div>
+                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>real · /api/training/versions</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                      {['Version', 'Created', 'Examples', 'Holdout', 'Status'].map((h) => (
+                        <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versions.map((v) => (
+                      <tr key={v.version_id} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                        <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{v.version_name}</td>
+                        <td style={{ padding: '6px 10px', color: 'var(--arcis-text-secondary, #a1a1aa)' }}>{(v.created_at || '').slice(0, 10)}</td>
+                        <td style={{ padding: '6px 10px' }}><SentinelGuard value={v.training_examples_count} /></td>
+                        <td style={{ padding: '6px 10px' }}><SentinelGuard value={v.holdout_score != null ? fmtFixed(v.holdout_score) : null} /></td>
+                        <td style={{ padding: '6px 10px', color: v.status === 'active' ? 'var(--arcis-accent, #6366f1)' : 'var(--arcis-text-muted, #71717a)' }}>{v.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </AsyncBoundary>
 
         {/* ── Section: Activity feed — task-type trends (REAL event types) ── */}
-        <section style={SECTION_STYLE}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={SECTION_TITLE_STYLE}>Activity log — recent events</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>real · /api/activity/feed</span>
-              <StalenessBadge asOf={actAsOf} maxAge={300} />
+        <AsyncBoundary query={activityQuery} label="Activity log">
+          <section style={SECTION_STYLE}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={SECTION_TITLE_STYLE}>Activity log — recent events</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-muted, #71717a)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>real · /api/activity/feed</span>
+                <StalenessBadge asOf={actAsOf} maxAge={300} />
+              </div>
             </div>
-          </div>
 
-          {activityRows.length === 0 && activityQuery.isFetched ? (
-            <div data-testid="scorecards-activity-no-data" style={NO_DATA_STYLE}>
-              No activity log entries
-            </div>
-          ) : (
-            <div>
-              {activityRows.slice(0, 20).map((entry, i) => (
-                <ActivityRow key={entry.id ?? i} entry={entry} />
-              ))}
-            </div>
-          )}
-        </section>
+            {activityRows.length === 0 && activityQuery.isFetched ? (
+              <div data-testid="scorecards-activity-no-data" style={NO_DATA_STYLE}>
+                No activity log entries
+              </div>
+            ) : (
+              <div>
+                {activityRows.slice(0, 20).map((entry, i) => (
+                  <ActivityRow key={entry.id ?? i} entry={entry} />
+                ))}
+              </div>
+            )}
+          </section>
+        </AsyncBoundary>
 
         {/* ── Section: Per-role + scope-drift scorecards (F6 REAL) ── */}
+        {/* scorecardsQuery intentionally not wrapped: its own scIsSettled guard
+            already prevents the no-data/load-flash for this section. (Minor gap:
+            no explicit error state on API-server-down — documented for follow-up.) */}
         <section style={SECTION_STYLE}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={SECTION_TITLE_STYLE}>Per-role scorecards (Planner / Developer / Reviewer)</div>
@@ -342,79 +351,79 @@ export default function ScorecardsView() {
             </div>
           ) : (
             <div data-testid="scorecards-per-role-real">
-              {/* Per-role table */}
-              {perRole && Object.keys(perRole).length > 0 && (
-                <div style={{ overflowX: 'auto', marginBottom: 16 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                        {['Role', 'n', 'Success', 'Rework', 'Escalation', 'Scope violations', 'Avg review cycles'].map((h) => (
-                          <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(perRole).map(([role, m]) => (
-                        <tr key={role} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                          <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{role}</td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.n} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.success_rate)} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.rework_rate)} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.escalation_rate)} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.scope_violations} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtFixed(m.avg_review_cycles)} /></td>
+                {/* Per-role table */}
+                {perRole && Object.keys(perRole).length > 0 && (
+                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                          {['Role', 'n', 'Success', 'Rework', 'Escalation', 'Scope violations', 'Avg review cycles'].map((h) => (
+                            <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Per-task-type table */}
-              {perTaskType && Object.keys(perTaskType).length > 0 && (
-                <div style={{ overflowX: 'auto', marginBottom: 16 }}>
-                  <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: 6 }}>By task type</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                        {['Type', 'n', 'Success', 'Rework', 'Escalation', 'Scope violations', 'Avg review cycles'].map((h) => (
-                          <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
+                      </thead>
+                      <tbody>
+                        {Object.entries(perRole).map(([role, m]) => (
+                          <tr key={role} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                            <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{role}</td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.n} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.success_rate)} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.rework_rate)} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.escalation_rate)} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.scope_violations} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtFixed(m.avg_review_cycles)} /></td>
+                          </tr>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(perTaskType).map(([type, m]) => (
-                        <tr key={type} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
-                          <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{type}</td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.n} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.success_rate)} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.rework_rate)} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.escalation_rate)} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.scope_violations} /></td>
-                          <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtFixed(m.avg_review_cycles)} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
-              {/* Scope drift summary */}
-              {scopeDrift != null && (
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  <div style={CARD_STYLE}>
-                    <div style={CARD_LABEL_STYLE}>Total scope violations</div>
-                    <div style={CARD_VALUE_STYLE}><SentinelGuard value={scopeDrift.total_scope_violations} /></div>
+                {/* Per-task-type table */}
+                {perTaskType && Object.keys(perTaskType).length > 0 && (
+                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: 6 }}>By task type</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                          {['Type', 'n', 'Success', 'Rework', 'Escalation', 'Scope violations', 'Avg review cycles'].map((h) => (
+                            <th key={h} style={{ textAlign: 'left', padding: '4px 10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--arcis-text-muted, #71717a)', fontWeight: 600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(perTaskType).map(([type, m]) => (
+                          <tr key={type} style={{ borderBottom: '1px solid var(--arcis-border, rgba(255,255,255,0.08))' }}>
+                            <td style={{ padding: '6px 10px', color: 'var(--arcis-text-primary, #fff)', fontWeight: 600 }}>{type}</td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.n} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.success_rate)} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.rework_rate)} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtPct(m.escalation_rate)} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={m.scope_violations} /></td>
+                            <td style={{ padding: '6px 10px' }}><SentinelGuard value={fmtFixed(m.avg_review_cycles)} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div style={CARD_STYLE}>
-                    <div style={CARD_LABEL_STYLE}>Tasks tracked</div>
-                    <div style={CARD_VALUE_STYLE}><SentinelGuard value={scopeDrift.n} /></div>
+                )}
+
+                {/* Scope drift summary */}
+                {scopeDrift != null && (
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    <div style={CARD_STYLE}>
+                      <div style={CARD_LABEL_STYLE}>Total scope violations</div>
+                      <div style={CARD_VALUE_STYLE}><SentinelGuard value={scopeDrift.total_scope_violations} /></div>
+                    </div>
+                    <div style={CARD_STYLE}>
+                      <div style={CARD_LABEL_STYLE}>Tasks tracked</div>
+                      <div style={CARD_VALUE_STYLE}><SentinelGuard value={scopeDrift.n} /></div>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+                )}
+              </div>
+            )}
+          </section>
 
       </div>
     </div>

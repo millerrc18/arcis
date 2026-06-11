@@ -14,6 +14,7 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
+import AsyncBoundary from '../components/AsyncBoundary'
 import Metric from '../components/Metric'
 import SentinelGuard from '../components/SentinelGuard'
 import StalenessBadge from '../components/StalenessBadge'
@@ -347,11 +348,15 @@ export default function AttributionView() {
     <div>
       <BackToOverview />
       <div data-testid="know-attribution">
-        <AttributionSection
-          statsData={statsQuery.data}
-          sharpeData={sharpeQuery.data}
-        />
-        <CalibrationSection calibData={calibQuery.data} />
+        <AsyncBoundary query={statsQuery} label="Alpha attribution">
+          <AttributionSection
+            statsData={statsQuery.data}
+            sharpeData={sharpeQuery.data}
+          />
+        </AsyncBoundary>
+        <AsyncBoundary query={calibQuery} label="Confidence calibration">
+          <CalibrationSection calibData={calibQuery.data} />
+        </AsyncBoundary>
       </div>
     </div>
   )

@@ -10,6 +10,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
 import { PendingQueue, RecentlyDecided } from './components'
+import AsyncBoundary from '../components/AsyncBoundary'
 
 export default function DecideRegion() {
   const queryClient = useQueryClient()
@@ -49,8 +50,12 @@ export default function DecideRegion() {
 
   return (
     <div data-testid="decide-region">
-      <PendingQueue data={pending.data} onAction={handleAction} />
-      <RecentlyDecided data={decided.data} />
+      <AsyncBoundary query={pending} label="Decisions waiting">
+        <PendingQueue data={pending.data} onAction={handleAction} />
+      </AsyncBoundary>
+      <AsyncBoundary query={decided} label="Recently decided">
+        <RecentlyDecided data={decided.data} />
+      </AsyncBoundary>
     </div>
   )
 }
