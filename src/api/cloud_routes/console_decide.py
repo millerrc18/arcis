@@ -20,6 +20,8 @@ No cohort-taxonomy change is needed; cohort="decisions.all" is fixed here.
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,6 +30,11 @@ from pydantic import BaseModel
 from src.console import decisions
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def verify_auth() -> None:
@@ -52,8 +59,26 @@ def get_pending() -> dict:
     Each item carries: {decision_key, decision_type, title, risk_tier,
     evidence:{label, items:[{label,value}]}, intent, blast_radius, rollback,
     as_of, source_state}.
+
+    If the decision source is unreachable (e.g. cutover Postgres down) this
+    degrades to an explicit unavailable envelope (HTTP 200) with
+    state="unavailable" and degraded_sources=["all"] — NEVER a 500, and NEVER a
+    false-empty "all clear" (an unreadable queue must not look like a no-pending
+    queue; design law #4). Regression: 2026-06-11 PG-down. The per-source
+    degraded_sources contract inside the service handles partial failures; this
+    boundary guard handles a full connection failure.
     """
-    return decisions.get_pending_decisions()
+    try:
+        return decisions.get_pending_decisions()
+    except Exception as exc:  # noqa: BLE001 — full source failure -> honest unavailable
+        logger.warning("[console-decide] pending queue source unavailable: %s", exc)
+        return {
+            "items": [],
+            "count": 0,
+            "degraded_sources": ["all"],
+            "as_of": _now_iso(),
+            "state": "unavailable",
+        }
 
 
 @router.post("/console/decide/action", dependencies=[Depends(verify_auth)])
@@ -97,21 +122,31 @@ def get_decided() -> dict:
     override_rate.state == 'no_data' when n==0 (honest empty trail, NOT 0.0).
     override_rate.state == 'ok' when numeric value exists.
     """
-    from datetime import datetime, timezone
-
-    recently = decisions.get_recently_decided(limit=50)
-    raw_rate = decisions.compute_override_rate()
-    rate_value = raw_rate.get("value")
-    override_rate = {
-        "value": rate_value,
-        "n": raw_rate.get("n", 0),
-        "as_of": raw_rate.get("as_of"),
-        "cohort": "decisions.all",
-        "unit": "ratio",
-        "state": "no_data" if rate_value is None else "ok",
-    }
-    return {
-        "items": recently.get("items", []),
-        "override_rate": override_rate,
-        "as_of": datetime.now(timezone.utc).isoformat(),
-    }
+    try:
+        recently = decisions.get_recently_decided(limit=50)
+        raw_rate = decisions.compute_override_rate()
+        rate_value = raw_rate.get("value")
+        override_rate = {
+            "value": rate_value,
+            "n": raw_rate.get("n", 0),
+            "as_of": raw_rate.get("as_of"),
+            "cohort": "decisions.all",
+            "unit": "ratio",
+            "state": "no_data" if rate_value is None else "ok",
+        }
+        return {
+            "items": recently.get("items", []),
+            "override_rate": override_rate,
+            "as_of": _now_iso(),
+        }
+    except Exception as exc:  # noqa: BLE001 — full source failure -> honest unavailable, not 500
+        logger.warning("[console-decide] decided trail source unavailable: %s", exc)
+        return {
+            "items": [],
+            "override_rate": {
+                "value": None, "n": 0, "as_of": None,
+                "cohort": "decisions.all", "unit": "ratio", "state": "unknown",
+            },
+            "as_of": _now_iso(),
+            "state": "unavailable",
+        }
