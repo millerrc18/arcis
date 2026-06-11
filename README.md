@@ -1,6 +1,6 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.36.78-blue?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.37.0-blue?style=flat-square)
 ![tests](https://img.shields.io/badge/tests-5%2C467%20floor%20(SQLite)-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
