@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added — Heartbeat/PG-down alert watchdog + DECIDE law-#4 degrade (incident follow-ups)
+
+Robustness follow-ups from the 2026-06-11 pre-market PG-down incident (prod PG 5433 down ~21h, unnoticed, because Docker Desktop hadn't auto-started after a reboot and the crash-looping watch loop couldn't send its own alert):
+
+- **`scripts/heartbeat_monitor.py` — an independent down-alert watchdog.** Detects (a) prod PG 5433 unreachable (raw TCP socket — no DB driver) and (b) the watch-loop heartbeat (`data/watchdog.txt`) stale/missing, then pages Telegram (HTTP — no PG, no watch loop) so a future outage can't go unnoticed for 21h. Deliberately self-contained so it works *because* the desk is degraded: edge-triggered + de-duped (pages once on DOWN after `--fail-threshold` consecutive bad checks for anti-flap; once again on RECOVERED), state in `data/heartbeat_monitor_state.json`. Self-loads `ROOT/.env` + `sys.path` so it sends from any cwd. Registered as the `ArcisHeartbeatMonitor` Windows scheduled task (every 10 min + at-logon); real Telegram delivery verified via `--test-alert`.
+- **DECIDE endpoints degrade honestly (law #4 — mirrors the gate+pause fix below).** `GET /api/console/decide/pending` and `/decided` now wrap their service reads at the route boundary — on a full source failure (cutover PG down; `connect_db` raises *before* the service's per-source `degraded_sources` try/finally) they return HTTP 200 with `state: "unavailable"` (pending: `degraded_sources: ["all"]`; decided: `override_rate.state: "unknown"`), never a 500. Frontend `PendingQueue`/`RecentlyDecided` render an explicit **"unavailable"** state — never the false-empty "No decisions waiting" / "no decisions recorded yet" (an unreadable queue is not an empty one).
+- **Recurrence prevention (ops, no code):** Docker Desktop "start on login" enabled (its Task-Manager startup entry was disabled). See `docs/operator-guide.md`.
+- TDD (RED→GREEN, verify-by-mutation); tests +3 backend (DECIDE) +2 frontend (DECIDE) +9 (monitor). Backend 63 + frontend 231 green.
+
 ### Fixed — Console NOW gate + PAUSE degrade honestly when the DB source is down (law #4)
 
 Now that `/console` is the sole UI, a Postgres hiccup must not break the cockpit. The 2026-06-11 pre-market PG-down incident (Docker Desktop hadn't auto-started after a reboot) surfaced that two console read endpoints let `psycopg2.OperationalError` propagate → HTTP 500, while their sibling NOW endpoints (`/now/signals`, `/now/positions`) already degrade to an honest `unknown` state.

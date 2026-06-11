@@ -229,6 +229,7 @@ export function DecisionCard({ item, onAction }) {
 // Contract data: {items, count, degraded_sources, as_of}
 // ---------------------------------------------------------------------------
 export function PendingQueue({ data, onAction }) {
+  const unavailable = data?.state === 'unavailable'
   const items = Array.isArray(data?.items) ? data.items : []
   const degradedSources = Array.isArray(data?.degraded_sources) ? data.degraded_sources : []
 
@@ -236,7 +237,7 @@ export function PendingQueue({ data, onAction }) {
     <section data-testid="decide-pending" style={SECTION_STYLE}>
       <div style={SECTION_TITLE_STYLE}>Decisions waiting</div>
 
-      {degradedSources.length > 0 && (
+      {!unavailable && degradedSources.length > 0 && (
         <div
           data-testid="degraded-sources-banner"
           style={{
@@ -254,7 +255,24 @@ export function PendingQueue({ data, onAction }) {
         </div>
       )}
 
-      {items.length === 0 ? (
+      {unavailable ? (
+        // Law #4: an unreadable queue must NEVER render as "No decisions
+        // waiting" (false-empty / false all-clear). Show it explicitly.
+        <div
+          data-testid="pending-unavailable"
+          style={{
+            padding: '8px 12px',
+            borderRadius: 'var(--radius-sm)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 13,
+            color: 'var(--arcis-danger, #ef4444)',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.4)',
+          }}
+        >
+          decision queue unavailable — source unreachable (not shown as “all clear”)
+        </div>
+      ) : items.length === 0 ? (
         <div
           style={{
             fontFamily: 'var(--font-mono)',
@@ -289,6 +307,7 @@ export function PendingQueue({ data, onAction }) {
 //   override_rate:{value,n,as_of,cohort,unit,state}, as_of}
 // ---------------------------------------------------------------------------
 export function RecentlyDecided({ data }) {
+  const unavailable = data?.state === 'unavailable'
   const items = Array.isArray(data?.items) ? data.items : []
   const overrideRate = data?.override_rate ?? {}
   const noData = overrideRate.state === 'no_data' || overrideRate.value == null
@@ -298,7 +317,22 @@ export function RecentlyDecided({ data }) {
       <div style={SECTION_TITLE_STYLE}>Recently decided</div>
 
       <div style={{ marginBottom: 16, maxWidth: 360 }}>
-        {noData ? (
+        {unavailable ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={SUBLABEL_STYLE}>Override rate</div>
+            <div
+              data-testid="override-rate-unavailable"
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 18,
+                fontWeight: 600,
+                color: 'var(--arcis-danger, #ef4444)',
+              }}
+            >
+              — unavailable
+            </div>
+          </div>
+        ) : noData ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={SUBLABEL_STYLE}>Override rate</div>
             <div
@@ -335,7 +369,20 @@ export function RecentlyDecided({ data }) {
         </div>
       </div>
 
-      {items.length === 0 ? (
+      {unavailable ? (
+        // Law #4: an unreadable trail is not an empty trail.
+        <div
+          data-testid="decided-trail"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 13,
+            color: 'var(--arcis-danger, #ef4444)',
+            fontStyle: 'italic',
+          }}
+        >
+          decided trail unavailable — source unreachable
+        </div>
+      ) : items.length === 0 ? (
         <div
           data-testid="decided-trail"
           style={{

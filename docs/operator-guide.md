@@ -2,6 +2,25 @@
 
 > **Single-source operational runbook.** When something needs doing, breaking, or unbreaking — start here. Updated regularly; if you encounter a procedure that isn't here, add it.
 
+## Heartbeat / PG-down alert + Docker auto-start (2026-06-11)
+
+After a pre-market incident where prod Postgres (5433, the **sole write target**) was down **~21 hours unnoticed** — Docker Desktop hadn't auto-started after a reboot, and the crash-looping watch loop couldn't send its own alert — two preventions were added:
+
+1. **Docker Desktop auto-start enabled.** Its Task-Manager startup entry was *disabled*; now enabled, so a reboot brings Docker → the PG containers (`halcyon-pg`, restart-policy) → the watch loop self-recovers. Confirm/toggle: Task Manager → Startup apps → **"Docker Desktop" = Enabled**. (If PG ever appears down: start Docker Desktop — containers auto-restore — and let NSSM restart the watch loop; do **not** run `python -m src.main startup` manually. `python -m src.main startup --check-only` pinpoints the blocker.)
+2. **`ArcisHeartbeatMonitor` scheduled task** runs `scripts/heartbeat_monitor.py` every 10 min, **independent of the watch loop**. It pages Telegram if prod PG 5433 is unreachable OR the watch-loop heartbeat (`data/watchdog.txt`) goes stale (>30 min) / missing — so an outage can't go unnoticed again. Edge-triggered + de-duped: one DOWN page (after 2 consecutive bad checks, anti-flap), one RECOVERED page.
+
+**Operator commands:**
+```powershell
+# manual check (no send) — prints {down, reasons, pg_ok, heartbeat_age}
+C:\arcis\halcyon-lab\.venv\Scripts\python.exe C:\arcis\halcyon-lab\scripts\heartbeat_monitor.py --dry-run
+# verify the Telegram delivery path (sends one test message)
+C:\arcis\halcyon-lab\.venv\Scripts\python.exe C:\arcis\halcyon-lab\scripts\heartbeat_monitor.py --test-alert
+# inspect / run the scheduled task on demand
+Get-ScheduledTaskInfo -TaskName ArcisHeartbeatMonitor
+Start-ScheduledTask -TaskName ArcisHeartbeatMonitor
+```
+The task runs as the current user (run-only-when-logged-on). For coverage when no one is logged in (e.g. rebooted to the login screen), re-register it to run as SYSTEM.
+
 ## Watch-Loop Root-Cause Hardening (2026-05-16)
 
 Use this section for the 2026-05-15 after-4pm failure class: PG dialect errors,

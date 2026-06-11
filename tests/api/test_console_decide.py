@@ -97,6 +97,71 @@ def _make_client():
     return TestClient(app, raise_server_exceptions=True)
 
 
+# ── DECIDE degrades honestly when the decision source is unreachable ─────────
+
+class TestDecideDegradesOnSourceFailure:
+    """GET /decide/pending and /decided must degrade to an honest 'unavailable'
+    envelope (HTTP 200), NEVER a 500, when the decision source is unreachable
+    (cutover PG down). Design law #4 — and crucially NOT a false 'all clear':
+    an unreadable queue/trail must not look like an empty one. Regression-locks
+    the 2026-06-11 PG-down class for DECIDE. The service's degraded_sources
+    contract handles partial-source failures; this boundary guard handles a full
+    connection failure (connect_db raises BEFORE the service's try/finally)."""
+
+    def test_pending_degrades_to_unavailable(self):
+        import psycopg2
+
+        client = _make_client()
+        with patch(
+            "src.console.decisions.get_pending_decisions",
+            side_effect=psycopg2.OperationalError("connection ... refused"),
+        ):
+            resp = client.get("/api/console/decide/pending")
+        assert resp.status_code == 200, (
+            f"pending must degrade, not 500, on source failure — got {resp.status_code}"
+        )
+        data = resp.json()
+        assert data["state"] == "unavailable", f"expected state=unavailable, got {data}"
+        assert data["items"] == []
+        assert data.get("degraded_sources"), (
+            "must flag degraded_sources so the UI never renders a false 'all clear'"
+        )
+
+    def test_decided_degrades_to_unavailable(self):
+        import psycopg2
+
+        client = _make_client()
+        with patch(
+            "src.console.decisions.get_recently_decided",
+            side_effect=psycopg2.OperationalError("connection ... refused"),
+        ):
+            resp = client.get("/api/console/decide/decided")
+        assert resp.status_code == 200, (
+            f"decided must degrade, not 500, on source failure — got {resp.status_code}"
+        )
+        data = resp.json()
+        assert data["state"] == "unavailable", f"expected state=unavailable, got {data}"
+        assert data["items"] == []
+        assert data["override_rate"]["state"] == "unknown", (
+            f"override-rate must be 'unknown' (not a false 0.0/no_data) — got {data['override_rate']}"
+        )
+
+    def test_service_fn_itself_raises_proving_guard_is_load_bearing(self):
+        """Verify-by-mutation: the service fn DOES raise on a connect failure
+        (connect_db is called before its try/finally), so the route's guard does
+        real work. Without it, /decided would 500."""
+        import psycopg2
+
+        from src.console import decisions
+
+        with patch(
+            "src.console.decisions.connect_db",
+            side_effect=psycopg2.OperationalError("connection ... refused"),
+        ):
+            with pytest.raises(psycopg2.OperationalError):
+                decisions.compute_override_rate()
+
+
 # ── GET /api/console/decide/pending ─────────────────────────────────────────
 
 class TestGetPending:

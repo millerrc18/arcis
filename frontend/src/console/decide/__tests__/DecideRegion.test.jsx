@@ -241,6 +241,18 @@ describe('PendingQueue', () => {
     renderInProviders(<PendingQueue data={{ items: [], count: 0, degraded_sources: [], as_of: NOW }} onAction={() => {}} />)
     expect(screen.getByText(/No decisions waiting/i)).toBeInTheDocument()
   })
+
+  it('renders an explicit "unavailable" state (NOT a false "No decisions waiting") when the source is down', () => {
+    // Law #4 / 2026-06-11 PG-down: an unreadable queue must never look "all clear".
+    renderInProviders(
+      <PendingQueue
+        data={{ items: [], count: 0, degraded_sources: ['all'], as_of: NOW, state: 'unavailable' }}
+        onAction={() => {}}
+      />
+    )
+    expect(screen.getByTestId('pending-unavailable')).toBeInTheDocument()
+    expect(screen.queryByText(/No decisions waiting/i)).not.toBeInTheDocument()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -276,6 +288,21 @@ describe('RecentlyDecided', () => {
   it('renders the reviewer-discipline caption', () => {
     renderInProviders(<RecentlyDecided data={MOCK_DECIDED} />)
     expect(screen.getByText(/an approver who never overrides has stopped reviewing/i)).toBeInTheDocument()
+  })
+
+  it('renders an explicit "unavailable" trail + override-rate (NOT a false empty) when the source is down', () => {
+    // Law #4: an unreadable trail is not an empty trail; unknown override-rate is not "no decisions yet".
+    const unavailable = {
+      items: [],
+      as_of: NOW,
+      state: 'unavailable',
+      override_rate: { value: null, n: 0, as_of: null, cohort: 'decisions.all', unit: 'ratio', state: 'unknown' },
+    }
+    renderInProviders(<RecentlyDecided data={unavailable} />)
+    expect(screen.getByTestId('override-rate-unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('override-rate-no-data')).not.toBeInTheDocument()
+    expect(screen.getByTestId('decided-trail').textContent).toMatch(/unavailable/i)
+    expect(screen.getByTestId('decided-trail').textContent).not.toMatch(/no decisions recorded yet/i)
   })
 })
 
