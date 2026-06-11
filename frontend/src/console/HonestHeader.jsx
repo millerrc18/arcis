@@ -92,8 +92,24 @@ export default function HonestHeader() {
         data-testid="pause-control"
         style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}
       >
-        {pauseStatus === null ? (
-          <span style={{ color: 'var(--arcis-text-muted, #71717a)', fontSize: 11 }}>—</span>
+        {pauseStatus === null || pauseStatus.is_paused == null ? (
+          // Law #4: a fetch failure (null) OR an explicit unavailable source
+          // (is_paused == null, e.g. cutover PG down) renders an honest unknown
+          // indicator — NEVER the green "RUNNING" state, and no toggle for a
+          // state we cannot read. The scan/executor gate fails closed regardless.
+          <span
+            data-testid="pause-unknown"
+            title={(pauseStatus && pauseStatus.detail) || 'pause state source unavailable'}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--arcis-text-muted, #71717a)',
+            }}
+          >
+            pause&nbsp;n/a
+          </span>
         ) : (
           <>
             <span

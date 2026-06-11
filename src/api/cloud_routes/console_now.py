@@ -90,8 +90,28 @@ def get_now_gate() -> dict:
 
     The route fetches closed trades and passes them to the registered gate
     metrics — it does NOT compute Sharpe / t-stat / drawdown inline (law #1).
+
+    If the trade source is unavailable (e.g. the cutover Postgres is down) the
+    response degrades to every metric in an explicit 'unknown' state (HTTP 200),
+    never a 500 — design law #4 (the sole console UI must not break on a DB
+    hiccup; a missing source is never rendered green). Mirrors the sibling
+    /now/signals and /now/positions degradation. Regression: 2026-06-11 PG-down.
     """
-    trades = _fetch_closed_trades()
+    try:
+        trades = _fetch_closed_trades()
+    except Exception as exc:  # noqa: BLE001 — any source failure -> unknown, not 500
+        _log.warning("[console-now] closed-trades source unavailable: %s", exc)
+        return {
+            "metrics": {
+                mid: _unknown_envelope()
+                for mid in (
+                    "closed_trade_count", "excess_sharpe_vs_spy",
+                    "sharpe_t_stat", "max_drawdown",
+                )
+            },
+            "targets": dict(GATE_TARGETS),
+            "as_of": _now_utc_iso(),
+        }
     returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in trades]
     spy_with_data = [t for t in trades if t.get("spy_return_over_hold") is not None]
     spy_aligned = [float(t.get("pnl_pct") or 0) / 100.0 for t in spy_with_data]

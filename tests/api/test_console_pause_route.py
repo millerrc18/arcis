@@ -240,3 +240,51 @@ class TestMalformedAction:
             resp = client.post("/api/console/pause", json={"action": "pause", "reason": "x"})
         assert resp.status_code == 200
         assert resp.json()["is_paused"] is True
+
+
+# ── GET degrades honestly when the pause source is unreachable ────────────────
+
+class TestGetPauseDegradesOnSourceFailure:
+    """GET /console/pause must degrade to an honest 'unavailable' envelope
+    (HTTP 200), NEVER a 500, when the pause-state source is unreachable (e.g.
+    the cutover Postgres is down). Design law #4 — the sole console UI must not
+    break on a DB hiccup. Regression-locks the 2026-06-11 PG-down incident.
+
+    Note: is_paused degrades to None (unknown), NOT False — a false 'RUNNING'
+    on a missing source is the exact never-green-on-missing violation. The
+    scan/executor gate `is_paused()` independently fails CLOSED, so a paused
+    desk never silently resumes while the source is down.
+    """
+
+    def test_get_degrades_to_unavailable_when_source_down(self):
+        import psycopg2
+
+        client = _make_client()
+        with patch(
+            "src.console.pause.connect_db",
+            side_effect=psycopg2.OperationalError("connection ... refused"),
+        ):
+            resp = client.get("/api/console/pause")
+        assert resp.status_code == 200, (
+            f"pause GET must degrade, not 500, on source failure — got {resp.status_code}"
+        )
+        data = resp.json()
+        assert data["is_paused"] is None, (
+            f"is_paused must be None (unknown), never a false False/RUNNING — got {data}"
+        )
+        assert data["state"] == "unavailable", f"expected state=unavailable, got {data}"
+
+    def test_read_pause_state_itself_raises_proving_guard_is_load_bearing(self):
+        """Verify-by-mutation: the library fn DOES raise on the same failure, so
+        the route's try/except is doing real work (not vacuous). If the guard
+        were removed, the GET above would 500."""
+        import psycopg2
+
+        from src.console.pause import read_pause_state
+
+        with patch(
+            "src.console.pause.connect_db",
+            side_effect=psycopg2.OperationalError("connection ... refused"),
+        ):
+            with pytest.raises(psycopg2.OperationalError):
+                read_pause_state()
