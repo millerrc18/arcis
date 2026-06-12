@@ -224,12 +224,18 @@ def test_site5_bracket_failure_persists_continues():
                                                                 with patch("src.shadow_trading.executor.insert_shadow_trade", return_value="t-5"):
                                                                     with patch("src.shadow_trading.executor._verify_and_update"):
                                                                         with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_tc:
-                                                                            mock_tc.return_value.submit_order.return_value = MagicMock()
-                                                                            executor.open_shadow_trade(
-                                                                                recommendation_id="rec-5",
-                                                                                packet=mock_packet,
-                                                                                features={"traffic_light_multiplier": 0.9},
-                                                                            )
+                                                                            # Drift fix: the atomic dup-check runs a raw connect_db() SELECT.
+                                                                            # Without mocking it, this test depends on test-PG state — "AAPL"
+                                                                            # has an open trade there, so open_shadow_trade returns at the dup
+                                                                            # gate (executor.py:650) before the bracket, and log_and_persist is
+                                                                            # never reached. Mirror sites 7/9 with _no_dup_conn_mock().
+                                                                            with patch("src.shadow_trading.executor.connect_db", return_value=_no_dup_conn_mock()):
+                                                                                mock_tc.return_value.submit_order.return_value = MagicMock()
+                                                                                executor.open_shadow_trade(
+                                                                                    recommendation_id="rec-5",
+                                                                                    packet=mock_packet,
+                                                                                    features={"traffic_light_multiplier": 0.9},
+                                                                                )
 
     ops = [
         (c.kwargs.get("operation") or (c.args[1] if len(c.args) > 1 else None))
