@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Fixed — Stale test `test_site5_bracket_failure_persists_continues` depended on test-DB state (not a production bug)
+
+`open_shadow_trade`'s atomic duplicate-check runs a raw `connect_db()` SELECT (engine-aware since v0.36.15). The test patched the higher-level `get_open_shadow_trade_for_ticker` but **not** the atomic connection, and used ticker `"AAPL"` — which has an open trade in the test PG. So the dup-check (`executor.py:650`) short-circuited *before* the bracket logic and `log_and_persist(operation='place_bracket_order')` was never reached (`ops == []`).
+
+- **NOT a silent-failure** — the bracket-failure persistence (`executor.py:875`) and the dup-check are both correct. The test was stale (predates the engine-aware dup-check that sibling sites 7/9 already mock via `_no_dup_conn_mock`). Found during the 2026-06-12 trading health check; surfaced by PR #1215 QA.
+- **Fix:** site5 now mocks `executor.connect_db` like its siblings, so it deterministically reaches and asserts the real bracket-failure-persistence path. Full file 17/17 green.
+- **Known latent fragility (follow-up):** sites 4/8/10 (and 6) call `open_shadow_trade` without the dup-conn mock — green today, but would RED if their ticker gains an open trade in the test PG. A test-robustness pass should add the same mock.
+
 ### Fixed — Closed the NaN-pnl persist class: a non-finite price could be saved as `pnl_dollars` (2026-06-12 data-integrity incident)
 
 During the 2026-06-10 PG/data outage the market-data fetch returned a `NaN` close price, and the stuck-trade pnl helpers only guarded `None` / `<= 0` — but `float('nan')` raises nothing and `nan <= 0` is `False`, so the `NaN` flowed straight into `pnl_dollars` / `actual_exit_price` and was persisted to `shadow_trades` (trade `b9c0255d` AAPL). A `NaN` poisons every naive `SUM(pnl_dollars)` aggregate (e.g. a weekly P&L total) — `NaN + anything = NaN`. A sibling-search found a *second* live path (mr-timeout exit) with the same exposure, so the fix closes the whole class at three layers:
