@@ -262,6 +262,15 @@ _register(TableDef(
                   "alpaca_order_id to broker_order_id and deprecate the original."),
         ColumnDef("setup_type", "TEXT"),
         ColumnDef("setup_confidence", "REAL"),
+        ColumnDef("rec_confidence_score", "REAL",
+                  description="Denormalized recommendations.confidence_score (the source "
+                  "recommendation's LLM confidence, ~7-9 scale), copied onto the trade at "
+                  "insert so conviction-vs-outcome calibration is queryable without a "
+                  "recommendations join. NULL for orphan/backfilled trades (no recommendation_id). "
+                  "Distinct from setup_confidence (0-1 feature-classifier scale) — do not conflate."),
+        ColumnDef("rec_llm_conviction", "INTEGER",
+                  description="Denormalized recommendations.llm_conviction from the source "
+                  "recommendation, copied at insert. NULL when there is no recommendation_id."),
         ColumnDef("signal_entry_price", "REAL"),
         ColumnDef("fill_entry_price", "REAL"),
         ColumnDef("entry_slippage_bps", "REAL"),

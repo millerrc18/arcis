@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added — Conviction denormalized onto shadow_trades (`rec_confidence_score` / `rec_llm_conviction`)
+
+The 2026-06-12 trading health check showed the desk's `recommendations.confidence_score` is **predictive of win-rate** (high ≥8 wins ~50% vs ~12% low) but the trade record dropped it — conviction-vs-outcome calibration was only reconstructable via a `recommendation_id` join. This wires it onto the trade row.
+
+- **Schema (`src/schema/registry.py`):** two new nullable columns on `shadow_trades` — `rec_confidence_score` (REAL) and `rec_llm_conviction` (INTEGER) — denormalized from the source recommendation. Distinct from `setup_confidence` (0–1 feature-classifier scale; intentionally untouched — `confidence_score` is the ~7–9 LLM scale, conflating them would corrupt the Telegram card render).
+- **Population (`src/journal/store.py`):** `insert_shadow_trade` — the single choke point all creation paths route through — now calls `_attach_recommendation_conviction()`, which copies the recommendation's conviction onto the trade at insert. **Fully defensive:** any lookup failure leaves the columns NULL and can never break an insert; no-op when there's no `recommendation_id` (orphan/backfilled trades) or the value is already set. One small SELECT per creation (a few/day — negligible).
+- **Tests (`tests/journal/test_store_conviction.py`, 6):** 5 hermetic unit tests (populate / no-rec-id no-op / already-set no-op / defensive-on-error / missing-recommendation) + 1 hermetic round-trip through `insert_shadow_trade` (temp SQLite, cutover disabled so it can never touch a live PG). verify-by-mutation: the populate assertions fail if the helper is unwired.
+- **Deploy:** registry-driven schema sync (`postgres.create_all_tables`) added the columns to prod PG **before** this code deployed (nullable `ADD COLUMN`, non-blocking) + a one-time backfill of historical rows via the `recommendation_id` join; then restart-validate the watch loop. NULL for the existing orphan/no-recommendation trades.
+
 ### Fixed — Test-isolation: local pytest routed `connect_db` to PROD PG under the cutover gate
 
 `connect_db`'s cutover gate (`ARCIS_PG_CUTOVER_ENABLED=1`, loaded from `.env`) routes **every** call by `DATABASE_URL` — **not** `TEST_DATABASE_URL`. The conftest's P0 guard accepts a run as safe whenever `TEST_DATABASE_URL` is set, but with cutover on, `connect_db` still used the `.env`'s prod `DATABASE_URL` — so local pytest silently routed every `connect_db()` to **prod PG (host 5433)**, not the test PG (5434). Read-mostly tests were harmless, but a writing test would have hit prod (and the conviction round-trip test did `INSERT`/`DELETE` against prod before it was made hermetic — cleaned up, prod verified pollution-free). CI is unaffected (it sets no cutover / no prod `DATABASE_URL`).
@@ -11,6 +20,8 @@
 - **Fix (`tests/conftest.py::pytest_configure`):** after the P0 guard passes, when a safe `TEST_DATABASE_URL` is set, align `DATABASE_URL` to it — so the cutover gate routes `connect_db` to the **test** PG, never prod. One-line env alignment, captured by the existing `_PRECOLLECT_ENV` snapshot so it survives collection scrubs.
 - **Validated:** post-fix, pytest `connect_db` hits the test PG (confirmed by content — `rec_*` columns + row count, since `inet_server_port()` reports the container-internal 5432 for both containers and can't distinguish them). `tests/shadow_trading/ tests/test_reconcile.py` = **302 passed, 1 pre-existing failure** (`test_get_strategies_by_status_resolves_none_to_config`, fails on prod and test PG alike) — no new failures, aligning local with CI's already-green test-PG behavior.
 - Note: the P0 guard's prod-detector keys on port **5433** (correct — prod's host port) / `halcyon_app:`; raw `python` scripts (data ops) still correctly reach prod via the cutover gate — only pytest is redirected.
+
+### Fixed — Stale test `test_site5_bracket_failure_persists_continues` depended on test-DB state (not a production bug)
 
 `open_shadow_trade`'s atomic duplicate-check runs a raw `connect_db()` SELECT (engine-aware since v0.36.15). The test patched the higher-level `get_open_shadow_trade_for_ticker` but **not** the atomic connection, and used ticker `"AAPL"` — which has an open trade in the test PG. So the dup-check (`executor.py:650`) short-circuited *before* the bracket logic and `log_and_persist(operation='place_bracket_order')` was never reached (`ops == []`).
 
