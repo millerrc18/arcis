@@ -245,6 +245,7 @@ def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     initialize_database(db_path)
     trade_id = trade.get("trade_id", str(uuid.uuid4()))
     trade["trade_id"] = trade_id
+    _attach_recommendation_conviction(trade, db_path)
     trade = _filter_to_schema("shadow_trades", trade)
     trade = _coerce_to_schema("shadow_trades", trade)
 
@@ -258,6 +259,37 @@ def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
         )
         conn.commit()
     return trade_id
+
+
+def _attach_recommendation_conviction(trade: dict, db_path: str) -> None:
+    """Denormalize the source recommendation's conviction onto the trade row
+    (2026-06-12) so conviction-vs-outcome calibration is queryable without a
+    recommendations join.
+
+    Fully defensive: any failure (missing recommendation, DB hiccup) leaves the
+    columns NULL — this must NEVER break an insert. No-op when the trade already
+    carries the value or has no recommendation_id (e.g. orphan / backfilled trades).
+    setup_confidence (0-1 feature-classifier scale) is intentionally left alone —
+    rec_confidence_score is the recommendation's ~7-9 LLM-confidence, a distinct signal.
+    """
+    rec_id = trade.get("recommendation_id")
+    if not rec_id or trade.get("rec_confidence_score") is not None:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            row = conn.execute(
+                "SELECT confidence_score, llm_conviction FROM recommendations "
+                "WHERE recommendation_id = ?",
+                (rec_id,),
+            ).fetchone()
+        if row is not None:
+            trade["rec_confidence_score"] = row["confidence_score"]
+            trade["rec_llm_conviction"] = row["llm_conviction"]
+    except Exception as exc:
+        _logger.debug(
+            "[CONVICTION] could not attach recommendation conviction for %s: %s",
+            rec_id, exc,
+        )
 
 
 def update_shadow_trade(
