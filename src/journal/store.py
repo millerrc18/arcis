@@ -8,6 +8,7 @@ Tests: tests/test_change_detector.py, tests/test_digest_builder.py, tests/test_g
 """
 
 import logging
+import math
 import re
 import sqlite3
 import uuid
@@ -445,6 +446,26 @@ def close_shadow_trade(
     db_path: str = DB_PATH,
 ) -> None:
     """Close a shadow trade with exit details and outcome metadata."""
+    # Boundary backstop (2026-06-12 NaN-pnl incident): a non-finite (NaN/inf)
+    # exit price or pnl must NEVER be persisted — a single NaN poisons every
+    # naive SUM(pnl_dollars). This is the one choke point every close routes
+    # through, so coercing non-finite -> None ("unmeasured", already a supported
+    # value) here closes the whole persist-NaN class regardless of which upstream
+    # path (reconcile fallback, mr-timeout exit, future) produced the value.
+    def _finite_or_none(v):
+        try:
+            return v if math.isfinite(float(v)) else None
+        except (TypeError, ValueError):
+            return v  # non-numeric / None — leave as-is
+    _sane = (_finite_or_none(exit_price), _finite_or_none(pnl_dollars), _finite_or_none(pnl_pct))
+    if _sane != (exit_price, pnl_dollars, pnl_pct):
+        _logger.warning(
+            "[CLOSE] non-finite exit metadata coerced to NULL for %s "
+            "(exit_price=%r pnl_dollars=%r pnl_pct=%r)",
+            trade_id, exit_price, pnl_dollars, pnl_pct,
+        )
+    exit_price, pnl_dollars, pnl_pct = _sane
+
     extras, trade_row = _populate_exit_metadata(
         trade_id, exit_time, exit_price, db_path,
     )

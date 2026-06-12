@@ -35,6 +35,7 @@ incomplete position lists).
 """
 
 import logging
+import math
 import sqlite3
 from datetime import datetime
 from typing import NamedTuple
@@ -221,7 +222,9 @@ def _resolve_stuck_pnl(
     """
     entry_px = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
     shares = float(trade.get("planned_shares") or trade.get("shares") or 1)
-    if entry_px <= 0:
+    # NaN/inf guard: float('nan') passes `<= 0` (nan<=0 is False) and would
+    # otherwise flow a NaN pnl into shadow_trades (2026-06-12 AAPL incident).
+    if not math.isfinite(entry_px) or entry_px <= 0:
         return None
 
     if exit_reason in ("stop_hit", "stop_loss"):
@@ -246,7 +249,7 @@ def _resolve_stuck_pnl(
         exit_px_f = float(exit_px)
     except (TypeError, ValueError):
         return None
-    if exit_px_f <= 0:
+    if not math.isfinite(exit_px_f) or exit_px_f <= 0:
         return None
     return (exit_px_f - entry_px) * shares
 
@@ -259,7 +262,11 @@ def _default_current_price_provider(ticker: str | None) -> float | None:
         from src.data_ingestion.market_data import fetch_ohlcv
         data = fetch_ohlcv([ticker], period="5d")
         if ticker in data and not data[ticker].empty:
-            return float(data[ticker]["Close"].iloc[-1])
+            px = float(data[ticker]["Close"].iloc[-1])
+            # Defense-in-depth: never emit a non-finite/non-positive price so no
+            # caller can derive a NaN pnl even if its own guard regresses.
+            if math.isfinite(px) and px > 0:
+                return px
     except Exception as exc:
         logger.debug("[RECONCILE] _default_current_price_provider %s failed: %s", ticker, exc)
     return None
@@ -290,6 +297,15 @@ def _estimate_exit_pnl(ticker, entry_px, shares):
         data = fetch_ohlcv([ticker], period="5d")
         if ticker in data and not data[ticker].empty:
             exit_price = float(data[ticker]["Close"].iloc[-1])
+            # NaN/inf guard: a non-finite close (e.g. data outage) must be
+            # treated as UNKNOWN, never persisted as a NaN pnl/exit_price.
+            if (not math.isfinite(exit_price) or exit_price <= 0
+                    or not math.isfinite(entry_px) or entry_px <= 0):
+                logger.warning(
+                    "[RECONCILE] non-finite price for %s (exit=%r entry=%r) — returning UNKNOWN",
+                    ticker, exit_price, entry_px,
+                )
+                return None, None, None
             pnl = round((exit_price - entry_px) * shares, 2)
             pct = round((exit_price - entry_px) / entry_px * 100, 2)
             return exit_price, pnl, pct
