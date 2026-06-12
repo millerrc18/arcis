@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Fixed — Reconcile pnl helpers persisted `NaN` on a non-finite price (2026-06-12 data-integrity incident)
+
+During the 2026-06-10 PG/data outage the market-data fetch returned a `NaN` close price, and `reconcile.py`'s two stuck-trade pnl helpers only guarded `None` / `<= 0` — but `float('nan')` raises nothing and `nan <= 0` is `False`, so the `NaN` flowed straight into `pnl_dollars` / `actual_exit_price` and was persisted to `shadow_trades` (trade `b9c0255d` AAPL). A `NaN` poisons every naive `SUM(pnl_dollars)` aggregate (e.g. a weekly P&L total) — `NaN + anything = NaN`.
+
+- **Fix at the source:** `_resolve_stuck_pnl` and `_estimate_exit_pnl` now reject a non-finite (NaN/inf) entry **or** exit price via `math.isfinite`, returning the existing `None` / `(None, None, None)` "UNKNOWN" sentinel so the caller writes `NULL` — never `NaN`. Mirrors the pre-existing `None`/`<=0` handling; non-finite was simply an unhandled failure mode of the same branch.
+- **Tests:** `tests/shadow_trading/test_reconcile_nan_pnl_guard.py` (6) — verify-by-mutation: the NaN/inf cases fail on pre-fix code (the helpers returned `(nan, nan, nan)`), and two happy-path cases prove the guard is transparent for finite prices. Reconcile suite 121 green (1 pre-existing env-dependent failure in `test_reconcile_dispatch_db_path::test_get_strategies_by_status_resolves_none_to_config`, unrelated — fails identically on `main` and never references this diff).
+- **Data corrections (operational, same incident):** the single poisoned row, AAPL `b9c0255d` (entry order `canceled`, `filled_qty=0` → never a position), re-classified `closed`/`reconciled_stale`/`NaN` → `cancelled`/`entry_unfilled`/`NULL` per the canonical taxonomy. Separately finalized a 17-day-stale `needs_manual_review` row, GOOG `e5684e9b` (05-26 bracket, 8-of-9 partial fill) — confirmed via Alpaca it was liquidated 06-02 @ $361.00 (**no live exposure**); set `closed`/`reconciled`, −$173.36 realized. Zero NaN/inf pnl rows remain in `shadow_trades`.
+
 ### Fixed — Morning watchlist (and 5 sibling digest callers) crashed daily on `enqueue_for_email_digest` with no connection
 
 `src/notifications/email_digest.py::enqueue_for_email_digest()` defaulted `conn=None` and passed it straight to `DigestQueue(conn)`, so a caller that didn't inject a connection hit `'NoneType' object has no attribute 'execute'` in `DigestQueue.enqueue`. **6 of 7 production callers** call it without a `conn` (morning-watchlist via `reports.py`, plus the overnight / recap / scan / watchlist / watch routers) — only `auditor.py` injects one. Result: the **morning watchlist failed every morning** (08–09 ET, PG-independent — observed 2026-06-09/10/11). The per-caller email-routing tests *mocked* `enqueue_for_email_digest`, so they passed while production crashed (a vacuous-coverage gap).
