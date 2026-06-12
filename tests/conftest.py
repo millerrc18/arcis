@@ -188,6 +188,19 @@ def pytest_configure(config):
             returncode=2,
         )
 
+    # Cutover-gate alignment (2026-06-12): connect_db's cutover gate
+    # (ARCIS_PG_CUTOVER_ENABLED=1, loaded from .env) routes EVERY call by
+    # DATABASE_URL — NOT TEST_DATABASE_URL. So a run with TEST_DATABASE_URL set
+    # (which the P0 guard above accepts as "safe") still routed connect_db to the
+    # .env's prod DATABASE_URL when cutover was on. Point DATABASE_URL at the safe
+    # test PG too, so the gate routes connect_db to the TEST PG, never prod.
+    # Without this, local pytest with the operator's .env silently sent every
+    # connect_db() to prod PG (port 5432) — read-mostly, but a writing test would
+    # hit prod. CI is unaffected (it sets no cutover / no prod DATABASE_URL).
+    if test_db_url and not test_db_url_is_prod and db_url != test_db_url:
+        os.environ["DATABASE_URL"] = test_db_url
+        db_url = test_db_url
+
     # Snapshot the intended test env BEFORE collection imports run. Collection
     # imports modules whose top-level code may scrub os.environ (the lifecycle
     # bootstrap — see _PRECOLLECT_ENV note above); pytest_collection_finish
