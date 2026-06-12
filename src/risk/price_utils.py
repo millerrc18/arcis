@@ -16,16 +16,23 @@ Tests: tests/test_circular_imports.py
 from __future__ import annotations
 
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
 
 def _get_current_price_safe(ticker: str) -> float | None:
-    """Get current price, trying Alpaca first then falling back to yfinance."""
+    """Get current price, trying Alpaca first then falling back to yfinance.
+
+    Returns ``None`` (never a non-finite/non-positive value) so callers can
+    skip rather than derive a NaN pnl. ``if price:`` alone is insufficient —
+    ``float('nan')`` is truthy — so both branches require ``math.isfinite``
+    (2026-06-12 NaN-pnl incident; sibling of the reconcile guard).
+    """
     try:
         from src.shadow_trading.alpaca_adapter import get_current_price
         price = get_current_price(ticker)
-        if price:
+        if price is not None and math.isfinite(price) and price > 0:
             return price
     except Exception as e:
         logger.debug("[PRICE] Alpaca price fetch failed for %s: %s", ticker, e)
@@ -34,7 +41,9 @@ def _get_current_price_safe(ticker: str) -> float | None:
         from src.data_ingestion.market_data import fetch_ohlcv
         data = fetch_ohlcv([ticker], period="5d")
         if ticker in data and not data[ticker].empty:
-            return float(data[ticker]["Close"].iloc[-1])
+            px = float(data[ticker]["Close"].iloc[-1])
+            if math.isfinite(px) and px > 0:
+                return px
     except Exception as e:
         logger.debug("[PRICE] yfinance price fetch failed for %s: %s", ticker, e)
 
