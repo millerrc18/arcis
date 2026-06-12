@@ -262,7 +262,11 @@ def _default_current_price_provider(ticker: str | None) -> float | None:
         from src.data_ingestion.market_data import fetch_ohlcv
         data = fetch_ohlcv([ticker], period="5d")
         if ticker in data and not data[ticker].empty:
-            return float(data[ticker]["Close"].iloc[-1])
+            px = float(data[ticker]["Close"].iloc[-1])
+            # Defense-in-depth: never emit a non-finite/non-positive price so no
+            # caller can derive a NaN pnl even if its own guard regresses.
+            if math.isfinite(px) and px > 0:
+                return px
     except Exception as exc:
         logger.debug("[RECONCILE] _default_current_price_provider %s failed: %s", ticker, exc)
     return None

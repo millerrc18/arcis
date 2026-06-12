@@ -19,7 +19,11 @@ import math
 
 import pandas as pd
 
-from src.shadow_trading.reconcile import _estimate_exit_pnl, _resolve_stuck_pnl
+from src.shadow_trading.reconcile import (
+    _default_current_price_provider,
+    _estimate_exit_pnl,
+    _resolve_stuck_pnl,
+)
 
 
 def test_resolve_stuck_pnl_returns_none_on_nan_price():
@@ -84,3 +88,20 @@ def test_estimate_exit_pnl_still_computes_normal_case(monkeypatch):
     exit_price, pnl, pct = _estimate_exit_pnl("AAPL", 290.0, 10)
     assert exit_price == 300.0
     assert pnl == 100.0  # (300-290)*10
+
+
+def test_default_price_provider_returns_none_on_nan_close(monkeypatch):
+    """Defense-in-depth: the provider itself must never emit a non-finite price."""
+    def fake_fetch(_tickers, period="5d"):
+        return {"AAPL": pd.DataFrame({"Close": [float("nan")]})}
+
+    monkeypatch.setattr("src.data_ingestion.market_data.fetch_ohlcv", fake_fetch)
+    assert _default_current_price_provider("AAPL") is None
+
+
+def test_default_price_provider_returns_price_on_valid_close(monkeypatch):
+    def fake_fetch(_tickers, period="5d"):
+        return {"AAPL": pd.DataFrame({"Close": [123.45]})}
+
+    monkeypatch.setattr("src.data_ingestion.market_data.fetch_ohlcv", fake_fetch)
+    assert _default_current_price_provider("AAPL") == 123.45
