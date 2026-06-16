@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 # instead of silently returning None and synthesizing fake consensus.
 class ClaudeAuthError(RuntimeError):
     """Raised when the Anthropic API rejects the request unrecoverably
-    (credit_balance_too_low, authentication_error, invalid_api_key).
+    (credit_balance_too_low, authentication_error, invalid_api_key, or a
+    404 model-not-found from a retired/deprecated model ID).
     Caller should halt the batch + alert operator, NOT retry per-item."""
 
 
@@ -90,6 +91,16 @@ def _classify_anthropic_exception(exc: Exception) -> None:
     if any(marker in err_str for marker in _AUTH_ERROR_MARKERS):
         logger.error("[CLAUDE] Unrecoverable auth/billing failure: %s", exc)
         raise ClaudeAuthError(str(exc)) from exc
+    # A 404 model-not-found is unrecoverable (a retired/deprecated model ID in
+    # config won't fix itself) — halt loudly rather than swallow as transient,
+    # so it can't silently freeze the corpus (2026-06-16 incident: a retired
+    # teacher model 404'd for 4 days, classified as transient → 0 examples).
+    if "not_found_error" in err_str:
+        logger.error(
+            "[CLAUDE] Model not found (404) — likely a retired/deprecated model ID "
+            "in config (check api.models.* / training.claude_model): %s", exc,
+        )
+        raise ClaudeAuthError(str(exc)) from exc
     logger.warning("Claude API call failed: %s", exc)
 
 
@@ -121,10 +132,11 @@ def generate_training_example(
     model = model_override or _get_model_for_purpose(config, purpose)
     try:
         client = _get_anthropic_client(api_key)
+        # No temperature/top_p/top_k: Opus 4.8 / 4.7 / Fable REMOVED them (400 on
+        # send); Sonnet 4.6 only tolerates them. Steer via prompting instead.
         message = client.messages.create(
             model=model,
             max_tokens=1500,
-            temperature=0.5,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
