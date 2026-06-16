@@ -113,7 +113,7 @@ def run_weekly_synthesis(db_path: str = DB_PATH) -> dict:
     model = (
         api_cfg.get("models", {}).get("training_generation")
         or training_cfg.get("claude_model")
-        or "claude-sonnet-4-20250514"
+        or "claude-sonnet-4-6"
     )
 
     if not api_key or api_key == "your-anthropic-api-key-here":

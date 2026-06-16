@@ -225,7 +225,7 @@ def create_router(runtime, verify_auth):
             },
             "training": {
                 "enabled": True,
-                "claude_model": "claude-sonnet-4-20250514",
+                "claude_model": "claude-sonnet-4-6",
                 "auto_train_threshold": 50,
             },
             "environment": "cloud",
