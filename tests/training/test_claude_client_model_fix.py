@@ -78,3 +78,38 @@ def test_classify_transient_stays_silent():
     """Regression: transient errors (rate limit / 5xx) still return None (swallowed)."""
     assert _classify_anthropic_exception(Exception("Error code: 429 - rate_limit_error")) is None
     assert _classify_anthropic_exception(Exception("Error code: 529 - overloaded_error")) is None
+
+
+def test_get_model_for_purpose_fallback_is_current():
+    """The last-resort fallback (empty config: no api.models, no
+    training.claude_model) must NOT return a retired model ID — otherwise a
+    minimal/empty config silently resolves to a model Anthropic 404s on, which
+    is exactly the class that froze the corpus 06-12..06-16."""
+    from src.training.claude_client import _get_model_for_purpose
+
+    assert _get_model_for_purpose({}, "anything") == "claude-sonnet-4-6"
+
+
+# Model IDs Anthropic retired on 2026-06-15. A hardcoded default pointing at any
+# of these silently freezes whatever pipeline hits that fallback. Guard the whole
+# src/ tree so this class cannot be reintroduced.
+_RETIRED_MODEL_IDS = ("claude-sonnet-4-20250514", "claude-opus-4-20250514")
+
+
+def test_no_retired_model_ids_in_src():
+    """Drift guard: no retired Claude model ID may appear anywhere under src/.
+
+    Scoped to src/ (not tests/) so this file's intentional 404-payload fixtures
+    don't trip it. verify-by-mutation: fails on the pre-fix hardcoded defaults at
+    claude_client.py:68, research_synthesizer.py:116, cloud_routes/core.py:228.
+    """
+    import pathlib
+
+    src = pathlib.Path(__file__).resolve().parents[2] / "src"
+    offenders = []
+    for py in src.rglob("*.py"):
+        text = py.read_text(encoding="utf-8")
+        for rid in _RETIRED_MODEL_IDS:
+            if rid in text:
+                offenders.append(f"{py.relative_to(src.parent)}: {rid}")
+    assert not offenders, "retired model IDs found in src/:\n" + "\n".join(offenders)

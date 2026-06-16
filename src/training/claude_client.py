@@ -65,7 +65,7 @@ def _get_model_for_purpose(config: dict, purpose: str) -> str:
     if legacy and legacy != "your-anthropic-api-key-here":
         return legacy
 
-    return "claude-sonnet-4-20250514"
+    return "claude-sonnet-4-6"
 
 
 def _log_anthropic_cost_safely(message, purpose: str) -> None:

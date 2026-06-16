@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed — Purge remaining hardcoded retired-model-ID defaults (fast-follow to the 06-12 corpus freeze)
+
+A full-codebase sweep after the corpus-freeze fix found three more hardcoded `claude-sonnet-4-20250514` (retired 2026-06-15) fallback defaults — beyond the call-surface site the PR reviewers flagged. None are hit when config is fully populated (so they weren't actively broken), but each is a latent trap: a minimal/empty config silently resolves to a model Anthropic 404s on. All swapped to `claude-sonnet-4-6` (the cheap, safe last-resort default — these only fire when config is missing):
+- `src/training/claude_client.py:68` — `_get_model_for_purpose` last-resort fallback.
+- `src/data_collection/research_synthesizer.py:116` — weekly research-digest model fallback (does not feed the corpus, so it never froze training; degrades gracefully on error).
+- `src/api/cloud_routes/core.py:228` — cloud `/api/config` fallback payload (display only, never used to call Claude).
+
+Added a **drift guard** (`tests/training/test_claude_client_model_fix.py::test_no_retired_model_ids_in_src`) that scans the whole `src/` tree and fails if any retired model ID reappears, so this class cannot be reintroduced. Plus a focused unit test on the `_get_model_for_purpose` fallback.
+
 ### Fixed — Training pipeline frozen since 06-12: retired teacher model + hardcoded `temperature` (2026-06-16 health-check finding)
 
 The training corpus stopped growing on 06-12 and the trainer logged `HOLDOUT EMPTY` daily — model fine-tune + promotion blocked, and quality-scoring + the AI council silently down too. Root cause: the configured Claude teacher models — `claude-sonnet-4-20250514` (Sonnet 4) and `claude-opus-4-20250514` (Opus 4) — were **retired by Anthropic on June 15**, so every teacher call returned `404 not_found`. Two code/config defects let it happen and go unnoticed:
