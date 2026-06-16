@@ -404,10 +404,10 @@ llm:
 
 api:
   models:
-    training_generation: "claude-sonnet-4-20250514"        # Generates training examples from closed trades.
-    training_generation_anchor: "claude-opus-4-20250514"   # Generates anchor (highest quality) examples.
-    quality_scoring: "claude-sonnet-4-20250514"            # Scores training example quality (1-5).
-    council_automated: "claude-sonnet-4-20250514"          # Powers the 5-agent AI council sessions.
+    training_generation: "claude-sonnet-4-6"        # Generates training examples from closed trades.
+    training_generation_anchor: "claude-opus-4-8"   # Generates anchor (highest quality) examples.
+    quality_scoring: "claude-sonnet-4-6"            # Scores training example quality (1-5).
+    council_automated: "claude-sonnet-4-6"          # Powers the 5-agent AI council sessions.
   anchor_count: 75             # Number of highest-quality "anchor" examples to maintain.
                                # These get oversampled during training (golden ratio 62/38).
   anchor_min_score: 4.5        # Minimum quality score to qualify as an anchor.
@@ -422,7 +422,7 @@ api:
 training:
   enabled: true
   anthropic_api_key: "your-anthropic-api-key-here"  # → .env: ANTHROPIC_API_KEY
-  claude_model: "claude-sonnet-4-20250514"           # Used by quality scoring + training gen.
+  claude_model: "claude-sonnet-4-6"           # Used by quality scoring + training gen.
   auto_train_threshold: 500    # Trigger fine-tune when this many NEW examples accumulate
                                # since the last training run. 500 is high enough that
                                # bulk backfill imports won't spuriously trigger retraining;

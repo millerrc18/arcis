@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed — Training pipeline frozen since 06-12: retired teacher model + hardcoded `temperature` (2026-06-16 health-check finding)
+
+The training corpus stopped growing on 06-12 and the trainer logged `HOLDOUT EMPTY` daily — model fine-tune + promotion blocked, and quality-scoring + the AI council silently down too. Root cause: the configured Claude teacher models — `claude-sonnet-4-20250514` (Sonnet 4) and `claude-opus-4-20250514` (Opus 4) — were **retired by Anthropic on June 15**, so every teacher call returned `404 not_found`. Two code/config defects let it happen and go unnoticed:
+
+- **Retired model IDs (config).** Updated the live config + `config/settings.example.yaml` to current models: corpus/anchor → `claude-opus-4-8` (operator chose Opus for training-data quality, per CLAUDE.md "training data quality is #1"); quality-scoring + council → `claude-sonnet-4-6`.
+- **Hardcoded sampling param (`src/training/claude_client.py`).** `generate_training_example` sent `temperature=0.5`, which Opus 4.8/4.7/Fable **removed** (they 400 on it; Sonnet 4.6 only tolerates it). Dropped it — steer via prompting per the migration guide. Verified live: the Opus teacher call now returns clean, un-polluted examples.
+- **Silent misclassification (`_classify_anthropic_exception`).** A `404 not_found_error` was treated as a *transient* failure (warning + `None`), so a permanent config breakage silently froze the corpus for 4 days with no halt/alert. It now raises `ClaudeAuthError` (caught at `data_collector.py:417` → halts the batch + surfaces `halt_reason`), with a log message pointing at the retired model ID.
+- **Tests (`tests/training/test_claude_client_model_fix.py`, 4):** verify-by-mutation — the no-sampling-params and 404-raises-loud assertions fail on pre-fix code; regression tests confirm genuine auth failures still raise and transient (429/529) errors still swallow to `None`.
+
 ### Added — Conviction denormalized onto shadow_trades (`rec_confidence_score` / `rec_llm_conviction`)
 
 The 2026-06-12 trading health check showed the desk's `recommendations.confidence_score` is **predictive of win-rate** (high ≥8 wins ~50% vs ~12% low) but the trade record dropped it — conviction-vs-outcome calibration was only reconstructable via a `recommendation_id` join. This wires it onto the trade row.
