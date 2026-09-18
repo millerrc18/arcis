@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | DRAFT v0.4 (2026-09-16). Binding once tagged `charter-v1`. |
+| **Status** | DRAFT v0.7 (2026-09-17). Binding once tagged `charter-v1`. |
 | **Owner** | Ryan decides. |
 | **Maintainer** | Claude (CTO) proposes changes; every change lands through §6. |
 | **Executor** | Claude Code builds only what §3 marks CORE and Active. |
@@ -23,7 +23,7 @@ Items marked **⟨CONFIRM⟩** need Ryan's sign-off before the `charter-v1` tag.
 |---|---|---|
 | Broker | Alpaca | One broker, one API surface |
 | Asset class | US equities | |
-| Universe | OPEN (OD-6): S&P 100, or point-in-time S&P 500 with the S&P 100 as a benchmark | R01 favors the broader universe for research |
+| Universe | S&P 500, point-in-time membership; the S&P 100 is reported as a benchmark subset | D-012. Breadth is the main lever on statistical power now that Q1 is forward-only |
 | Direction | Long-only | Removes borrow, locates, and short-sale handling |
 | Strategies | One: the incumbent pullback-in-uptrend ranker (`incumbent_v1`) | A second strategy is a DEFERRED item, not a roadmap slot |
 | Entry | Limit order | |
@@ -52,8 +52,8 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 
 | Component | Package | Step | Active | Simplest form |
 |---|---|---|---|---|
-| Forward news recorder | `recorder` | 1 | yes | Capture-only polling of Alpaca news for the capture universe (current S&P 500 constituents, a superset of the S&P 100; D-011); append-only; first-seen timestamp per article version; fingerprint mode (metadata and hashes, no article text) until text rights are confirmed (OD-8) |
-| Point-in-time data plane | `data` | 3 | no | Research master from a survivorship-free source (candidate: Norgate Platinum, OD-7): raw, split-adjusted, and total-return daily bars; index membership history; delisted securities; corporate actions; earnings dates where timing is known. Alpaca bars only for recent-period reconciliation |
+| Forward news recorder | `recorder` | 1 | yes | Capture-only polling of Alpaca news for the capture universe (current S&P 500 constituents, a superset of the S&P 100; D-011); append-only; first-seen timestamp per article version; fingerprint mode (metadata and hashes, no article text) until text rights are confirmed (OD-8); a daily universe snapshot, which is now the only point-in-time membership record |
+| Point-in-time data plane | `data` | 3 | no | Alpaca daily bars (2016 onward) and corporate actions; forward membership from the recorder's daily universe snapshots; earnings dates where timing is known. No paid history vendor (D-013), so any pre-tag backtest is exploratory and survivorship-biased |
 | Incumbent ranker | `strategy` | 4 | no | Pure functions implementing the frozen `incumbent_v1`; shared with the live lane |
 | Research core | `research` | 4–5 | no | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
 | Text scoring for Q2/Q3 | `textscore` | after 5 | no | ProsusAI/finbert (ONNX INT8) plus one pinned general instruction model (candidate: Qwen3-14B Q5), schema-constrained, chosen on blinded human labels without looking at returns. Research only; no training code |
@@ -106,21 +106,22 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 
 | ID | Invariant | Origin | Owner |
 |---|---|---|---|
-| I-1 | No entry order is valid without broker-held protective legs | Months of live trades with no broker-side stop or target (pre-#651) | `execution`, `shield` |
+| I-1 | No entry order is valid without broker-held protective legs | Months of live trades with no broker-side stop or target (before old-repo issue 651) | `execution`, `shield` |
 | I-2 | Every open position has broker-confirmed, executable protective sell quantity equal to its size, except inside a logged cancel-and-replace. A mismatch blocks new entries, and protection is never cancelled because the process failed | Same; R11 | `recon` |
 | I-3 | Every exit records provenance: strategy, bracket, operator, or safety mode. Operator exits are excluded from strategy statistics by default | Manual recovery exits inflated the bootcamp win rate | `records`, `research` |
 | I-4 | A trade or candidate record cannot close incomplete. Incomplete records are excluded, never imputed | Only 16 of 320 bootcamp rows had trustworthy exits | `records`, `research` |
 | I-5 | Performance comes from one tested metrics module using the daily marked-to-market equity curve | Sharpe overstated ~2.24× (√252 applied to ~50 trades a year) | `research` |
 | I-6 | Config is schema-validated with required keys and no unknown keys; a process refuses to start otherwise | A strategy was silently disabled by a missing config key | all |
-| I-7 | Data and record stores live outside cloud-sync folders and outside the repo; restores are tested | SQLite on OneDrive caused a full data loss (#181) | all |
+| I-7 | Data and record stores live outside cloud-sync folders and outside the repo; restores are tested | SQLite on OneDrive caused a full data loss (old-repo issue 181) | all |
 | I-8 | No performance comparison runs before the cost model exists | The cost module needed fixing before attribution was valid | `research` |
 | I-9 | Tax lots are tracked, and a wash-sale flag is visible to sizing | In a taxable account, buying a name within 30 days of selling it at a loss triggers the wash-sale rule, and this strategy re-enters the same names often | `sizing` |
 | I-10 | At most one running instance per process type | Reference architecture's split-brain risk, scaled down | all long-running processes |
 | I-11 | Evaluation datasets reject any item dated inside a model's training window | LLM memorization of in-window outcomes | `textscore`, `research` |
-| I-12 | No blind exception handling in order or data paths; an unknown outcome becomes an explicit UNKNOWN state | Ghost positions; catch-all handling in order submission (#353) | all |
+| I-12 | No blind exception handling in order or data paths; an unknown outcome becomes an explicit UNKNOWN state | Ghost positions; catch-all handling in order submission (old-repo issue 353) | all |
 | I-13 | No article text, embeddings, or text-trained models are retained until Alpaca's written confirmation of those rights is recorded in §9 | R08: public terms do not clearly grant these rights | `recorder`, `textscore` |
 | I-14 | LLM scoring fails closed: a schema failure, timeout, or out-of-range value records `LLM_SCORE_UNAVAILABLE`, is never retried improvisationally, and never drives a trade | R10 | `textscore` |
 | I-15 | Decisions use the conservative simulator and cost specification. Touch fills, target-first ordering, stop-at-trigger fills, and similar variants are diagnostics only | R05, R06 | `research` |
+| I-16 | Both repositories are public. No credentials, market data, news text, or personal records are ever committed to either | D-014 | all |
 
 ## 5. Build order
 
@@ -129,14 +130,14 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 | 0 | This file and PREREGISTRATION.md | Both tagged (`charter-v1`, `prereg-v1`) |
 | 1 | Forward news recorder (sprint S01), in fingerprint mode | Scheduled polling running; `verify` passing; `gaps` clean for 7 consecutive days |
 | 2 | Carry-forward inventory: a read-only pass over the old repo | Report listing every date range ever evaluated; a trial ledger (with daily return series where recoverable); specs recommended for porting; data sources needing point-in-time re-verification; the `incumbent_v1` definition with its hash; and the old fine-tuned model's training-data end date |
-| 3 | Point-in-time data plane | Norgate trial checks passed (OD-7); the R02 validation checklist run; survivorship-free membership history; raw, split-adjusted, and total-return bars; corporate actions; availability timestamps; known-answer tests |
+| 3 | Data plane | Alpaca coverage audited (start date, delisted symbols, adjustment behavior); forward membership snapshots ingested; corporate actions; availability timestamps; known-answer tests; the survivorship limits of any pre-tag history documented |
 | 4 | Incumbent ranker, cost model, metrics | Ranker reproduces `incumbent_v1` on fixtures; cost model implements R06 with dated fees; metrics pass known-answer tests |
 | 5 | Bracket simulator, candidate-day ledger, walk-forward harness, trial registry | Simulator implements the preregistered rules and reports ambiguity rates; harness runs end to end on a synthetic dataset with a known answer; sequential boundaries generated and archived |
-| Q1 | Incumbent test | Stage 1 historical holdout run once; Stage 2 forward test run on schedule; outcomes recorded in §9 |
+| Q1 | Incumbent test | Exploratory historical check run once; forward information test evaluated at its looks; outcomes recorded in §9 |
 | Q2/Q3 | Text questions | Stage A information test at its looks; Stage B strategy test only after Stage A |
 | Live | Live lane, paper first | Only after Q1 authorizes it (PREREGISTRATION.md §2) |
 
-Steps 1 and 2 run in parallel, alongside the Norgate trial and the written questions to Alpaca (OD-7, OD-8). PREREGISTRATION.md is completed from the Step 2 report and tagged before Step 3 begins.
+Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8). PREREGISTRATION.md is completed from the Step 2 report and tagged before Step 3 begins. The tag starts the forward evidence clock for Q1, so Steps 3 to 5 are built while that clock runs.
 
 ## 6. Change control
 
@@ -151,7 +152,7 @@ Steps 1 and 2 run in parallel, alongside the Norgate trial and the written quest
 - Nothing is ported by default. Each port is a §9 decision.
 - Eligible for porting: specs (walk-forward, bracket simulator, leakage detector, attribution ledger), the `incumbent_v1` definition, trial history, and data sources that pass point-in-time re-verification.
 - Old-platform records are not evidence for Q1–Q3 unless they meet the new record schema and the evidence-window rule.
-- The old repository stays read-only as reference.
+- The old repository is archived and stays read-only as reference. References to its issues are written as "old-repo issue N" so they never link to this repository's issues.
 
 ## 8. Open decisions
 
@@ -162,8 +163,6 @@ Steps 1 and 2 run in parallel, alongside the Norgate trial and the written quest
 | OD-3 | Pinned LLM configuration for Q3 | First scored forward day | Candidate Qwen3-14B Q5; backup Mistral Small 3.1 24B Q4; 12 GB options Gemma 3 12B or Qwen3-8B (R10). Final choice by R10's blinded label test, which needs retained text (OD-8) |
 | OD-4 | Q1 minimum economic effect and the first real-money amount | `prereg-v1` tag | See PREREGISTRATION.md §2. Data subscriptions the live system needs count as running costs |
 | OD-5 | News fallback if the current plan refuses Alpaca news access | Only if the S01 preflight fails | Do not build a fallback speculatively |
-| OD-6 | Research universe: S&P 100, or point-in-time S&P 500 with the S&P 100 as a benchmark | `prereg-v1` tag | R01 favors the broader universe. The recorder captures the S&P 500 meanwhile, so neither option is lost |
-| OD-7 | Historical data source | Step 3 | Norgate Platinum (about $630 a year when checked) is the only verified personal-use route to survivorship-free index history before 2019 (R02). Trial first: OEX coverage, share classes, identifiers, local-storage license. Without it, Q1 has no historical look |
 | OD-8 | Written confirmations from Alpaca | Text rights: before any text is retained. Brokerage behavior: before the live lane | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
 
 ## 9. Decision log
@@ -182,7 +181,10 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-008 | 2026-09-16 | (proposed) Q2/Q3 use a whole-universe one-day information test before any strategy test | R07 |
 | D-009 | 2026-09-16 | (proposed) The conservative simulator and cost model are the decision specification | R05, R06 |
 | D-010 | 2026-09-16 | (proposed) The recorder runs in fingerprint mode until text rights are confirmed | R08 |
-| D-011 | 2026-09-16 | (proposed) The recorder captures current S&P 500 constituents | Keeps OD-6 open; forward capture cannot be added retroactively |
+| D-011 | 2026-09-16 | (proposed) The recorder captures current S&P 500 constituents | Forward capture cannot be added retroactively |
+| D-012 | 2026-09-17 | Research universe is the point-in-time S&P 500, with the S&P 100 reported as a benchmark subset | Ryan's decision; R01 favors breadth, and breadth raises the information ratio that drives statistical power |
+| D-013 | 2026-09-17 | No paid historical data vendor for now. Q1 becomes forward-first: a forward information test decides, and any pre-tag backtest is exploratory only | Ryan's decision. Revisit if the forward information test shows a signal worth confirming on clean history |
+| D-014 | 2026-09-17 | Both repositories stay public | Ryan's decision. Keeps review possible from chat; makes I-16 load-bearing |
 
 ## 10. Idea parking lot
 
@@ -194,4 +196,6 @@ Good ideas that move no gate are recorded here and not built. Reviewed quarterly
 
 ## 11. Documentation set
 
-`README.md`, `SCOPE.md`, `PREREGISTRATION.md`, `CHANGELOG.md`, `docs/reference-architecture.md`, `docs/research/` (the research question queue, the research log, and saved reports), `docs/runbooks/`, `docs/sprints/`. Any other top-level document requires a change to this section first.
+`README.md` (entry point and documentation map), `CLAUDE.md` (the rules every Claude Code session reads first), `SCOPE.md`, `PREREGISTRATION.md`, `CHANGELOG.md`, `docs/reference-architecture.md`, `docs/research/` (the research question queue, the research log, and saved reports), `docs/runbooks/`, `docs/sprints/`. Any other top-level document requires a change to this section first.
+
+Every sprint ends by updating three things: the documentation map in `README.md` if it added a document, `CHANGELOG.md`, and its own sprint report.
