@@ -31,6 +31,7 @@
 | RQ-10 | Choosing the pinned local LLM and FinBERT variant | C | OD-3 | Done (R10) |
 | RQ-11 | Alpaca brokerage mechanics and personal account rules | D | Live lane; OD-1 | Done (R11) |
 | RQ-12 | Verify quoted values from key papers | B | Priors used in PREREGISTRATION.md scenarios | Not started |
+| RQ-13 | Free reconstruction of S&P 500 membership, and how far survivorship bias reaches | C | The exploratory historical check in PREREGISTRATION.md §2.4 | Not started |
 
 **Priority key.** A: before tagging the charter and preregistration. B: before Steps 4–5. C: before any text scoring. D: before the live lane.
 
@@ -374,6 +375,32 @@ Deliverables:
 Standards: use the original papers, not summaries or blog posts. If a paper is inaccessible, say so rather than inferring the value.
 ```
 
+### RQ-13 — Free reconstruction of S&P 500 membership, and the reach of survivorship bias
+
+**Informs:** PREREGISTRATION.md §2.4 (exploratory historical check); SCOPE.md Step 3
+
+```text
+Context: I'm an individual running a personal, research-first systematic trading project: long-only swing trading in large-cap US stocks, daily decisions, holds of 2 to 15 trading days. I decided not to buy a survivorship-free historical data subscription, so my only backtests use free sources: Alpaca daily bars from 2016 and today's index membership. I need to know how wrong that makes a backtest, and how much of the gap free sources can close. Use sources current as of September 2026.
+
+Research question: How can S&P 500 membership history be reconstructed from free public sources, and how large is the remaining survivorship and look-ahead bias in a backtest that uses it?
+
+Cover:
+1. Free or near-free sources for historical S&P 500 constituent changes with effective dates: S&P press releases, exchange notices, Wikipedia revision history, SEC filings, and any public datasets. How complete and reliable is each, and how far back does it go?
+2. Prices for companies that were removed from the index (acquired, delisted, or demoted): which free sources still serve them, and what typically goes missing.
+3. Published estimates of survivorship bias magnitude in US large-cap backtests: annualized return overstatement by strategy type, holding period, and era.
+4. Whether the direction and rough size of the bias can be bounded for a long-only, short-horizon strategy in large caps, and how to report that bound honestly.
+5. Look-ahead bias from using today's membership: how much of the effect comes from index-addition and deletion drift, and how studies handle it.
+6. Practical checks to detect how badly a specific backtest is affected, for instance comparing results on names that stayed in the index against names that left.
+
+Deliverables:
+- A table of free membership sources: coverage start, completeness, update mechanism, effort to use, and link.
+- A recommended reconstruction method with its known gaps.
+- A defensible way to state the bias in results, for example a bounded range instead of a single number.
+- Guidance on what conclusions such a backtest can and cannot support.
+
+Standards: give a link for every factual claim, prefer peer-reviewed research and primary sources, and flag anything you could not verify.
+```
+
 ---
 
 ## Verification queue (direct checks, not deep research)
@@ -384,7 +411,7 @@ These come from the research log's open questions. They are answered by asking a
 - News rights (R08): local storage of article text; embeddings, feature stores, and model training; keeping derived features after access ends; any Benzinga addendum; what `created_at` and `updated_at` mean, and whether historical queries return revised text; sharing aggregate results.
 - Brokerage (R11): cash-account availability; intraday buying-power rules after the FINRA change; bracket protection when a parent order partially fills; handling of open brackets through splits, special dividends, mergers, and symbol changes; GTC expiry; cancel-on-disconnect or a kill switch; trade-update delivery guarantees and REST activity history; API key scoping, rotation, and IP allowlists.
 
-**Norgate Platinum trial (SCOPE OD-7).** Daily S&P 100 and S&P 500 membership back to 2000 or earlier, including share classes; delisted securities that remain tradable through the right dates; a stable security identifier in the Python interface; license terms for local storage, backups, and derived features, and what happens to local data if the subscription ends.
+**Paid historical data (SCOPE D-013): deferred.** No vendor is being bought, so Q1 runs forward-first. If the forward information test shows a signal worth confirming on clean history, reopen this with the Norgate Platinum trial checks: daily S&P 100 and S&P 500 membership back to 2000 or earlier including share classes; delisted securities through the right dates; a stable security identifier in the Python interface; and license terms for local storage, backups, and derived features.
 
 **Own-data measurements.**
 - Step 3: return dispersion and cross-stock correlation by horizon.
