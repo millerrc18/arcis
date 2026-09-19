@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | DRAFT v0.3 (2026-09-16). Frozen once tagged `prereg-v1`. |
+| **Status** | DRAFT v0.4 (2026-09-17). Frozen once tagged `prereg-v1`. |
 | **Tag deadline** | Before Step 3 begins (SCOPE.md §5) |
 | **Governs** | Q1 (incumbent edge), Q2 (cheap text), Q3 (LLM). Q4 is reserved. |
 | **Evidence base** | `docs/research/research-log.md`: R04 (Q1 protocol), R05–R06 (simulation and costs), R07–R10 (text questions) |
@@ -25,11 +25,11 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 
 | Term | Definition |
 |---|---|
-| Universe | ⟨CONFIRM, SCOPE OD-6⟩ S&P 100, or S&P 500 with the S&P 100 reported as a subset; point-in-time membership either way |
+| Universe | Point-in-time S&P 500, with the S&P 100 reported as a benchmark subset (SCOPE D-012). Forward membership comes from the recorder's daily universe snapshots |
 | Decision time `t_d` | 16:30 ET on trading day `t` ⟨CONFIRM⟩. Everything used for a decision must be available before `t_d` |
 | Incumbent | `incumbent_v1` as ported in Step 2, frozen by hash ⟨STEP 2⟩. Any change creates a new trial |
 | Candidate-day | A (symbol, `t`) pair the incumbent qualifies at `t_d` |
-| Label | Net return from applying the incumbent's entry and exit rules to one candidate-day under §1.1 and §1.2 |
+| Label | Net return from applying the incumbent's entry and exit rules to one stock-day under §1.1 and §1.2. The rules are mechanical, so every universe stock-day carries a label, whether or not the ranker qualified it |
 | Risk-free rate | 3-month Treasury bill (FRED `DTB3`), converted to a daily rate |
 | Benchmark | SPY total return |
 | Earnings window | ⟨CONFIRM⟩ No new entry from one trading day before through one trading day after an earnings date whose release timing is unknown (R02). Once confirmed, this rule is part of the frozen incumbent definition |
@@ -96,54 +96,55 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 
 ## 2. Q1 — Does the incumbent ranker have a net edge?
 
-**Hypothesis.** The incumbent portfolio earns positive alpha against the market after costs.
+**Why this section changed.** With no survivorship-free history before 2019 (SCOPE D-013), Q1 has no clean historical holdout. Forward portfolio-alpha testing cannot substitute for one: at 10% tracking error, a three-year window reaches 80% power only for an annual alpha near 16% (R04's formula). Q1 therefore takes the same shape as the text questions. A forward information test, which this sample size can actually decide, gates the answer. Portfolio alpha is monitored, never treated as proof.
 
-**Primary estimand.** The mean exposure-matched active return,
+### 2.1 Stage A — Forward information test (primary, gating)
 
-`a_t = (r_p,t − r_f,t) − b_t × (r_SPY,t − r_f,t)`,
+- **Rows:** every universe stock-day from the `prereg-v1` tag onward. Prices for this window can be pulled later, so the clock starts at the tag, not when the code is finished.
+- **Outcome:** the mechanical net label (§1.1, §1.2) for that stock-day. Unfilled entries are counted and excluded from the return comparison; the unfilled rate is reported by group.
+- **Model:** `label = δ_t + b_Q·Qualified + b_S·(Score × Qualified) + γ'X + ε`, with date fixed effects and standard errors clustered by date, plus a date-block bootstrap.
+- **Controls `X`:** prior 1-, 5-, 20-, and 60-day returns; abnormal volume; realized volatility; market-cap and liquidity buckets; sector; earnings-window indicator.
+- **Primary hypothesis:** `b_Q > 0`. In plain terms: on the same day, names the ranker qualifies beat the same mechanical trade on names it did not qualify, after costs.
+- **Secondary:** `b_S > 0`, that the score ranks within the qualified set. Reported, never a gate on its own.
+- **Looks:** 12 months for data quality and nonbinding futility; 24 months for efficacy, one-sided α = 2.5%. Futility at 12 months if the conditional power under the minimum effect is below 10%.
+- **Minimum effect worth having:** a point estimate of at least 25 bp net per trade ⟨CONFIRM⟩, alongside the significance threshold.
+- **Power:** the minimum detectable effect is computed on the actual panel before tagging, using measured dispersion and within-date correlation, and recorded here.
+- **Pass:** `b_Q` clears the threshold at 24 months and the point estimate is at least the minimum effect.
+- **Fail:** `b_Q` point estimate is at or below zero at either look, or no pass at 24 months.
 
-where `b_t` is the portfolio's ex-ante market beta from prior-day weights and rolling stock betas (window ⟨CONFIRM⟩, proposed 252 sessions). If `b_t` cannot be computed before day `t`, the primary benchmark is a cash-plus-SPY portfolio using prior-day weights. Annualized alpha is the mean daily active return × 252.
+### 2.2 Stage B — Execution and replication (gating for capital)
 
-**Sensitivity tables** (never used to choose a result): static SPY regression; Fama–French five factors plus momentum; short-term reversal exposure as a diagnostic; beta-window variants.
+Runs only after Stage A passes.
 
-**Inference.** Primary: Bartlett-kernel Newey–West with `L = floor(4 × (T/100)^(2/9))` lags, capped at 20, with a small-sample correction, from a version-pinned function. Sensitivities: Newey–West with 5, 10, 15, and 20 lags; a stationary bootstrap of the joint daily return vector (at least 10,000 draws; automatic block length plus 10, 15, 20, and 30 sessions); a circular block bootstrap as a secondary check.
+- **Simulator fidelity:** paper or live fills match the frozen simulator within a preregistered tolerance for slippage, fill rate, and stop behavior, over at least 150 closed trades ⟨CONFIRM⟩.
+- **Portfolio simulation** on the same forward window is reported with confidence intervals. It must show a positive point estimate, a drawdown inside the preregistered limit, and exposure and concentration inside their caps. It carries no significance requirement, because none is attainable at this sample size.
+- **Capital authorization** requires Stage A pass, Stage B pass, and the risk limits in §2.3. This charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven.
 
-**Power.** Tracking-error scenarios of 8%, 10%, and 15% are preregistered and replaced by the measured value once the frozen equity curve exists. A 12–36-month forward window cannot confirm a modest alpha: at 3% alpha and 10% tracking error, 80% power needs decades of data (R04). Forward results therefore assess execution, sign, and replication.
+### 2.3 Risk limits where proof is unattainable
 
-### Stage 1 — Historical holdout (one look)
+- The first real-money amount is small enough that losing all of it changes nothing important ⟨CONFIRM, SCOPE OD-4⟩.
+- **Kill rule:** trading stops and the strategy returns to research if the live equity curve draws down more than ⟨CONFIRM⟩ percent from its start, or if the 90% upper bound on live net edge per trade falls below zero after ⟨CONFIRM⟩ closed trades.
+- **Scaling:** increases happen only in preregistered steps, each requiring a stated amount of additional forward evidence with the estimate holding ⟨CONFIRM⟩.
 
-- **Window:** ⟨STEP 2⟩ date ranges the old platform never evaluated and the research master covers point-in-time (SCOPE OD-7). If none exists, go to Stage 2.
-- **Pass** requires all of:
-  1. One-sided t ≥ 1.96 on the primary estimand.
-  2. An annualized alpha point estimate of at least the minimum economic effect (MEE).
-  3. A positive point estimate in at least two of three equal sub-periods of the window ⟨CONFIRM⟩.
-  4. At least 150 closed simulated trades. This is an implementation-quality floor, not a power requirement.
-- **Fail:** the point estimate is ≤ 0, or the upper bound of its 90% confidence interval is below MEE.
-- **Inconclusive:** anything else.
+### 2.4 Exploratory historical check (non-gating, asymmetric)
 
-### Stage 2 — Forward sequential test
+- **Data:** Alpaca daily bars from 2016, using current membership. Two known biases: survivorship inflates results, and the period overlaps data the old platform already used for tuning.
+- **Use:** this check can retire the incumbent. It can never authorize capital.
+- **Preregistered kill rule:** if the net alpha point estimate over the available history is at or below zero under the conservative cost model, the incumbent is retired and redesign begins. A favorable result is recorded and changes nothing.
+- The direction and, where estimable, the size of the survivorship bias are reported with the result.
 
-- **Data:** returns from the frozen simulator on data after the `prereg-v1` tag. Live fills, once they exist, validate the simulator (R05); they are not the test series.
-- **Plan:** 756 eligible trading days (36 months), with looks at 12, 24, and 36 months. Information fraction = cumulative eligible days ÷ 756.
-- **Efficacy:** one-sided α = 2.5% with Lan–DeMets O'Brien–Fleming spending; boundaries generated and archived under §0 rule 6.
-- **Futility (nonbinding):** pause if conditional power under MEE falls below 10%.
+### 2.5 Portfolio alpha monitoring (non-gating)
 
-### Outcomes
+- The exposure-matched active return `a_t = (r_p,t − r_f,t) − b_t × (r_SPY,t − r_f,t)` is tracked, where `b_t` is the ex-ante market beta from prior-day weights and rolling stock betas (window ⟨CONFIRM⟩, proposed 252 sessions).
+- Inference for reporting: Bartlett-kernel Newey–West with `L = floor(4 × (T/100)^(2/9))` lags, capped at 20, from a version-pinned function; sensitivities at 5, 10, 15, and 20 lags and a stationary bootstrap (at least 10,000 draws; automatic block length plus 10, 15, 20, and 30 sessions).
+- Sequential boundaries (Lan–DeMets O'Brien–Fleming, one-sided 2.5%, generated under §0 rule 6) are drawn for context. Crossing one is supportive evidence; failing to cross one means nothing, because the test lacks the power to detect a modest edge.
+- Tracking-error scenarios of 8%, 10%, and 15% are replaced by the measured value once the frozen equity curve exists.
 
-| Stage 1 | Stage 2 | Result |
-|---|---|---|
-| Pass | Running | Live-lane build authorized, paper first. Stage 2 monitors execution, sign, and replication; a futility signal suspends capital |
-| Inconclusive, or no holdout | Crosses the efficacy boundary | Live-lane build authorized, paper first |
-| Inconclusive, or no holdout | Futility, or no crossing by 36 months | Counts as a fail for capital purposes |
-| Fail | — | Strategy redesign; each variant is a new trial that needs its own untouched data |
+### 2.6 Multiplicity and reporting
 
-**MEE.** max(2% per year, annual running costs such as data and hosting ÷ the first real-money amount) ⟨CONFIRM, SCOPE OD-4⟩.
-
-**Deflated Sharpe Ratio.** A multiplicity audit, not a gate. It is reported over a grid: trial counts (known, and known plus unknown); annualized cross-trial Sharpe dispersion of 0.25, 0.50, and 1.00; and low- and high-correlation effective trial counts. A DSR of 0.95 or more is claimed only if it holds across the whole conservative grid.
-
-**Not computed.** Probability of Backtest Overfitting, since only one frozen configuration is evaluated.
-
-**Descriptive only.** Candidate-level returns, fill rate, hit rate, maximum drawdown, exposure, turnover, unfilled and ambiguity rates, and results by market-cap, liquidity, volatility, and regime buckets.
+- **Deflated Sharpe Ratio:** a multiplicity audit, not a gate. Reported over a grid of trial counts (known, and known plus unknown), annualized cross-trial Sharpe dispersion of 0.25, 0.50, and 1.00, and low- and high-correlation effective trial counts.
+- **Not computed:** Probability of Backtest Overfitting, since only one frozen configuration is evaluated.
+- **Descriptive only:** fill and unfilled rates, hit rate, maximum drawdown, exposure, turnover, ambiguity rate, and results by market-cap, liquidity, volatility, and regime buckets, with the S&P 100 subset reported separately.
 
 ---
 
@@ -168,7 +169,7 @@ where `b_t` is the portfolio's ex-ante market beta from prior-day weights and ro
 - **Looks:** 6 and 12 months for data quality and nonbinding futility only. Efficacy is judged once, at 24 months.
 - **Secondary:** a two-day horizon as confirmation; five- and ten-day horizons as exploratory, with non-overlapping robustness checks; alternate aggregators (unweighted mean, most recent, maximum absolute score, novelty-weighted first report, six-hour half-life) reported but never optimized. Secondary families use Holm or Romano–Wolf control.
 - **Supporting:** chronological out-of-sample R² and Clark–West comparisons.
-- **Planning power (R07, 100 names):** minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). These are scenarios, replaced before tagging by a simulation on the actual panel.
+- **Planning power:** R07's scenarios for a 100-name panel give minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). The S&P 500 panel improves on this by less than the row count suggests, because same-day moves are correlated. The real figure is simulated on the actual panel before tagging and recorded here.
 
 ### 3.3 Stage B — Strategy test (only after Stage A)
 
