@@ -29,7 +29,7 @@ Items marked **⟨CONFIRM⟩** need Ryan's sign-off before the `charter-v1` tag.
 | Entry | Limit order | |
 | Exit | Broker-held bracket (stop and take-profit), plus a time exit | |
 | Holding period | 2–15 trading days | |
-| Decision cadence | Once per trading day, after the close ⟨CONFIRM⟩ | Daily bars only; the exact decision time is fixed in PREREGISTRATION.md |
+| Decision cadence | Once per trading day, after the close | Daily bars only; the exact decision time is fixed in PREREGISTRATION.md. Monitoring is continuous: broker-held brackets, resting limit orders, and the 10-minute recorder. Intraday entry decisions are parked in §10 |
 | Capital | None until Q1 authorizes the live lane and the live-lane gates pass | Paper only before then |
 | Account type | OPEN (OD-1) | Decided before the live lane |
 
@@ -179,17 +179,17 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-002 | 2026-09-16 | Research (Q2/Q3) decides the LLM's role. LLM scoring for research is CORE and capped; the LLM in the live path is DEFERRED | The old platform never isolated LLM alpha |
 | D-003 | 2026-09-16 | The forward news recorder is the first build | Clean LLM evidence only accrues in real time |
 | D-004 | 2026-09-16 | Finnhub Premium lapsed on 2026-07-30. The Alpaca News API (Benzinga) is the primary news source, pending the S01 access preflight | Alpaca serves news history back to 2015 plus current news |
-| D-005 | 2026-09-16 | (proposed) Scope freeze per §1 | Pending Ryan's confirmation |
+| D-005 | 2026-09-16 | Scope freeze per §1 | Ryan approved 2026-09-23, including the once-daily cadence. Intraday entry decisions parked in §10 |
 | D-006 | 2026-09-16 | Research log R01–R11 adopted as the evidence base | Deep research with an AI critic review; unverified items are labeled in the log |
 | D-007 | 2026-09-16 | (withdrawn, never took effect) Q1 uses a one-time historical holdout plus a separate forward sequential test. **Superseded by D-015 before sign-off:** PREREGISTRATION.md v0.4 removed the gating historical holdout and replaced the portfolio-alpha forward test with the §2.1 cross-sectional information test. Do not approve as written | R04; withdrawn per D-015 |
-| D-008 | 2026-09-16 | (proposed) Q2/Q3 use a whole-universe one-day information test before any strategy test | R07 |
-| D-009 | 2026-09-16 | (proposed) The conservative simulator and cost model are the decision specification | R05, R06 |
+| D-008 | 2026-09-16 | Q2/Q3 use a whole-universe one-day information test before any strategy test | R07. Ryan approved 2026-09-23 |
+| D-009 | 2026-09-16 | The conservative simulator and cost model are the decision specification | R05, R06. Ryan approved 2026-09-23 |
 | D-010 | 2026-09-16 | (proposed) The recorder runs in fingerprint mode until text rights are confirmed | R08 |
-| D-011 | 2026-09-16 | (proposed) The recorder captures current S&P 500 constituents | Forward capture cannot be added retroactively |
+| D-011 | 2026-09-16 | The recorder captures current S&P 500 constituents | Forward capture cannot be added retroactively. Ryan approved 2026-09-23 |
 | D-012 | 2026-09-17 | Research universe is the point-in-time S&P 500, with the S&P 100 reported as a benchmark subset | Ryan's decision; R01 favors breadth, and breadth raises the information ratio that drives statistical power |
 | D-013 | 2026-09-17 | No paid historical data vendor for now. Q1 becomes forward-first: a forward information test decides, and any pre-tag backtest is exploratory only | Ryan's decision. Revisit if the forward information test shows a signal worth confirming on clean history |
 | D-014 | 2026-09-17 | Both repositories stay public | Ryan's decision. Keeps review possible from chat; makes I-16 load-bearing |
-| D-015 | 2026-09-19 | (proposed) Q1 is decided by a forward cross-sectional information test (PREREGISTRATION.md §2.1), not by portfolio alpha. The pre-tag historical check is non-gating and can only retire (§2.4). Portfolio alpha is monitored, never treated as proof (§2.5). Capital additionally requires the §2.3 risk limits | D-013 removed the paid vendor, so no clean historical holdout exists, and R04's formula gives 80% power at three years and 10% tracking error only near 16% annual alpha. The information test compares qualified against unqualified names within the same date, which this sample size can decide. The charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven |
+| D-015 | 2026-09-19 | Q1 is decided by a forward cross-sectional information test (PREREGISTRATION.md §2.1), not by portfolio alpha. The pre-tag historical check is non-gating and can only retire (§2.4). Portfolio alpha is monitored, never treated as proof (§2.5). Capital additionally requires the §2.3 risk limits | D-013 removed the paid vendor, so no clean historical holdout exists, and R04's formula gives 80% power at three years and 10% tracking error only near 16% annual alpha. The information test compares qualified against unqualified names within the same date, which this sample size can decide. The charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven. Ryan approved 2026-09-23 |
 | D-016 | 2026-09-23 | No LICENSE file: all rights reserved. The README states it explicitly (S01 T2) | Ryan's decision. Public visibility serves review (D-014), not reuse. Withholding a license is reversible; granting one is not, for copies already taken under it |
 
 ## 10. Idea parking lot
@@ -198,7 +198,7 @@ Good ideas that move no gate are recorded here and not built. Reviewed quarterly
 
 | Date | Idea | Gate it would need |
 |---|---|---|
-| — | — | — |
+| 2026-09-23 | Intraday entry decisions: a second decision cadence alongside the daily one | Treated as a second strategy (§3.3): Q1 authorizes the live lane and the canary stage completes. Also needs its own research question (the R01 evidence is daily-bar), an intraday simulator, and a paid real-time data plan. The recorder's 10-minute first-seen timestamps preserve the data to test it |
 
 ## 11. Documentation set
 
