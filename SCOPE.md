@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | DRAFT v0.7 (2026-09-17). Binding once tagged `charter-v1`. |
+| **Status** | DRAFT v0.8 (2026-09-19). Binding once tagged `charter-v1`. |
 | **Owner** | Ryan decides. |
 | **Maintainer** | Claude (CTO) proposes changes; every change lands through §6. |
 | **Executor** | Claude Code builds only what §3 marks CORE and Active. |
@@ -127,9 +127,10 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 
 | Step | Deliverable | Done means |
 |---|---|---|
-| 0 | This file and PREREGISTRATION.md | Both tagged (`charter-v1`, `prereg-v1`) |
+| 0 | This file | Tagged `charter-v1`: every ⟨CONFIRM⟩ item settled, every Priority A research question answered (including RQ-12), and no document citing a retired OD |
 | 1 | Forward news recorder (sprint S01), in fingerprint mode | Scheduled polling running; `verify` passing; `gaps` clean for 7 consecutive days |
 | 2 | Carry-forward inventory: a read-only pass over the old repo | Report listing every date range ever evaluated; a trial ledger (with daily return series where recoverable); specs recommended for porting; data sources needing point-in-time re-verification; the `incumbent_v1` definition with its hash; and the old fine-tuned model's training-data end date |
+| 2t | PREREGISTRATION.md completed from the Step 2 report | Tagged `prereg-v1`. This tag starts the forward evidence clock for Q1 (PREREGISTRATION.md §2.1). Step 0 does not require it |
 | 3 | Data plane | Alpaca coverage audited (start date, delisted symbols, adjustment behavior); forward membership snapshots ingested; corporate actions; availability timestamps; known-answer tests; the survivorship limits of any pre-tag history documented |
 | 4 | Incumbent ranker, cost model, metrics | Ranker reproduces `incumbent_v1` on fixtures; cost model implements R06 with dated fees; metrics pass known-answer tests |
 | 5 | Bracket simulator, candidate-day ledger, walk-forward harness, trial registry | Simulator implements the preregistered rules and reports ambiguity rates; harness runs end to end on a synthetic dataset with a known answer; sequential boundaries generated and archived |
@@ -146,6 +147,7 @@ Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8).
 3. **Limit or threshold increases** in the live lane follow the same next-session cooling-off.
 4. **Every proposal names the gate it moves**, including proposals from Claude. A proposal that moves no gate goes to §10 and is not built.
 5. **Sprint size:** at most 10 tasks; no source file over 400 lines; no function over 60 lines (CI-enforced).
+6. **Every §9 decision names the documents it supersedes.** A decision that changes the universe, the data plane, the evidence base, or any preregistered quantity is not complete until the affected rows in `docs/research/research-log.md` (Current Decision Index and Supersession Map), PREREGISTRATION.md, and `docs/research/RESEARCH-QUESTIONS.md` are updated in the same PR. CI fails if any tracked document cites an `OD-N` absent from §8, or a `PREREGISTRATION.md` section number that does not exist.
 
 ## 7. Carry-forward policy
 
@@ -165,6 +167,8 @@ Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8).
 | OD-5 | News fallback if the current plan refuses Alpaca news access | Only if the S01 preflight fails | Do not build a fallback speculatively |
 | OD-8 | Written confirmations from Alpaca | Text rights: before any text is retained. Brokerage behavior: before the live lane | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
 
+**Retired.** OD-6 (research universe) settled by D-012. OD-7 (paid historical data vendor) settled by D-013. Both are removed from the table above; no document may cite them as open. Retired IDs are never reused.
+
 ## 9. Decision log
 
 Entries marked (proposed) take effect at `charter-v1`.
@@ -177,7 +181,7 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-004 | 2026-09-16 | Finnhub Premium lapsed on 2026-07-30. The Alpaca News API (Benzinga) is the primary news source, pending the S01 access preflight | Alpaca serves news history back to 2015 plus current news |
 | D-005 | 2026-09-16 | (proposed) Scope freeze per §1 | Pending Ryan's confirmation |
 | D-006 | 2026-09-16 | Research log R01–R11 adopted as the evidence base | Deep research with an AI critic review; unverified items are labeled in the log |
-| D-007 | 2026-09-16 | (proposed) Q1 uses a one-time historical holdout plus a separate forward sequential test | R04 |
+| D-007 | 2026-09-16 | (withdrawn, never took effect) Q1 uses a one-time historical holdout plus a separate forward sequential test. **Superseded by D-015 before sign-off:** PREREGISTRATION.md v0.4 removed the gating historical holdout and replaced the portfolio-alpha forward test with the §2.1 cross-sectional information test. Do not approve as written | R04; withdrawn per D-015 |
 | D-008 | 2026-09-16 | (proposed) Q2/Q3 use a whole-universe one-day information test before any strategy test | R07 |
 | D-009 | 2026-09-16 | (proposed) The conservative simulator and cost model are the decision specification | R05, R06 |
 | D-010 | 2026-09-16 | (proposed) The recorder runs in fingerprint mode until text rights are confirmed | R08 |
@@ -185,6 +189,7 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-012 | 2026-09-17 | Research universe is the point-in-time S&P 500, with the S&P 100 reported as a benchmark subset | Ryan's decision; R01 favors breadth, and breadth raises the information ratio that drives statistical power |
 | D-013 | 2026-09-17 | No paid historical data vendor for now. Q1 becomes forward-first: a forward information test decides, and any pre-tag backtest is exploratory only | Ryan's decision. Revisit if the forward information test shows a signal worth confirming on clean history |
 | D-014 | 2026-09-17 | Both repositories stay public | Ryan's decision. Keeps review possible from chat; makes I-16 load-bearing |
+| D-015 | 2026-09-19 | (proposed) Q1 is decided by a forward cross-sectional information test (PREREGISTRATION.md §2.1), not by portfolio alpha. The pre-tag historical check is non-gating and can only retire (§2.4). Portfolio alpha is monitored, never treated as proof (§2.5). Capital additionally requires the §2.3 risk limits | D-013 removed the paid vendor, so no clean historical holdout exists, and R04's formula gives 80% power at three years and 10% tracking error only near 16% annual alpha. The information test compares qualified against unqualified names within the same date, which this sample size can decide. The charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven |
 
 ## 10. Idea parking lot
 

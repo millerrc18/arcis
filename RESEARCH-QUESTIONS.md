@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Location** | `docs/research/RESEARCH-QUESTIONS.md` |
-| **Last updated** | 2026-09-16 (after research log v2.0) |
+| **Last updated** | 2026-09-19 (RQ-13 added; OD-7 retired per D-013; RQ-12 raised to Priority A; universe note added; section pointers realigned to PREREGISTRATION.md v0.4) |
 | **Purpose** | Every open question that needs outside evidence, written as a self-contained prompt for deep research |
 | **Results** | `docs/research/research-log.md`. RQ-01 to RQ-11 are answered there as entries R01 to R11 |
 
@@ -14,6 +14,7 @@
 3. Append each result to `docs/research/research-log.md` as a new entry, following the log's governance protocol, then bring it back to Claude for synthesis.
 4. Claude turns the findings into specific edits to SCOPE.md or PREREGISTRATION.md. After tagging, those edits are logged in PREREGISTRATION.md §5.
 5. These questions look only at outside evidence, never at Arcis's own results, so running them cannot compromise the preregistration.
+6. **Universe note.** RQ-01 to RQ-12 were written and run before SCOPE D-012 (2026-09-17) moved the research universe to the point-in-time S&P 500. Their prompts still say "S&P 100" and are preserved unedited as the record of what was actually asked. Any re-run, and every question from RQ-13 onward, uses the S&P 500. Where an answer's numbers depend on universe size — R01's trade counts, R03's and R07's power tables — that dependence is flagged in the research log's Supersession Map, and those figures must be re-derived on the actual panel before `prereg-v1`.
 
 ## Tracker
 
@@ -30,7 +31,7 @@
 | RQ-09 | Look-ahead bias protocol for LLM signals | C | Q3 historical evidence rules | Done (R09) |
 | RQ-10 | Choosing the pinned local LLM and FinBERT variant | C | OD-3 | Done (R10) |
 | RQ-11 | Alpaca brokerage mechanics and personal account rules | D | Live lane; OD-1 | Done (R11) |
-| RQ-12 | Verify quoted values from key papers | B | Priors used in PREREGISTRATION.md scenarios | Not started |
+| RQ-12 | Verify quoted values from key papers | A | Priors used in PREREGISTRATION.md scenarios. The research log's High-Risk Verification Queue item 1 requires these before preregistration, so this cannot sit behind Steps 4–5 | Not started |
 | RQ-13 | Free reconstruction of S&P 500 membership, and how far survivorship bias reaches | C | The exploratory historical check in PREREGISTRATION.md §2.4 | Not started |
 
 **Priority key.** A: before tagging the charter and preregistration. B: before Steps 4–5. C: before any text scoring. D: before the live lane.
@@ -95,7 +96,7 @@ Standards: give a link for every factual claim. Prefer official documentation an
 
 ### RQ-03 — Effect sizes and timing of news-based signals in large caps
 
-**Informs:** PREREGISTRATION.md §5 (minimum effect worth having, horizon, whether to add a universe-level first gate)
+**Informs:** PREREGISTRATION.md §2.1 (minimum effect worth having, horizon) and §3.2 (whether to add a universe-level first gate)
 
 ```text
 Context: I'm an individual running a personal, research-first systematic trading project in S&P 100 stocks (long-only, daily decisions after the close, holds of 2–15 trading days). A news recorder captures every article about these stocks with a first-seen timestamp. I plan to test whether text signals add predictive value: first a cheap sentiment model (FinBERT-style), then a locally run large language model that scores each article's direction and materiality. My sample is small, about 100 stocks times about 250 trading days a year, so I need realistic effect sizes before setting pass/fail thresholds. Use sources current as of September 2026.
@@ -211,7 +212,7 @@ Standards: give a link for every factual claim, prefer official and primary sour
 
 ### RQ-07 — Test design and statistical power for text signals
 
-**Informs:** PREREGISTRATION.md §3–5
+**Informs:** PREREGISTRATION.md §3 (Q2/Q3 design, arms, and looks)
 
 ```text
 Context: I'm an individual running a personal research project on S&P 100 stocks (long-only, daily decisions after the close, holds of 2–15 trading days). A recorder captures news articles for every stock in the index with first-seen timestamps. I will compare three versions of my model: (A) a price-based ranker alone; (B) the ranker plus FinBERT-style sentiment; (C) the ranker plus that sentiment plus a locally run LLM's structured score (direction, materiality, event type). The current plan tests only the ranker's candidate stock-days (about 1,000 a year) against multi-day returns, which may lack statistical power. An alternative first test would use every stock-day in the universe (about 25,000 a year, roughly half with news) at a short horizon. Use sources current as of September 2026.
@@ -238,7 +239,7 @@ Standards: give a link for every method and claim, prefer peer-reviewed sources,
 
 ### RQ-08 — News feed quality and personal-use terms
 
-**Informs:** PREREGISTRATION.md §1 (text eligibility) and §3–4 (aggregation and filters); any future training use (Q4)
+**Informs:** PREREGISTRATION.md §1.3 (text eligibility and filters) and §3.2 (aggregation); any future training use (§4, Q4)
 
 ```text
 Context: I'm an individual running a personal research project on S&P 100 stocks. My news source is Alpaca's News API, which provides Benzinga news (a historical archive plus current articles). A recorder stores each article version with my own first-seen timestamp. Use sources current as of September 2026.

@@ -33,13 +33,13 @@ This section is the authoritative project snapshot. Historical entries below pre
 
 | Domain | Active Decision | Status | Source Entry |
 |---|---|---|---|
-| Research universe | S&P 100 is the primary implementation universe; a point-in-time top-500 liquid universe is a secondary robustness and opportunity-count test. | `[INFERENCE]` | R01, R02 |
-| Historical data | Norgate Platinum is a candidate research master, pending trial verification of OEX history, identifiers, and license terms. | `[VENDOR-CLAIM]` | R02 |
+| Research universe | Point-in-time S&P 500 is the primary research universe; the S&P 100 is reported as a benchmark subset. This matches R01's Universe Decision table and R01's Current Decision. The previous wording named the S&P 100 as primary, which inverted R01. | `[INFERENCE]` SCOPE D-012 (2026-09-17) | R01, R02 |
+| Historical data | No paid vendor. Q1 is forward-first; the pre-tag historical check is non-gating and can only retire the incumbent (PREREGISTRATION.md §2.4). Reopen the Norgate trial only if the forward information test shows a signal worth confirming on clean history. | `[SUPERSEDED]` by SCOPE D-013 (2026-09-17) | R02, RQ-13 |
 | News feed | Alpaca/Benzinga is suitable for prospective capture; archive completeness, article versions, and ML rights remain unresolved. | `[BLOCKER]` for retained text or model training | R08 |
 | Text test | Use the whole-universe one-day information test first, then a frozen candidate-level strategy test. | `[INFERENCE]` | R07 |
 | LLM evidence | Modern-model efficacy must be forward-only; vintage models and recall diagnostics provide historical support only. | `[INFERENCE]` | R09 |
 | Local model | Qwen3-14B Q5 is the current candidate, not a final selection; choose only after blinded human-label evaluation. | `[PRIOR]` | R10 |
-| Alpha inference | Use a single preregistered primary covariance/test specification; all other estimators are sensitivity analyses. | `[INFERENCE]` | R04 |
+| Alpha inference | Q1 is decided by a forward cross-sectional information test on qualified versus unqualified stock-days (PREREGISTRATION.md §2.1), because portfolio alpha is unprovable at this sample size. Portfolio alpha keeps a single preregistered primary specification for monitoring only (§2.5); all other estimators are sensitivities. | `[INFERENCE]` SCOPE D-015 (2026-09-19) | R04 |
 | Execution simulation | Strict trade-through and interval bounds are primary; unresolved same-bar outcomes must be reported as ambiguity, with stop-first as a lower-bound sensitivity. | `[INFERENCE]` | R05 |
 | Transaction costs | Current planning priors are 2-6 bp central and 6-15 bp conservative, excluding realized gaps; replace with live calibration. | `[PRIOR]` | R06 |
 | Live brokerage | No live deployment until Trading API reconciliation, partial-fill protection, account type, and corporate-action behavior are confirmed with Alpaca. | `[UNVERIFIED]` | R11 |
@@ -51,6 +51,10 @@ This section is the authoritative project snapshot. Historical entries below pre
 - R07 supersedes the preliminary news power calculation in R03.
 - R09 supersedes the preliminary memorization rules in R03.
 - R11 refines broker behavior assumed in R05; unresolved broker claims remain explicitly unverified.
+- SCOPE D-012 (2026-09-17) supersedes the S&P 100 primary-universe wording previously carried in the Current Decision Index. R01's Universe Decision and Current Decision had already recommended the broader point-in-time top-500 / S&P 500 universe; the index row contradicted its own entry and has been corrected.
+- SCOPE D-013 (2026-09-17) supersedes the Norgate research-master candidacy in R02 and in the Current Decision Index. No paid historical vendor is in scope. RQ-13 covers free membership reconstruction and the survivorship bound.
+- SCOPE D-015 (2026-09-19) supersedes R04's two-stage holdout-plus-forward protocol as the Q1 decision rule. R04's inference machinery is retained for the §2.5 monitoring series; the gating estimand is now the §2.1 cross-sectional information test.
+- Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`.
 
 ### Research Index
 
@@ -151,12 +155,12 @@ List the next falsifiable research questions created by the result.
 ### Strategy Under Study
 
 - Long-only swing trading in U.S. large-cap equities.
-- Initial universe: S&P 100 constituents.
+- Initial universe: point-in-time S&P 500 constituents; the S&P 100 is reported as a benchmark subset (SCOPE D-012).
 - Signal timing: one decision per trading day after the close.
 - Entry: limit order during the next session.
 - Exit: broker-held stop-loss, broker-held take-profit, or a 15-trading-day maximum holding period.
 - Typical holding period: 2 to 15 trading days.
-- Expected activity: about 50 trades per year initially.
+- Expected activity: about 100 to 150 trades per year at the S&P 500 universe (R01 Universe Decision table). The ~50 trades per year figure applied to the S&P 100 and survives only inside superseded power calculations.
 - Economic idea: buy short-term weakness within an established intermediate-term uptrend.
 - Research standard: evaluate alpha net of realistic fill selection, spreads, market impact, and exit slippage; separate market beta from active return.
 
