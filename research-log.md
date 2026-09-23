@@ -35,7 +35,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 |---|---|---|---|
 | Research universe | Point-in-time S&P 500 is the primary research universe; the S&P 100 is reported as a benchmark subset. This matches R01's Universe Decision table and R01's Current Decision. The previous wording named the S&P 100 as primary, which inverted R01. | `[INFERENCE]` SCOPE D-012 (2026-09-17) | R01, R02 |
 | Historical data | No paid vendor. Q1 is forward-first; the pre-tag historical check is non-gating and can only retire the incumbent (PREREGISTRATION.md §2.4). Reopen the Norgate trial only if the forward information test shows a signal worth confirming on clean history. | `[SUPERSEDED]` by SCOPE D-013 (2026-09-17) | R02, RQ-13 |
-| News feed | Alpaca/Benzinga is suitable for prospective capture; archive completeness, article versions, and ML rights remain unresolved. | `[BLOCKER]` for retained text or model training | R08 |
+| News feed | Alpaca/Benzinga is suitable for prospective capture; archive completeness, article versions, and ML rights remain unresolved. Retaining full text is permitted by SCOPE D-018 with the storage-rights ambiguity accepted, not resolved. | `[BLOCKER]` for model training only | R08 |
 | Text test | Use the whole-universe one-day information test first, then a frozen candidate-level strategy test. | `[INFERENCE]` | R07 |
 | LLM evidence | Modern-model efficacy must be forward-only; vintage models and recall diagnostics provide historical support only. | `[INFERENCE]` | R09 |
 | Local model | Qwen3-14B Q5 is the current candidate, not a final selection; choose only after blinded human-label evaluation. | `[PRIOR]` | R10 |
@@ -54,6 +54,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 - SCOPE D-012 (2026-09-17) supersedes the S&P 100 primary-universe wording previously carried in the Current Decision Index. R01's Universe Decision and Current Decision had already recommended the broader point-in-time top-500 / S&P 500 universe; the index row contradicted its own entry and has been corrected.
 - SCOPE D-013 (2026-09-17) supersedes the Norgate research-master candidacy in R02 and in the Current Decision Index. No paid historical vendor is in scope. RQ-13 covers free membership reconstruction and the survivorship bound.
 - SCOPE D-015 (2026-09-19) supersedes R04's two-stage holdout-plus-forward protocol as the Q1 decision rule. R04's inference machinery is retained for the §2.5 monitoring series; the gating estimand is now the §2.1 cross-sectional information test.
+- SCOPE D-018 (2026-09-23) supersedes fingerprint-only capture (D-010, withdrawn). R08's finding that the public terms do not clearly grant storage rights still stands; the risk was accepted, not resolved. Model training on retained text remains blocked.
 - Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`.
 
 ### Research Index

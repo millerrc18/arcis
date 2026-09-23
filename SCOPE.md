@@ -52,7 +52,7 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 
 | Component | Package | Step | Active | Simplest form |
 |---|---|---|---|---|
-| Forward news recorder | `recorder` | 1 | yes | Capture-only polling of Alpaca news for the capture universe (current S&P 500 constituents, a superset of the S&P 100; D-011); append-only; first-seen timestamp per article version; fingerprint mode (metadata and hashes, no article text) until text rights are confirmed (OD-8); a daily universe snapshot, which is now the only point-in-time membership record |
+| Forward news recorder | `recorder` | 1 | yes | Capture-only polling of Alpaca news for the capture universe (current S&P 500 constituents, a superset of the S&P 100; D-011); append-only; first-seen timestamp per article version; full article text stored by default under the data root (D-018), with fingerprint mode (metadata and hashes only) kept as the fallback if Alpaca refuses in writing; a daily universe snapshot, which is now the only point-in-time membership record |
 | Point-in-time data plane | `data` | 3 | no | Alpaca daily bars (2016 onward) and corporate actions; forward membership from the recorder's daily universe snapshots; earnings dates where timing is known. No paid history vendor (D-013), so any pre-tag backtest is exploratory and survivorship-biased |
 | Incumbent ranker | `strategy` | 4 | no | Pure functions implementing the frozen `incumbent_v1`; shared with the live lane |
 | Research core | `research` | 4–5 | no | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
@@ -118,7 +118,7 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 | I-10 | At most one running instance per process type | Reference architecture's split-brain risk, scaled down | all long-running processes |
 | I-11 | Evaluation datasets reject any item dated inside a model's training window | LLM memorization of in-window outcomes | `textscore`, `research` |
 | I-12 | No blind exception handling in order or data paths; an unknown outcome becomes an explicit UNKNOWN state | Ghost positions; catch-all handling in order submission (old-repo issue 353) | all |
-| I-13 | No article text, embeddings, or text-trained models are retained until Alpaca's written confirmation of those rights is recorded in §9 | R08: public terms do not clearly grant these rights | `recorder`, `textscore` |
+| I-13 | Article text is retained only from Alpaca's News API (D-018), only under the data root, and never committed (I-7, I-16). Text from any other source, including the old platform's archive, is never retained or reused. No model is trained or fine-tuned on retained text until Alpaca's written confirmation of that right is recorded in §9. A written refusal of storage rights requires removing retained text | R08: public terms do not clearly grant these rights. Storage risk accepted in D-018; training still gated | `recorder`, `textscore` |
 | I-14 | LLM scoring fails closed: a schema failure, timeout, or out-of-range value records `LLM_SCORE_UNAVAILABLE`, is never retried improvisationally, and never drives a trade | R10 | `textscore` |
 | I-15 | Decisions use the conservative simulator and cost specification. Touch fills, target-first ordering, stop-at-trigger fills, and similar variants are diagnostics only | R05, R06 | `research` |
 | I-16 | Both repositories are public. No credentials, market data, news text, or personal records are ever committed to either | D-014 | all |
@@ -128,7 +128,7 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 | Step | Deliverable | Done means |
 |---|---|---|
 | 0 | This file | Tagged `charter-v1`: every ⟨CONFIRM⟩ item settled, every Priority A research question answered (including RQ-12), and no document citing a retired OD |
-| 1 | Forward news recorder (sprint S01), in fingerprint mode | Scheduled polling running; `verify` passing; `gaps` clean for 7 consecutive days |
+| 1 | Forward news recorder (sprint S01), storing full text (D-018) | Scheduled polling running; `verify` passing; `gaps` clean for 7 consecutive days |
 | 2 | Carry-forward inventory: a read-only pass over the old repo | Report listing every date range ever evaluated; a trial ledger (with daily return series where recoverable); specs recommended for porting; data sources needing point-in-time re-verification; the `incumbent_v1` definition with its hash; and the old fine-tuned model's training-data end date |
 | 2t | PREREGISTRATION.md completed from the Step 2 report | Tagged `prereg-v1`. This tag starts the forward evidence clock for Q1 (PREREGISTRATION.md §2.1). Step 0 does not require it |
 | 3 | Data plane | Alpaca coverage audited (start date, delisted symbols, adjustment behavior); forward membership snapshots ingested; corporate actions; availability timestamps; known-answer tests; the survivorship limits of any pre-tag history documented |
@@ -166,7 +166,7 @@ Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8).
 | OD-3 | Pinned LLM configuration for Q3 | First scored forward day | Candidate Qwen3-14B Q5; backup Mistral Small 3.1 24B Q4; 12 GB options Gemma 3 12B or Qwen3-8B (R10). Final choice by R10's blinded label test, which needs retained text (OD-8) |
 | OD-4 | Q1 minimum economic effect and the first real-money amount | `prereg-v1` tag | See PREREGISTRATION.md §2. Data subscriptions the live system needs count as running costs |
 | OD-5 | News fallback if the current plan refuses Alpaca news access | Only if the S01 preflight fails | Do not build a fallback speculatively |
-| OD-8 | Written confirmations from Alpaca | Text rights: before any text is retained. Brokerage behavior: before real-money trading | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
+| OD-8 | Written confirmations from Alpaca | Text rights: before any model is trained on retained text; a written refusal requires removing it (D-018). Brokerage behavior: before real-money trading | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
 
 **Retired.** OD-6 (research universe) settled by D-012. OD-7 (paid historical data vendor) settled by D-013. Both are removed from the table above; no document may cite them as open. Retired IDs are never reused.
 
@@ -185,7 +185,7 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-007 | 2026-09-16 | (withdrawn, never took effect) Q1 uses a one-time historical holdout plus a separate forward sequential test. **Superseded by D-015 before sign-off:** PREREGISTRATION.md v0.4 removed the gating historical holdout and replaced the portfolio-alpha forward test with the §2.1 cross-sectional information test. Do not approve as written | R04; withdrawn per D-015 |
 | D-008 | 2026-09-16 | Q2/Q3 use a whole-universe one-day information test before any strategy test | R07. Ryan approved 2026-09-23 |
 | D-009 | 2026-09-16 | The conservative simulator and cost model are the decision specification | R05, R06. Ryan approved 2026-09-23 |
-| D-010 | 2026-09-16 | (proposed) The recorder runs in fingerprint mode until text rights are confirmed | R08 |
+| D-010 | 2026-09-16 | (withdrawn, never took effect) The recorder runs in fingerprint mode until text rights are confirmed. **Superseded by D-018:** full text is stored now, and fingerprint mode remains as the fallback | R08; withdrawn per D-018 |
 | D-011 | 2026-09-16 | The recorder captures current S&P 500 constituents | Forward capture cannot be added retroactively. Ryan approved 2026-09-23 |
 | D-012 | 2026-09-17 | Research universe is the point-in-time S&P 500, with the S&P 100 reported as a benchmark subset | Ryan's decision; R01 favors breadth, and breadth raises the information ratio that drives statistical power |
 | D-013 | 2026-09-17 | No paid historical data vendor for now. Q1 becomes forward-first: a forward information test decides, and any pre-tag backtest is exploratory only | Ryan's decision. Revisit if the forward information test shows a signal worth confirming on clean history |
@@ -193,6 +193,7 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-015 | 2026-09-19 | Q1 is decided by a forward cross-sectional information test (PREREGISTRATION.md §2.1), not by portfolio alpha. The pre-tag historical check is non-gating and can only retire (§2.4). Portfolio alpha is monitored, never treated as proof (§2.5). Capital additionally requires the §2.3 risk limits | D-013 removed the paid vendor, so no clean historical holdout exists, and R04's formula gives 80% power at three years and 10% tracking error only near 16% annual alpha. The information test compares qualified against unqualified names within the same date, which this sample size can decide. The charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven. Ryan approved 2026-09-23 |
 | D-016 | 2026-09-23 | No LICENSE file: all rights reserved. The README states it explicitly (S01 T2) | Ryan's decision. Public visibility serves review (D-014), not reuse. Withholding a license is reversible; granting one is not, for copies already taken under it |
 | D-017 | 2026-09-23 | A paper-only live lane is built from Step P, so Stage B's execution evidence accrues while Stage A runs. Paper P&L is visible to the operator but is never a scheduled look. The lane may run on the desktop until real money (OD-2) | Ryan's decision. Stage B checks execution fidelity, which does not depend on whether the edge exists, so running it in parallel brings first capital about 12–18 months forward. Amends §1 (capital), §2 principle 1, §3.2, §5 Steps P and Live, §8 OD-1, OD-2 and OD-8, and PREREGISTRATION.md §2.2 |
+| D-018 | 2026-09-23 | The recorder stores full article text from Alpaca's News API now, without waiting for written confirmation. Fingerprint mode stays as the fallback. D-010 is withdrawn | Ryan's decision. R08 found that Alpaca's public terms do not clearly grant storage rights; the risk is accepted, not resolved. OD-8a is still sent: a written refusal requires removing retained text and reverting to fingerprint mode, and training or fine-tuning on the text stays blocked until written confirmation (I-13). Amends §3.1, §4 I-13, §5 Step 1, §8 OD-8, S01, S02, and the research log |
 
 ## 10. Idea parking lot
 

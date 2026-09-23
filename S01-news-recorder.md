@@ -6,9 +6,9 @@
 | **Repository** | `millerrc18/arcis` (public). The old repository is read-only reference; do not copy code from it. |
 | **Depends on** | SCOPE.md and PREREGISTRATION.md present at the repo root (drafts are fine) |
 | **Ledger row** | `recorder`: CORE, Step 1, Active (SCOPE.md §3.1) |
-| **Invariants** | I-6 fail-closed config · I-7 storage location · I-10 single instance · I-12 no blind exception handling · I-13 no retained article text without written rights · I-16 nothing private in a public repo |
+| **Invariants** | I-6 fail-closed config · I-7 storage location · I-10 single instance · I-12 no blind exception handling · I-13 text only from Alpaca, never trained on without written rights · I-16 nothing private in a public repo |
 | **Research refs** | Research log R08 (feed reliability and terms) |
-| **Settled before hand-off** | Capture universe: current S&P 500 constituents (SCOPE D-011, D-012). Storage mode: fingerprint (SCOPE D-010) |
+| **Settled before hand-off** | Capture universe: current S&P 500 constituents (SCOPE D-011, D-012). Storage mode: full text, with fingerprint mode as the fallback (SCOPE D-018) |
 | **Tasks** | 10 |
 
 ## Why this sprint exists
@@ -19,15 +19,15 @@ Two jobs, and they belong together because the second one has to land inside a s
 
 **The forward news recorder.** The most important open question, whether the LLM adds value, can only be answered cleanly on data captured after a model's training cutoff, and that data accumulates at calendar speed. Alpaca's archive can re-serve old articles, but each carries only a created and an updated time, with no version history. It cannot prove which version existed at a given moment, or when we could first see it. This recorder produces that proof: every article version for the capture universe, with our own first-seen timestamp.
 
-Alpaca's public terms do not clearly allow keeping article text, so the recorder starts in **fingerprint mode**: each version's metadata and hashes, never its headline, summary, or body. If Alpaca confirms the rights in writing, text can be recovered later by re-querying the archive and keeping only versions whose hashes match, and full-text storage becomes a config switch.
+Alpaca's public terms do not clearly allow keeping article text (R08). SCOPE D-018 accepts that risk: the recorder stores **full text** by default, under the data root, and never commits it (I-16). **Fingerprint mode** — each version's metadata and hashes, never its headline, summary, or body — stays as a config switch, because a written refusal from Alpaca requires removing retained text and reverting to it. Training or fine-tuning on the text stays blocked until Alpaca confirms that right in writing (I-13).
 
 The capture universe is the S&P 500, which contains every S&P 100 name. Forward capture cannot be added retroactively, and the daily universe snapshot this sprint writes is now the project's only point-in-time membership record (SCOPE D-013).
 
 ## Hard scope
 
-**In:** repository scaffold, documentation set, tooling and CI checks; polling Alpaca's news endpoint for the capture universe; append-only fingerprint storage; a derived version index; integrity verification; gap reporting; a heartbeat; a runbook.
+**In:** repository scaffold, documentation set, tooling and CI checks; polling Alpaca's news endpoint for the capture universe; append-only storage (full text by default, fingerprint mode as the fallback); a derived version index; integrity verification; gap reporting; a heartbeat; a runbook.
 
-**Out:** retaining article headline, summary, or body text (except when `storage.retain_text` is true, which requires Alpaca's written confirmation first); any scoring (FinBERT or LLM); text recovery from the archive; prices; EDGAR; databases beyond the derived index; websockets; dashboards; cloud deployment; alerting beyond the heartbeat; automated universe maintenance; backfilling history from before the first poll; any package other than `recorder`.
+**Out:** any scoring (FinBERT or LLM); text recovery from the archive; prices; EDGAR; databases beyond the derived index; websockets; dashboards; cloud deployment; alerting beyond the heartbeat; automated universe maintenance; backfilling history from before the first poll; any package other than `recorder`.
 
 If a task appears to need anything from **Out**, stop and write it up in the sprint report instead of building it.
 
@@ -155,7 +155,7 @@ Keep it under roughly 150 lines. It points at the other documents rather than re
 
 ### T4 — Configuration, data-root guard, universe, and daily snapshot
 
-**Configuration (I-6).** `config/recorder.yaml` loads into a pydantic model with `extra="forbid"` and **no field defaults**. Fields: `data_root`, `universe_file`, `storage.retain_text`, `poll.lookback_hours`, `sweep.lookback_hours`, `http.timeout_seconds`, `http.max_retries`, `http.symbols_per_request`, `http.page_limit` (≤ 50), `clock.warn_skew_seconds`, `clock.max_skew_seconds`, `heartbeat.enabled`, `gaps.max_gap_minutes`. Initial values: `storage.retain_text: false`, `poll.lookback_hours: 2`, `sweep.lookback_hours: 72`, `http.symbols_per_request: 50`, `http.page_limit: 50`, `clock.warn_skew_seconds: 5`, `clock.max_skew_seconds: 60`, `gaps.max_gap_minutes: 30`.
+**Configuration (I-6).** `config/recorder.yaml` loads into a pydantic model with `extra="forbid"` and **no field defaults**. Fields: `data_root`, `universe_file`, `storage.retain_text`, `poll.lookback_hours`, `sweep.lookback_hours`, `http.timeout_seconds`, `http.max_retries`, `http.symbols_per_request`, `http.page_limit` (≤ 50), `clock.warn_skew_seconds`, `clock.max_skew_seconds`, `heartbeat.enabled`, `gaps.max_gap_minutes`. Initial values: `storage.retain_text: true` (SCOPE D-018), `poll.lookback_hours: 2`, `sweep.lookback_hours: 72`, `http.symbols_per_request: 50`, `http.page_limit: 50`, `clock.warn_skew_seconds: 5`, `clock.max_skew_seconds: 60`, `gaps.max_gap_minutes: 30`.
 
 Secrets come from the environment only: `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, and `ARCIS_HEARTBEAT_URL` (required only when `heartbeat.enabled` is true). A missing key, unknown key, invalid value, or missing required secret exits non-zero with a message naming the problem. Secret values are never logged.
 
@@ -234,7 +234,7 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
 
 - Every test from T3 to T8 runs offline against synthetic fixtures.
 - Line coverage for `src/arcis/recorder/` is at least 90%.
-- One live test, marked `live`, skipped unless `ARCIS_LIVE_TESTS=1` and both Alpaca keys are set: run `poll` in fingerprint mode into a temporary data root, then `verify`, then confirm no headline returned by the API appears anywhere in the stored files. Run it once before opening the PR, paste its poll-log line into the sprint report, and delete the temporary data root.
+- One live test, marked `live`, skipped unless `ARCIS_LIVE_TESTS=1` and both Alpaca keys are set: run `poll` in full mode into a temporary data root, then `verify`, then confirm that no headline returned by the API appears in any tracked file (I-16). Repeat once in fingerprint mode and confirm that no headline appears anywhere in the stored files. Run both before opening the PR, paste both poll-log lines into the sprint report, and delete the temporary data root.
 
 **Done when:** the offline suite is green in CI and the live result is recorded, or its absence is stated plainly.
 
@@ -246,7 +246,7 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
   - Healthchecks.io: one check, 10-minute period, 20-minute grace.
   - Daily operator check: `gaps --since <yesterday>` and `verify`.
   - Recovery: `sweep` covers up to 72 hours; longer outages use `sweep --lookback-hours N`, and late capture shows honestly in `fetched_at`.
-  - **Storage mode:** why fingerprint mode is the default, that switching to full mode requires Alpaca's written confirmation recorded in SCOPE.md §9 first, and that fingerprint-mode versions can only be recovered by re-querying the archive and matching `version_sha256`.
+  - **Storage mode:** full text is the default (SCOPE D-018), stored only under the data root and never committed (I-16). It does not permit training or fine-tuning on the text; that needs Alpaca's written confirmation (I-13). If Alpaca refuses storage rights in writing, set `storage.retain_text: false` and rewrite stored lines as fingerprint-mode lines, regenerating manifests and logging the rewrite. `version_sha256` and `text_sha256` survive the rewrite, because both are computed before text is removed. The rewrite tool is built only if a refusal arrives.
   - Where the data lives and why it stays outside the repo and outside sync folders.
 - Update the README documentation map with the runbook, and the Status section with what now exists.
 - Add the CHANGELOG entry.
@@ -265,7 +265,7 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
 4. CI is green: ruff, mypy, pytest at 90% coverage on `recorder`, ledger, size, and hygiene checks.
 5. No `src/` file exceeds 400 lines and no function exceeds 60 lines.
 6. Exactly one broad exception handler exists, at the CLI entry point, with a justification.
-7. In fingerprint mode, no stored file contains article headline, summary, or body text, proved by tests and the live smoke check.
+7. In full mode, article text appears only under the data root and never in a tracked file (I-16). In fingerprint mode, no stored file contains headline, summary, or body text. Both are proved by tests and the live smoke check.
 8. A universe snapshot exists for every day the recorder ran.
 9. The live smoke result is recorded, or its absence is stated.
 10. Nothing from **Out** appears in the diff, and `recorder` is the only subpackage under `src/arcis/`.
@@ -318,3 +318,9 @@ _(Claude Code appends here.)_
 5. Documentation updates were implicit and would have been skipped under time pressure. The README map, CHANGELOG, and sprint report are now explicit in T10, in the PR template, and in CLAUDE.md.
 6. Configuration, the data-root guard, and the universe were three separate tasks, which pushed the count over ten once repository work arrived. They are one task now, since they all run at startup and share their tests.
 7. Repository settings that a sprint cannot change, such as branch protection and push protection, were invisible. They are now explicit operator steps after merge.
+
+**Pass 6 — decision change (SCOPE D-018, 2026-09-23).**
+
+1. Ryan chose to store full article text now rather than wait for Alpaca's written confirmation. Full mode became the default (`storage.retain_text: true`), and retaining text left the Out list.
+2. Fingerprint mode stays as a config switch, because a written refusal requires reverting to it. The runbook describes the reversal; the rewrite tool is built only if a refusal arrives, in line with not building fallbacks speculatively.
+3. The live smoke check now runs both modes: full mode proves text never reaches a tracked file, and fingerprint mode proves the fallback stores no text.
