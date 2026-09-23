@@ -30,12 +30,12 @@ Items marked **⟨CONFIRM⟩** need Ryan's sign-off before the `charter-v1` tag.
 | Exit | Broker-held bracket (stop and take-profit), plus a time exit | |
 | Holding period | 2–15 trading days | |
 | Decision cadence | Once per trading day, after the close | Daily bars only; the exact decision time is fixed in PREREGISTRATION.md. Monitoring is continuous: broker-held brackets, resting limit orders, and the 10-minute recorder. Intraday entry decisions are parked in §10 |
-| Capital | None until Q1 authorizes the live lane and the live-lane gates pass | Paper only before then |
+| Capital | None until Stage A and Stage B pass and the §2.3 limits are set (PREREGISTRATION.md §2.2–2.3) | A paper-only lane may run from Step P (D-017) |
 | Account type | OPEN (OD-1) | Decided before the live lane |
 
 ## 2. Operating principles
 
-1. **Research before plumbing.** The live lane is not built until Q1 authorizes it.
+1. **Research before capital.** No real money is committed until Q1 authorizes it. A paper-only live lane may be built from Step P, once `prereg-v1` has frozen the strategy and Step 4's ranker exists, so Stage B's execution evidence accrues while Stage A runs. It never holds real-money keys (D-017).
 2. **Every component has a simpler incumbent it must beat**, net of costs and after deflation for the number of trials.
 3. **No behavioral change without a new release.** No online learning, no autonomous retraining, no edits to a running system's config.
 4. **The platform dying is a safe state.** Every open position carries a broker-held stop that outlives the process.
@@ -58,7 +58,7 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 | Research core | `research` | 4–5 | no | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
 | Text scoring for Q2/Q3 | `textscore` | after 5 | no | ProsusAI/finbert (ONNX INT8) plus one pinned general instruction model (candidate: Qwen3-14B Q5), schema-constrained, chosen on blinded human labels without looking at returns. Research only; no training code |
 
-### 3.2 CORE — live lane (not started until Q1 authorizes it)
+### 3.2 CORE — live lane (paper-only from Step P; real money only after Q1 authorizes it)
 
 | Component | Package | Active | Simplest form |
 |---|---|---|---|
@@ -134,9 +134,10 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 | 3 | Data plane | Alpaca coverage audited (start date, delisted symbols, adjustment behavior); forward membership snapshots ingested; corporate actions; availability timestamps; known-answer tests; the survivorship limits of any pre-tag history documented |
 | 4 | Incumbent ranker, cost model, metrics | Ranker reproduces `incumbent_v1` on fixtures; cost model implements R06 with dated fees; metrics pass known-answer tests |
 | 5 | Bracket simulator, candidate-day ledger, walk-forward harness, trial registry | Simulator implements the preregistered rules and reports ambiguity rates; harness runs end to end on a synthetic dataset with a known answer; sequential boundaries generated and archived |
+| P | Paper-only live lane: `sizing`, `execution`, `shield`, `oms`, `recon`, `records` (D-017) | Starts once Step 4 is done, because orders need the frozen ranker; runs alongside Step 5. Places each day's paper orders after `t_d`, with I-1, I-2, I-10, and I-12 enforced, and holds paper keys only. Its fills are Stage B evidence and never enter the §2.1 test series |
 | Q1 | Incumbent test | Exploratory historical check run once; forward information test evaluated at its looks; outcomes recorded in §9 |
 | Q2/Q3 | Text questions | Stage A information test at its looks; Stage B strategy test only after Stage A |
-| Live | Live lane, paper first | Only after Q1 authorizes it (PREREGISTRATION.md §2) |
+| Live | Real-money trading | Only after Stage A and Stage B pass and the §2.3 limits are set (PREREGISTRATION.md §2.2–2.3) |
 
 Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8). PREREGISTRATION.md is completed from the Step 2 report and tagged before Step 3 begins. The tag starts the forward evidence clock for Q1, so Steps 3 to 5 are built while that clock runs.
 
@@ -160,12 +161,12 @@ Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8).
 
 | ID | Decision | Needed before | Notes |
 |---|---|---|---|
-| OD-1 | Account type (cash or margin) | Live lane | Ask Alpaca whether an individual account can be cash-only (R11). Either way, enforce an internal no-borrow limit |
-| OD-2 | Always-on host | Live lane (the recorder may run on the desktop until then) | Shield and OMS must not share a failure domain with the research/GPU machine |
+| OD-1 | Account type (cash or margin) | Real-money trading | Ask Alpaca whether an individual account can be cash-only (R11). Either way, enforce an internal no-borrow limit |
+| OD-2 | Always-on host | Real-money trading. The recorder and the paper lane may run on the desktop until then; days it is off produce no paper orders (D-017) | Shield and OMS must not share a failure domain with the research/GPU machine once real money is at stake |
 | OD-3 | Pinned LLM configuration for Q3 | First scored forward day | Candidate Qwen3-14B Q5; backup Mistral Small 3.1 24B Q4; 12 GB options Gemma 3 12B or Qwen3-8B (R10). Final choice by R10's blinded label test, which needs retained text (OD-8) |
 | OD-4 | Q1 minimum economic effect and the first real-money amount | `prereg-v1` tag | See PREREGISTRATION.md §2. Data subscriptions the live system needs count as running costs |
 | OD-5 | News fallback if the current plan refuses Alpaca news access | Only if the S01 preflight fails | Do not build a fallback speculatively |
-| OD-8 | Written confirmations from Alpaca | Text rights: before any text is retained. Brokerage behavior: before the live lane | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
+| OD-8 | Written confirmations from Alpaca | Text rights: before any text is retained. Brokerage behavior: before real-money trading | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
 
 **Retired.** OD-6 (research universe) settled by D-012. OD-7 (paid historical data vendor) settled by D-013. Both are removed from the table above; no document may cite them as open. Retired IDs are never reused.
 
@@ -191,6 +192,7 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-014 | 2026-09-17 | Both repositories stay public | Ryan's decision. Keeps review possible from chat; makes I-16 load-bearing |
 | D-015 | 2026-09-19 | Q1 is decided by a forward cross-sectional information test (PREREGISTRATION.md §2.1), not by portfolio alpha. The pre-tag historical check is non-gating and can only retire (§2.4). Portfolio alpha is monitored, never treated as proof (§2.5). Capital additionally requires the §2.3 risk limits | D-013 removed the paid vendor, so no clean historical holdout exists, and R04's formula gives 80% power at three years and 10% tracking error only near 16% annual alpha. The information test compares qualified against unqualified names within the same date, which this sample size can decide. The charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven. Ryan approved 2026-09-23 |
 | D-016 | 2026-09-23 | No LICENSE file: all rights reserved. The README states it explicitly (S01 T2) | Ryan's decision. Public visibility serves review (D-014), not reuse. Withholding a license is reversible; granting one is not, for copies already taken under it |
+| D-017 | 2026-09-23 | A paper-only live lane is built from Step P, so Stage B's execution evidence accrues while Stage A runs. Paper P&L is visible to the operator but is never a scheduled look. The lane may run on the desktop until real money (OD-2) | Ryan's decision. Stage B checks execution fidelity, which does not depend on whether the edge exists, so running it in parallel brings first capital about 12–18 months forward. Amends §1 (capital), §2 principle 1, §3.2, §5 Steps P and Live, §8 OD-1, OD-2 and OD-8, and PREREGISTRATION.md §2.2 |
 
 ## 10. Idea parking lot
 

@@ -114,7 +114,7 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 
 ### 2.2 Stage B — Execution and replication (gating for capital)
 
-Runs only after Stage A passes.
+Evidence accrues from the first order of the paper-only lane (SCOPE.md §5 Step P); Stage B is evaluated only after Stage A passes. Paper fills are never part of the §2.1 test series. Paper P&L is visible to the operator (SCOPE D-017) but is not a scheduled look: it never opens or closes a gate, and any protocol change it prompts before the 24-month look is a breach recorded in §5 that makes the changed strategy a new trial.
 
 - **Simulator fidelity:** paper or live fills match the frozen simulator within a preregistered tolerance for slippage, fill rate, and stop behavior, over at least 150 closed trades ⟨CONFIRM⟩.
 - **Portfolio simulation** on the same forward window is reported with confidence intervals. It must show a positive point estimate, a drawdown inside the preregistered limit, and exposure and concentration inside their caps. It carries no significance requirement, because none is attainable at this sample size.
