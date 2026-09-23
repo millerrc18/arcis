@@ -127,7 +127,7 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 
 | Step | Deliverable | Done means |
 |---|---|---|
-| 0 | This file | Tagged `charter-v1`: every ⟨CONFIRM⟩ item settled, every Priority A research question answered (including RQ-12), and no document citing a retired OD |
+| 0 | This file | Tagged `charter-v1`: every ⟨CONFIRM⟩ item settled, every Priority A research question answered (including RQ-12), no document citing a retired OD, and no entry in §9 still marked proposed |
 | 1 | Forward news recorder (sprint S01), storing full text (D-018) | Scheduled polling running; `verify` passing; `gaps` clean for 7 consecutive days |
 | 2 | Carry-forward inventory: a read-only pass over the old repo | Report listing every date range ever evaluated; a trial ledger (with daily return series where recoverable); specs recommended for porting; data sources needing point-in-time re-verification; the `incumbent_v1` definition with its hash; and the old fine-tuned model's training-data end date |
 | 2t | PREREGISTRATION.md completed from the Step 2 report | Tagged `prereg-v1`. This tag starts the forward evidence clock for Q1 (PREREGISTRATION.md §2.1). Step 0 does not require it |
@@ -172,7 +172,7 @@ Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8).
 
 ## 9. Decision log
 
-Entries marked (proposed) take effect at `charter-v1`.
+An entry marked (proposed) takes effect only once approved. Every proposed entry is approved or withdrawn before `charter-v1`, and none takes effect by default (D-019).
 
 | ID | Date | Decision | Evidence / rationale |
 |---|---|---|---|
@@ -194,6 +194,7 @@ Entries marked (proposed) take effect at `charter-v1`.
 | D-016 | 2026-09-23 | No LICENSE file: all rights reserved. The README states it explicitly (S01 T2) | Ryan's decision. Public visibility serves review (D-014), not reuse. Withholding a license is reversible; granting one is not, for copies already taken under it |
 | D-017 | 2026-09-23 | A paper-only live lane is built from Step P, so Stage B's execution evidence accrues while Stage A runs. Paper P&L is visible to the operator but is never a scheduled look. The lane may run on the desktop until real money (OD-2) | Ryan's decision. Stage B checks execution fidelity, which does not depend on whether the edge exists, so running it in parallel brings first capital about 12–18 months forward. Amends §1 (capital), §2 principle 1, §3.2, §5 Steps P and Live, §8 OD-1, OD-2 and OD-8, and PREREGISTRATION.md §2.2 |
 | D-018 | 2026-09-23 | The recorder stores full article text from Alpaca's News API now, without waiting for written confirmation. Fingerprint mode stays as the fallback. D-010 is withdrawn | Ryan's decision. R08 found that Alpaca's public terms do not clearly grant storage rights; the risk is accepted, not resolved. OD-8a is still sent: a written refusal requires removing retained text and reverting to fingerprint mode, and training or fine-tuning on the text stays blocked until written confirmation (I-13). Amends §3.1, §4 I-13, §5 Step 1, §8 OD-8, S01, S02, and the research log |
+| D-019 | 2026-09-23 | No entry marked proposed takes effect by default. Each is approved or withdrawn before `charter-v1`, and Step 0's gate requires that none remain | Ryan's decision. The old rule let proposals enact silently at the tag: D-007 would have enacted a Q1 design that v0.4 had already replaced, and D-010 a storage mode Ryan had not approved. Amends §5 Step 0 and the §9 header |
 
 ## 10. Idea parking lot
 
