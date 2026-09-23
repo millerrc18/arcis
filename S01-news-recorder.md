@@ -94,7 +94,7 @@ Using the **paper-account** keys (least privilege), request three large-cap symb
 
 Record in the sprint report:
 
-1. The HTTP status. **If it is 401 or 403, stop the sprint after T1** and report. Do not implement another source (SCOPE OD-5).
+1. The HTTP status, read against a credential check. First call the paper trading account endpoint (`GET https://paper-api.alpaca.markets/v2/account`) with the same keys. If that also returns 401, the keys are invalid: fix them and rerun T1, because this is not a news refusal. Only if the account call succeeds and the news call returns 401 or 403 has the plan refused news access. **Then stop the sprint after T1** and report. Do not implement another source (SCOPE OD-5).
 2. The response envelope keys and pagination behavior.
 3. The `X-RateLimit-*` header values.
 4. A field-by-field comparison of the two identical responses. Any field that differs is **volatile** and must be excluded from the version hash (T7). List them.
@@ -324,3 +324,7 @@ _(Claude Code appends here.)_
 1. Ryan chose to store full article text now rather than wait for Alpaca's written confirmation. Full mode became the default (`storage.retain_text: true`), and retaining text left the Out list.
 2. Fingerprint mode stays as a config switch, because a written refusal requires reverting to it. The runbook describes the reversal; the rewrite tool is built only if a refusal arrives, in line with not building fallbacks speculatively.
 3. The live smoke check now runs both modes: full mode proves text never reaches a tracked file, and fingerprint mode proves the fallback stores no text.
+
+**Pass 7 — early preflight (2026-09-23).**
+
+1. T1 was run ahead of `charter-v1` and got 401 on every endpoint, including the paper trading account, which needs no data subscription. The keys were invalid. The original rule, "if 401 or 403, stop the sprint", would have read that as a plan refusal, stopped S01, rewritten D-004, and opened OD-5. T1 now checks the credential against the account endpoint first, so an authentication failure and an authorization refusal can no longer be confused.
