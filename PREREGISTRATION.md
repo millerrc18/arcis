@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | DRAFT v0.4 (2026-09-17). Frozen once tagged `prereg-v1`. |
+| **Status** | DRAFT v0.5 (2026-09-23). Frozen once tagged `prereg-v1`. |
 | **Tag deadline** | Before Step 3 begins (SCOPE.md §5) |
 | **Governs** | Q1 (incumbent edge), Q2 (cheap text), Q3 (LLM). Q4 is reserved. |
 | **Evidence base** | `docs/research/research-log.md`: R04 (Q1 protocol), R05–R06 (simulation and costs), R07–R10 (text questions) |

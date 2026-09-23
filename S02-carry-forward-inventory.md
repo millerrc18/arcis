@@ -4,7 +4,7 @@
 |---|---|
 | **Branch** | `feat/s02-carry-forward-inventory` |
 | **Repository** | Writes only to `millerrc18/arcis` (public). Reads `millerrc18/arcis-legacy`, which is archived and must stay untouched. |
-| **Depends on** | SCOPE.md v0.7 and PREREGISTRATION.md v0.4 committed. If S01's scaffold (T2, T3) has not merged yet, create only the directories this sprint needs and add no tooling. |
+| **Depends on** | SCOPE.md v0.9 and PREREGISTRATION.md v0.5 committed. If S01's scaffold (T2, T3) has not merged yet, create only the directories this sprint needs and add no tooling. |
 | **Ledger row** | None. This sprint adds no package; it produces documents and two artifacts. |
 | **Invariants** | I-4 incomplete records are excluded, never imputed · I-13 no legacy article text · I-16 nothing private in a public repo |
 | **Runs in parallel with** | S01 |
