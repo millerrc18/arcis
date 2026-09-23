@@ -118,7 +118,7 @@ Create the layout above, and move what is already in the repo into place: `RESEA
 5. **Where the data lives.** Outside the repository, outside any cloud-sync folder, and why both matter (I-7).
 6. **What this repository never contains.** Credentials, market data, news article text, personal records (I-13, I-16). The repository is public.
 7. **How decisions get made.** A short pointer to SCOPE.md §6: nothing is built without a ledger row, and every proposal names the gate it moves.
-8. **Disclaimer.** Personal research, no investment advice, no warranty.
+8. **Disclaimer and rights.** Personal research, no investment advice, no warranty. All rights reserved: no license is granted, and the repository is public for review only (SCOPE D-014, D-016).
 
 Keep it under roughly 150 lines. It points at the other documents rather than repeating them.
 
