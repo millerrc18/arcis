@@ -56,6 +56,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 - SCOPE D-015 (2026-09-19) supersedes R04's two-stage holdout-plus-forward protocol as the Q1 decision rule. R04's inference machinery is retained for the §2.5 monitoring series; the gating estimand is now the §2.1 cross-sectional information test.
 - SCOPE D-018 (2026-09-23) supersedes fingerprint-only capture (D-010, withdrawn). R08's finding that the public terms do not clearly grant storage rights still stands; the risk was accepted, not resolved. Model training on retained text remains blocked.
 - Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`.
+- SCOPE D-020 (2026-09-24) supersedes R05 rule 3 as the primary fill for an entry whose open is at or below the buy limit: the specification fills at the open plus the adverse buffer, and R05's fill-at-limit and no-fill rules become reported sensitivities.
 - PREREGISTRATION.md v0.6 §3.1 supersedes R10's continuous `direction` and `materiality` schema with 5-point scales, so repeatability is judged by label agreement rather than a numeric-drift tolerance.
 
 ### Research Index

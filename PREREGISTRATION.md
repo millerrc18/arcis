@@ -42,7 +42,7 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 **Entries**
 - One buy-limit order for the next regular session; no extended-hours fills. Fills are all-or-none.
 - Open above the limit: the order fills only if the day's low is strictly below the limit, at the limit price. A low equal to the limit is not a fill.
-- Open at or below the limit ⟨CONFIRM⟩: proposed primary rule is a fill at the open plus an adverse buffer, never above the limit. Reported sensitivities: fill at the limit, and no fill (the research log's default).
+- Open at or below the limit: fill at the open plus the adverse buffer, never above the limit (SCOPE D-020). This departs from R05 rule 3, which prices such fills at the limit: a resting buy limit above the open is marketable at the open, so it fills at or near the opening price in practice. Reported sensitivities: fill at the limit, and no fill (the research log's default).
 - In simulation, a partially filled entry is treated as unprotected.
 
 **Exits**
