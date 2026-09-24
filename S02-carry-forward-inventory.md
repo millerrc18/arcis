@@ -120,7 +120,7 @@ For each: what it did, where it lives, what is known to be wrong with it, and wh
 
 - List the data vendors and endpoints the old platform used, what each provided, and which subscriptions have lapsed.
 - List what data was stored locally or in the repository, its format, and its size.
-- Flag anything covered by a vendor license, especially news text, so it is never reused (I-13).
+- Flag anything covered by a vendor license, especially news text, so it is never reused (I-13). Finnhub's terms require deleting all Finnhub data once the subscription to it ends (Premium lapsed 2026-07-30; Fundamental 1 lapses 2026-10-30), so any Finnhub-derived data in the legacy stores is listed for deletion, not reuse (SCOPE D-023).
 - Note which sources would need point-in-time re-verification if they were ever used again.
 
 **Done when:** the table is in the report, with license-restricted items clearly marked.
