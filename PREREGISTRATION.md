@@ -108,7 +108,7 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 - **Secondary:** `b_S > 0`, that the score ranks within the qualified set. Reported, never a gate on its own.
 - **Looks:** 12 months for data quality and nonbinding futility; 24 months for efficacy, one-sided α = 2.5%. Futility at 12 months if the conditional power under the minimum effect is below 10%.
 - **Minimum effect worth having:** a point estimate of at least 25 bp net per trade, alongside the significance threshold. On R01's basis (8.5-session average holds, 252 sessions a year) this is about 7.4% a year, above R01's 4% research gate at 100–150 trades a year (SCOPE D-022).
-- **Power:** the minimum detectable effect is computed on the actual panel before tagging, using measured dispersion and within-date correlation, and recorded here.
+- **Power:** the minimum detectable effect is computed on the actual panel before tagging, using measured dispersion and within-date correlation, and recorded here (sprint S03, SCOPE D-024).
 - **Pass:** `b_Q` clears the threshold at 24 months and the point estimate is at least the minimum effect.
 - **Fail:** `b_Q` point estimate is at or below zero at either look, or no pass at 24 months.
 
@@ -171,7 +171,7 @@ Plumbing evidence accrues from the first order of the paper-only lane (SCOPE.md 
 - **Looks:** 6 and 12 months for data quality and nonbinding futility only. Efficacy is judged once, at 24 months.
 - **Secondary:** a two-day horizon as confirmation; five- and ten-day horizons as exploratory, with non-overlapping robustness checks; alternate aggregators (unweighted mean, most recent, maximum absolute score, novelty-weighted first report, six-hour half-life) reported but never optimized. Secondary families use Holm or Romano–Wolf control.
 - **Supporting:** chronological out-of-sample R² and Clark–West comparisons.
-- **Planning power:** R07's scenarios for a 100-name panel give minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). The S&P 500 panel improves on this by less than the row count suggests, because same-day moves are correlated. The real figure is simulated on the actual panel before tagging and recorded here.
+- **Planning power:** R07's scenarios for a 100-name panel give minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). The S&P 500 panel improves on this by less than the row count suggests, because same-day moves are correlated. The real figure is simulated on the actual panel before tagging and recorded here (sprint S03, SCOPE D-024).
 
 ### 3.3 Stage B — Strategy test (only after Stage A)
 

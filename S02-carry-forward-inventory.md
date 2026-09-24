@@ -74,6 +74,7 @@ Every rule carries a comment with the legacy path and line range it came from. A
 Documents describe intent; recorded behavior shows what shipped. Compare the extracted rules against the old platform's own records: recorded signals, candidate lists, order history, backtest outputs, or anything else that shows the strategy in action.
 
 - Sample at least 20 recorded decisions and check each against the extracted rules.
+- For each sampled decision date, also record the number of candidates and the universe size that day. S03 uses the median ratio as its planning qualification rate (SCOPE D-024). Record counts only, never returns.
 - List every discrepancy: rules present in documents but absent from behavior, behavior with no documented rule, and parameters whose recorded values differ from the documented ones.
 - Each discrepancy becomes an `UNRESOLVED` item naming both candidates. Do not pick a winner.
 - If no usable records exist, say so plainly; that itself is a finding, and it means the frozen definition rests on documents alone.

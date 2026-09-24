@@ -409,13 +409,13 @@ Standards: give a link for every factual claim, prefer peer-reviewed research an
 These come from the research log's open questions. They are answered by asking a vendor, running a trial, or measuring our own data.
 
 **Alpaca, in writing (SCOPE OD-8).**
-- News rights (R08): local storage of article text; embeddings, feature stores, and model training; keeping derived features after access ends; any Benzinga addendum; what `created_at` and `updated_at` mean, and whether historical queries return revised text; sharing aggregate results.
+- News rights (R08): local storage of article text; embeddings, feature stores, and model training; keeping derived features after access ends; any Benzinga addendum; what `created_at` and `updated_at` mean, and whether historical queries return revised text; sharing aggregate results, including aggregates derived from market data such as daily bars (S03).
 - Brokerage (R11): cash-account availability; intraday buying-power rules after the FINRA change; bracket protection when a parent order partially fills; handling of open brackets through splits, special dividends, mergers, and symbol changes; GTC expiry; cancel-on-disconnect or a kill switch; trade-update delivery guarantees and REST activity history; API key scoping, rotation, and IP allowlists; whether bracket orders accept fractional quantities (PREREGISTRATION.md §2.3, D-022); and how a DAY limit order queued outside market hours is handled at the open, in the opening auction or at the first continuous trade (D-020).
 
 **Paid historical data (SCOPE D-013): deferred.** No vendor is being bought, so Q1 runs forward-first. If the forward information test shows a signal worth confirming on clean history, reopen this with the Norgate Platinum trial checks: daily S&P 100 and S&P 500 membership back to 2000 or earlier including share classes; delisted securities through the right dates; a stable security identifier in the Python interface; and license terms for local storage, backups, and derived features.
 
 **Own-data measurements.**
-- Step 3: return dispersion and cross-stock correlation by horizon.
+- S03, before `prereg-v1` (SCOPE D-024): return dispersion and within-date correlation by horizon on the S&P 500 panel, second moments only. Step 3 re-measures them on the data plane.
 - Recorder: article frequency, novelty and recap shares, tag breadth, first-seen delays, and revision rates.
 - Simulator and paper shadow: fill, partial-fill, gap-stop, and ambiguity rates.
 - Q1 scenarios: tracking error of the frozen equity curve.
