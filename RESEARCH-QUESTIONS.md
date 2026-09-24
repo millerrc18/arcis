@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Location** | `docs/research/RESEARCH-QUESTIONS.md` |
-| **Last updated** | 2026-09-19 (RQ-13 added; OD-7 retired per D-013; RQ-12 raised to Priority A; universe note added; section pointers realigned to PREREGISTRATION.md v0.4) |
+| **Last updated** | 2026-09-24 (the OD-8 brokerage list gains fractional-share brackets and queued DAY orders at the open, per D-020 and D-022) |
 | **Purpose** | Every open question that needs outside evidence, written as a self-contained prompt for deep research |
 | **Results** | `docs/research/research-log.md`. RQ-01 to RQ-11 are answered there as entries R01 to R11 |
 
