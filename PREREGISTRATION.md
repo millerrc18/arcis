@@ -107,24 +107,26 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 - **Primary hypothesis:** `b_Q > 0`. In plain terms: on the same day, names the ranker qualifies beat the same mechanical trade on names it did not qualify, after costs.
 - **Secondary:** `b_S > 0`, that the score ranks within the qualified set. Reported, never a gate on its own.
 - **Looks:** 12 months for data quality and nonbinding futility; 24 months for efficacy, one-sided α = 2.5%. Futility at 12 months if the conditional power under the minimum effect is below 10%.
-- **Minimum effect worth having:** a point estimate of at least 25 bp net per trade ⟨CONFIRM⟩, alongside the significance threshold.
+- **Minimum effect worth having:** a point estimate of at least 25 bp net per trade, alongside the significance threshold. On R01's basis (8.5-session average holds, 252 sessions a year) this is about 7.4% a year, above R01's 4% research gate at 100–150 trades a year (SCOPE D-022).
 - **Power:** the minimum detectable effect is computed on the actual panel before tagging, using measured dispersion and within-date correlation, and recorded here.
 - **Pass:** `b_Q` clears the threshold at 24 months and the point estimate is at least the minimum effect.
 - **Fail:** `b_Q` point estimate is at or below zero at either look, or no pass at 24 months.
 
 ### 2.2 Stage B — Execution and replication (gating for capital)
 
-Evidence accrues from the first order of the paper-only lane (SCOPE.md §5 Step P); Stage B is evaluated only after Stage A passes. Paper fills are never part of the §2.1 test series. Paper P&L is visible to the operator (SCOPE D-017) but is not a scheduled look: it never opens or closes a gate, and any protocol change it prompts before the 24-month look is a breach recorded in §5 that makes the changed strategy a new trial.
+Plumbing evidence accrues from the first order of the paper-only lane (SCOPE.md §5 Step P). Fill-quality evidence comes only from the live canary below, because Alpaca's paper fills do not reproduce queue position, impact, or live slippage (R11). Stage B is evaluated only after Stage A passes. Paper fills are never part of the §2.1 test series. Paper P&L is visible to the operator (SCOPE D-017) but is not a scheduled look: it never opens or closes a gate, and any protocol change it prompts before the 24-month look is a breach recorded in §5 that makes the changed strategy a new trial.
 
-- **Simulator fidelity:** paper or live fills match the frozen simulator within a preregistered tolerance for slippage, fill rate, and stop behavior, over at least 150 closed trades ⟨CONFIRM⟩.
+- **Simulator fidelity, in two parts (SCOPE D-021):**
+  1. *Plumbing, from paper.* Across every paper order, the order lifecycle, bracket attachment, reconciliation, and the SCOPE.md §4 invariants hold, with zero tolerance for a break.
+  2. *Fill quality, from a live canary.* After Stage A passes and part 1 holds, a $2,000 live canary runs two concurrent positions of about $1,000 each, the order size of the first real-money stage, until 60 closed trades. It passes if mean live slippage is no worse than the simulator's adverse buffer plus 5 bp, the entry fill rate is within ±10 percentage points of the simulator's on the same orders, and stop fills are within 10 bp of the simulator's on average.
 - **Portfolio simulation** on the same forward window is reported with confidence intervals. It must show a positive point estimate, a drawdown inside the preregistered limit, and exposure and concentration inside their caps. It carries no significance requirement, because none is attainable at this sample size.
-- **Capital authorization** requires Stage A pass, Stage B pass, and the risk limits in §2.3. This charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven.
+- **Capital authorization, in two steps.** The canary requires a Stage A pass, part 1 above, and the §2.3 limits. The first real-money stage additionally requires the canary's part 2 pass. This charter records plainly that capital would be committed while portfolio-level alpha remains statistically unproven.
 
 ### 2.3 Risk limits where proof is unattainable
 
-- The first real-money amount is small enough that losing all of it changes nothing important ⟨CONFIRM, SCOPE OD-4⟩.
-- **Kill rule:** trading stops and the strategy returns to research if the live equity curve draws down more than ⟨CONFIRM⟩ percent from its start, or if the 90% upper bound on live net edge per trade falls below zero after ⟨CONFIRM⟩ closed trades.
-- **Scaling:** increases happen only in preregistered steps, each requiring a stated amount of additional forward evidence with the estimate holding ⟨CONFIRM⟩.
+- The first real-money amount is $5,000, small enough that losing all of it changes nothing important (SCOPE D-022). It follows the $2,000 canary (§2.2). Positions are about $1,000 each, the bottom of R06's calibrated order range. Whether Alpaca bracket orders accept fractional shares is an open OD-8 brokerage question; if they do not, names priced above about $1,000 a share cannot be held at this size.
+- **Kill rule:** trading stops and the strategy returns to research if the live equity curve draws down more than 25 percent from its start, or if the one-sided 90% upper confidence bound on live net edge per trade falls below zero after 150 closed trades. Both apply from the canary's first trade, and canary trades count toward the 150.
+- **Scaling:** each doubling of capital requires 150 more closed live trades, canary trades included, with the per-trade estimate at or above the §2.1 minimum effect and the kill rule not triggered. Capital is capped at 8× the first real-money amount, $40,000.
 
 ### 2.4 Exploratory historical check (non-gating, asymmetric)
 
