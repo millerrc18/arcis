@@ -26,13 +26,13 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 | Term | Definition |
 |---|---|
 | Universe | Point-in-time S&P 500, with the S&P 100 reported as a benchmark subset (SCOPE D-012). Forward membership comes from the recorder's daily universe snapshots |
-| Decision time `t_d` | 16:30 ET on trading day `t` ⟨CONFIRM⟩. Everything used for a decision must be available before `t_d` |
+| Decision time `t_d` | 17:00 ET on trading day `t`. Everything used for a decision must be available before `t_d` |
 | Incumbent | `incumbent_v1` as ported in Step 2, frozen by hash ⟨STEP 2⟩. Any change creates a new trial |
 | Candidate-day | A (symbol, `t`) pair the incumbent qualifies at `t_d` |
 | Label | Net return from applying the incumbent's entry and exit rules to one stock-day under §1.1 and §1.2. The rules are mechanical, so every universe stock-day carries a label, whether or not the ranker qualified it |
 | Risk-free rate | 3-month Treasury bill (FRED `DTB3`), converted to a daily rate |
 | Benchmark | SPY total return |
-| Earnings window | ⟨CONFIRM⟩ No new entry from one trading day before through one trading day after an earnings date whose release timing is unknown (R02). Once confirmed, this rule is part of the frozen incumbent definition |
+| Earnings window | No new entry from one trading day before through one trading day after an earnings date whose release timing is unknown (R02). This rule is part of the frozen incumbent definition |
 
 ### 1.1 Simulator: the decision specification (R05)
 
@@ -135,7 +135,7 @@ Evidence accrues from the first order of the paper-only lane (SCOPE.md §5 Step 
 
 ### 2.5 Portfolio alpha monitoring (non-gating)
 
-- The exposure-matched active return `a_t = (r_p,t − r_f,t) − b_t × (r_SPY,t − r_f,t)` is tracked, where `b_t` is the ex-ante market beta from prior-day weights and rolling stock betas (window ⟨CONFIRM⟩, proposed 252 sessions).
+- The exposure-matched active return `a_t = (r_p,t − r_f,t) − b_t × (r_SPY,t − r_f,t)` is tracked, where `b_t` is the ex-ante market beta from prior-day weights and rolling stock betas (window 252 sessions; 126 and 504 are reported as sensitivities).
 - Inference for reporting: Bartlett-kernel Newey–West with `L = floor(4 × (T/100)^(2/9))` lags, capped at 20, from a version-pinned function; sensitivities at 5, 10, 15, and 20 lags and a stationary bootstrap (at least 10,000 draws; automatic block length plus 10, 15, 20, and 30 sessions).
 - Sequential boundaries (Lan–DeMets O'Brien–Fleming, one-sided 2.5%, generated under §0 rule 6) are drawn for context. Crossing one is supportive evidence; failing to cross one means nothing, because the test lacks the power to detect a modest edge.
 - Tracking-error scenarios of 8%, 10%, and 15% are replaced by the measured value once the frozen equity curve exists.
@@ -152,16 +152,16 @@ Evidence accrues from the first order of the paper-only lane (SCOPE.md §5 Step 
 
 ### 3.1 Arms
 
-- **B, FinBERT:** ProsusAI/finbert, ONNX INT8, pinned by hash. Per article: P(positive) − P(negative) on the headline plus the first one or two sentences ⟨CONFIRM⟩. The FinBERT feature never uses LLM output.
-- **C, LLM:** one pinned general instruction model (SCOPE OD-3). Weights hash, quantization, tokenizer, system prompt, decoding settings, schema version, and code hash are frozen before the first scored article. Per article, schema-constrained output: `direction` in [−1, 1], `materiality` in [0, 1], and `event_type` from a fixed enum.
-- **Repeatability gate, before first scoring:** five clean runs over a 1,000-article corpus with at least 99.5% parsed-label agreement, numeric drift within a preregistered tolerance ⟨CONFIRM⟩, and 100% schema validity.
+- **B, FinBERT:** ProsusAI/finbert, ONNX INT8, pinned by hash. Per article: P(positive) − P(negative) on the headline and Alpaca's `summary` field, concatenated. An article with an empty summary is scored on its headline alone, and the fallback rate is reported. The FinBERT feature never uses LLM output.
+- **C, LLM:** one pinned general instruction model (SCOPE OD-3). Weights hash, quantization, tokenizer, system prompt, decoding settings, schema version, and code hash are frozen before the first scored article. Per article, schema-constrained output: `direction` in {−1, −0.5, 0, 0.5, 1}, `materiality` in {0, 0.25, 0.5, 0.75, 1}, and `event_type` from a fixed enum. The 5-point scales make repeatability a label check; R10 notes that schema decoding cannot guarantee calibrated numbers.
+- **Repeatability gate, before first scoring:** five clean runs over a 1,000-article corpus with at least 99.5% agreement on every parsed label (direction, materiality, and event type) and 100% schema validity. Because the outputs are discrete, no separate numeric-drift tolerance is needed.
 - **Runtime failures:** any schema failure, timeout, or out-of-range value records `LLM_SCORE_UNAVAILABLE` and is counted (SCOPE I-14). If more than 5% of news-bearing stock-days lack an LLM score at a look, that look is void and the configuration must be fixed as a new trial.
 
 ### 3.2 Stage A — Information test (primary)
 
 - **Rows:** every universe stock-day, with or without news.
 - **Aggregation** over eligible, novelty-filtered articles per stock-day: `F` = mean FinBERT score; `L` = mean of direction × materiality; `N` = 1 if any eligible article exists.
-- **Outcome:** one-day forward return from the first tradable post-close point, beta-adjusted ⟨CONFIRM; sector-adjusted is the alternative⟩. Raw return is secondary.
+- **Outcome:** one-day forward return from the first tradable post-close point, beta-adjusted with the rolling 252-session stock betas of §2.5. Sector-adjusted return is a reported sensitivity, and raw return is secondary.
 - **Model:** `r = α_i + δ_t + b_R·R + b_F·(N·F) + b_L·(N·L) + b_N·N + γ'X + ε`, with stock and date fixed effects.
 - **Controls `X`:** prior 1-, 5-, 20-, and 60-day returns; abnormal volume; realized volatility; overnight return; sector return; earnings-window indicators; analyst-action indicator; article count; unique-story count; source and event-type controls.
 - **Estimation:** pooled fixed-effects panel, standard errors clustered by stock and date, plus a date-block bootstrap. Fama–MacBeth is a secondary check; Driscoll–Kraay is a 24-month sensitivity.
@@ -174,8 +174,8 @@ Evidence accrues from the first order of the paper-only lane (SCOPE.md §5 Step 
 ### 3.3 Stage B — Strategy test (only after Stage A)
 
 - **Rows:** incumbent candidate-days, with identical fills, costs, exits, and position caps across arms.
-- **Filter test first:** exclude candidates whose score falls in the bottom third of its trailing 252-day distribution ⟨CONFIRM; must be fixed before any Stage A result is seen⟩.
-- **Sizing test second:** a monotonic map from standardized score to position weight, with unchanged exposure and single-name caps ⟨CONFIRM; fixed before any Stage A result is seen⟩.
+- **Filter test first:** exclude candidates whose arm score falls in the bottom third of the pooled distribution of all universe stock-day scores over the trailing 252 trading days. Candidates with no eligible news are not filtered, so the arms differ only in what news adds. Fixed before any Stage A result is seen (R07).
+- **Sizing test second:** position weight is multiplied by 1 + 0.5 × clip(z, −1, 1), a range of 0.5× to 1.5×, where z standardizes the arm score against the same pooled trailing 252-day distribution. Candidates with no eligible news keep a multiplier of 1. Weights are renormalized so gross exposure and single-name caps are unchanged. Fixed before any Stage A result is seen (R07).
 - **Inference:** a paired date-block bootstrap of daily portfolio excess returns and factor alpha.
 - **Pass:** incremental value after costs, with no deterioration in tail losses, concentration, or capacity.
 
