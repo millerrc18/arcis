@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | DRAFT v0.10 (2026-09-24). Binding once tagged `charter-v1`. |
+| **Status** | v1.0 (2026-09-27). Binding since the `charter-v1` tag. Every change goes through §6. |
 | **Owner** | Ryan decides. |
 | **Maintainer** | Claude (CTO) proposes changes; every change lands through §6. |
 | **Executor** | Claude Code builds only what §3 marks CORE and Active. |
