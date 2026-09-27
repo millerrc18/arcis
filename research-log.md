@@ -56,6 +56,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 - SCOPE D-015 (2026-09-19) supersedes R04's two-stage holdout-plus-forward protocol as the Q1 decision rule. R04's inference machinery is retained for the §2.5 monitoring series; the gating estimand is now the §2.1 cross-sectional information test.
 - SCOPE D-018 (2026-09-23) supersedes fingerprint-only capture (D-010, withdrawn). R08's finding that the public terms do not clearly grant storage rights still stands; the risk was accepted, not resolved. Model training on retained text remains blocked.
 - Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`. Sprint S03 does this (SCOPE D-024).
+- R12 (2026-09-27) corrects quoted values and identifiers in R01, R03 and R09: Jegadeesh's specification and DOI, Tetlock et al.'s t-statistic, Heston-Sinha's DOI and sample, the Lopez-Lira-Tang version stitching, and the Lopez-Lira-Tang-Zhu identifier. Original wording is preserved with inline `[R12: ...]` markers.
 - SCOPE D-020 (2026-09-24) supersedes R05 rule 3 as the primary fill for an entry whose open is at or below the buy limit: the specification fills at the open plus the adverse buffer, and R05's fill-at-limit and no-fill rules become reported sensitivities.
 - PREREGISTRATION.md v0.6 §3.1 supersedes R10's continuous `direction` and `materiality` schema with 5-point scales, so repeatability is judged by label agreement rather than a numeric-drift tolerance.
 
@@ -72,6 +73,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 - R09: LLM look-ahead and memorization protocol
 - R10: Local open-weight model selection
 - R11: Alpaca live brokerage safety
+- R12: Verification of quoted paper values (RQ-12)
 
 ## Audit Record
 
@@ -100,7 +102,7 @@ Critic claims rejected as stale after current-source checks:
 
 Before preregistration or live funding, verify directly:
 
-1. Exact table values quoted from Lehmann, Jegadeesh, de Groot, Tetlock, Heston-Sinha, and Ke-Kelly-Xiu.
+1. Exact table values quoted from Lehmann, Jegadeesh, de Groot, Tetlock, Heston-Sinha, and Ke-Kelly-Xiu. `[DONE: R12, 2026-09-27]`
 2. Norgate OEX coverage, identifiers, price, and personal archival license.
 3. Alpaca parent-partial-fill child protection, cash/margin account availability, GTC expiry, and corporate-action handling.
 4. Alpaca/Benzinga local storage, embeddings, model-scoring, and training rights.
@@ -197,9 +199,9 @@ Confidence:
 
 | Study | Type | Sample and Universe | Hold | Gross Return | Net Return | t-statistic | Relevance | Source |
 |---|---|---|---|---:|---:|---:|---|---|
-| Lehmann (1990), Fads, Martingales, and Market Efficiency | Peer-reviewed | NYSE and AMEX common stocks, Jul. 1962 to Dec. 1986 | 1 week | 1.79% loser-minus-winner long-short portfolio | No single comparable net-cost result | Not recorded in this summary | Foundational weekly reversal evidence; not comparable to long-only execution | https://doi.org/10.2307/2937816 |
-| Jegadeesh (1990), Evidence of Predictable Behavior of Security Returns | Peer-reviewed | U.S. common stocks, 1934 to 1987 | 1 month | 2.49% abnormal loser-minus-winner decile spread | Not reported | Not recorded in this summary | Foundational monthly reversal evidence; historical market structure differs substantially | https://doi.org/10.1111/j.1540-6261.1990.tb05138.x |
-| de Groot, Huij, and Zhou (2012), Another Look at Trading Costs and Short-Term Reversal Profits | Peer-reviewed | 100 largest U.S. stocks, Jan. 1990 to Dec. 2009; smart weekly long-short reversal | 1 week | 77.9 bp | More than 50 bp after modeled trading costs | 9.4 gross; 6.4 net return | Closest large-cap net-cost evidence, but it is long-short, weekly, and has a special turnover-reduction rule | https://doi.org/10.1016/j.jbankfin.2011.07.015 |
+| Lehmann (1990), Fads, Martingales, and Market Efficiency | Peer-reviewed | NYSE and AMEX common stocks, Jul. 1962 to Dec. 1986 | 1 week | 1.79% loser-minus-winner long-short portfolio `[R12: confirmed, QJE Table I, t 41.07; $1 long / $1 short, return-deviation weights]` | No single comparable net-cost result | Not recorded in this summary | Foundational weekly reversal evidence; not comparable to long-only execution | https://doi.org/10.2307/2937816 |
+| Jegadeesh (1990), Evidence of Predictable Behavior of Security Returns | Peer-reviewed | U.S. common stocks, 1934 to 1987 | 1 month | 2.49% abnormal loser-minus-winner decile spread `[R12: 2.49% is strategy S0, deciles on one-step-ahead forecasts; the one-month loser-minus-winner sort S1 is 1.99%/month, t 12.55 (JF Table II)]` | Not reported | Not recorded in this summary | Foundational monthly reversal evidence; historical market structure differs substantially | https://doi.org/10.1111/j.1540-6261.1990.tb05138.x `[R12: DOI does not resolve; correct 10.1111/j.1540-6261.1990.tb05110.x]` |
+| de Groot, Huij, and Zhou (2012), Another Look at Trading Costs and Short-Term Reversal Profits | Peer-reviewed | 100 largest U.S. stocks, Jan. 1990 to Dec. 2009; smart weekly long-short reversal | 1 week | 77.9 bp | More than 50 bp after modeled trading costs `[R12: 53.1 bp, t 6.4, under Nomura costs; 77.1 bp, t 9.3, under Keim-Madhavan]` | 9.4 gross; 6.4 net return | Closest large-cap net-cost evidence, but it is long-short, weekly, and has a special turnover-reduction rule | https://doi.org/10.1016/j.jbankfin.2011.07.015 |
 | Nagel (2012), Evaporating Liquidity | Peer-reviewed | U.S. equity reversal portfolios, 1998 to 2010 | Short horizon | Conditional liquidity-provider return, not a single trade return | No retail implementation-cost test | Not recorded in this summary | Strong evidence that reversal compensation rises with VIX and intermediary stress | https://doi.org/10.1093/rfs/hhs066 |
 | Boehmer, Jones, and Zhang (2021), Tracking Retail Investor Activity | Peer-reviewed | U.S. marketable retail order flow, 2010 to 2015 | 1 week | About 10 bp high-buy minus high-sell next-week spread | No execution-cost test | Not recorded in this summary | Retail flow is contrarian and predicts short-run cross-sectional returns; not a post-2015 mega-cap dip-buying test | https://doi.org/10.1111/jofi.13033 |
 | Kaminski and Lo (2014), When Do Stop-Loss Rules Stop Losses? | Peer-reviewed | U.S. market and futures evidence | Variable | State-dependent; not a reversal-factor return study | Main empirical illustrations assume zero costs | Not applicable | Stops help only under appropriate return dynamics; they can hurt V-shaped reversals | https://doi.org/10.1016/j.finmar.2013.07.001 |
@@ -436,13 +438,13 @@ Confidence:
 
 | Study | Type | Sample and Universe | Signal and Input | Horizon | Reported Effect | t-statistic | Costs | Large-Cap Result | Look-Ahead Risk | Source |
 |---|---|---|---|---|---:|---:|---|---|---|---|
-| Tetlock, Saar-Tsechansky, and Macskassy (2008), More Than Words | Peer-reviewed | S&P 500 firms; Wall Street Journal and Dow Jones News Service, 1980-2004 | General Inquirer negative-word share in firm news; full article text | Next day abnormal return | One SD more negative DJNS language: -3.2 bp | -5.32 for DJNS abnormal-return specification | No trading-cost result | Direct S&P 500 evidence, not S&P 100-specific | Low model-training risk; historical news timestamp and article-selection details still need replication audit | https://doi.org/10.1111/j.1540-6261.2008.01362.x |
+| Tetlock, Saar-Tsechansky, and Macskassy (2008), More Than Words | Peer-reviewed | S&P 500 firms; Wall Street Journal and Dow Jones News Service, 1980-2004 | General Inquirer negative-word share in firm news; full article text | Next day abnormal return | One SD more negative DJNS language: -3.2 bp | -5.32 for DJNS abnormal-return specification `[R12: t is -4.83; 5.32 belongs to Table I's earnings regression]` | No trading-cost result | Direct S&P 500 evidence, not S&P 100-specific | Low model-training risk; historical news timestamp and article-selection details still need replication audit | https://doi.org/10.1111/j.1540-6261.2008.01362.x |
 | Tetlock (2007), Giving Content to Investor Sentiment | Peer-reviewed | Wall Street Journal market column and DJIA aggregate series | Dictionary media pessimism | Next day and subsequent reversal | Exact bp coefficient not extracted in this review | Reported significant in paper | Not applicable | Aggregate market, not firm large-cap cross section | Low ML look-ahead; feedback from returns to media pessimism is an endogeneity warning | https://doi.org/10.1111/j.1540-6261.2007.01232.x |
-| Heston and Sinha (2017), News versus Sentiment | Peer-reviewed | More than 900,000 Thomson Reuters stories; exact period not verified from public paper material | Proprietary neural news sentiment; full stories | Day 0 to Day 2; weekly signals longer | Daily long-short Day 1: +17 bp | Day 0: 63.9; Day 1: 9.8; Day 2: 2.5 | No comparable retail-cost result reported | Smallest size decile had 224 bp weekly news/no-news difference; effect became insignificant for larger firms | Medium: proprietary classifier training-vintage detail not verified | https://www.tandfonline.com/doi/full/10.2469/faj.v73.n2.4 |
-| Ke, Kelly, and Xiu (2019), Predicting Returns with Text Data | High-quality working paper / later journal version | Dow Jones Newswires, 1989-2017; rolling out-of-sample design | Supervised full-text return-predictive score | Daily portfolio return | Equal-weighted L/S: 33 bp/day; value-weighted L/S: 10 bp/day | Not extracted here; reported Sharpe ratios 4.29 and 1.33 | No robust individual-retail cost result | Value weighting, the closer large-cap proxy, is far smaller than equal weighting | Medium: paper describes rolling design, but publicly described training and OOS dates require code-level audit | https://www.nber.org/papers/w26186 |
+| Heston and Sinha (2017), News versus Sentiment | Peer-reviewed | More than 900,000 Thomson Reuters stories; exact period not verified from public paper material `[R12: 2003-2010, 417 weeks]` | Proprietary neural news sentiment; full stories | Day 0 to Day 2; weekly signals longer | Daily long-short Day 1: +17 bp | Day 0: 63.9; Day 1: 9.8; Day 2: 2.5 | No comparable retail-cost result reported | Smallest size decile had 224 bp weekly news/no-news difference; effect became insignificant for larger firms | Medium: proprietary classifier training-vintage detail not verified | https://www.tandfonline.com/doi/full/10.2469/faj.v73.n2.4 `[R12: this DOI is Cremers, FAJ 73(2); correct 10.2469/faj.v73.n3.3]` |
+| Ke, Kelly, and Xiu (2019), Predicting Returns with Text Data | High-quality working paper / later journal version | Dow Jones Newswires, 1989-2017; rolling out-of-sample design | Supervised full-text return-predictive score | Daily portfolio return | Equal-weighted L/S: 33 bp/day; value-weighted L/S: 10 bp/day | Not extracted here; reported Sharpe ratios 4.29 and 1.33 `[R12: confirmed; the VW spread is almost all long leg, 9 bp vs 1 bp]` | No robust individual-retail cost result | Value weighting, the closer large-cap proxy, is far smaller than equal weighting | Medium: paper describes rolling design, but publicly described training and OOS dates require code-level audit | https://www.nber.org/papers/w26186 |
 | Araci (2019), FinBERT | Model paper / preprint | Financial communications sentiment benchmark | FinBERT sentiment classification | Not a return test | Not applicable | Not applicable | Not applicable | No S&P 100 return result | High if a historical news backtest uses a model pretrained on overlapping text; pretraining-corpus exclusion must be demonstrated | https://arxiv.org/abs/1908.10063 |
-| Lopez-Lira and Tang (2023, rev. 2025), Can ChatGPT Forecast Stock Price Movements? | Working paper | U.S. news headlines; headline-test sample described around late 2021-2022 | GPT score from headline direction | Next-day drift / next close | Neutral-to-positive GPT score: about +30 bp in a reported trading window | All-stock specifications: about 4.5-4.7; non-small: about 2.4-2.8 | Cost sensitivity discussed; no verified S&P 100 retail net result | Explicitly weaker for non-small stocks | High: closed-model version drift and unobservable training corpus; nominal post-cutoff dating is not proof of no memorization | https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4412788 |
-| Lopez-Lira, Tang, and Zhu (2025), The Memorization Problem | Working paper | LLM recall tests across economic and market data | Tests memorization, not a tradable score | Not a return forecast test | Not applicable | Not applicable | Not applicable | Memorization is stronger for prominent large-cap and Magnificent 7 names | This is the key warning: historical LLM prediction inside training coverage is invalid | SSRN working paper; public abstract and final identifier must be rechecked before citation |
+| Lopez-Lira and Tang (2023, rev. 2025), Can ChatGPT Forecast Stock Price Movements? | Working paper | U.S. news headlines; headline-test sample described around late 2021-2022 `[R12: true of v1-v4; v6 runs to May 2024]` | GPT score from headline direction | Next-day drift / next close | Neutral-to-positive GPT score: about +30 bp in a reported trading window `[R12: v6 only; 0.189 intraday + 0.116 close-to-close; the daily-bar part is 0.116 pp, t 2.31]` | All-stock specifications: about 4.5-4.7; non-small: about 2.4-2.8 `[R12: v1 only, gpt coefficient, Tables 3 and 5; never in the same version as the +30 bp]` | Cost sensitivity discussed; no verified S&P 100 retail net result | Explicitly weaker for non-small stocks | High: closed-model version drift and unobservable training corpus; nominal post-cutoff dating is not proof of no memorization | https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4412788 `[R12: SSRN id unconfirmed; cite arXiv 2304.07619 with version]` |
+| Lopez-Lira, Tang, and Zhu (2025), The Memorization Problem | Working paper | LLM recall tests across economic and market data | Tests memorization, not a tradable score | Not a return forecast test | Not applicable | Not applicable | Not applicable | Memorization is stronger for prominent large-cap and Magnificent 7 names | This is the key warning: historical LLM prediction inside training coverage is invalid | SSRN working paper; public abstract and final identifier must be rechecked before citation `[R12: arXiv 2504.14765]` |
 | Loughran and McDonald (2011) | Peer-reviewed dictionary benchmark | U.S. 10-K filings, not news | Finance-specific negative-word dictionary | Not an article-horizon return test | Not applicable | Not applicable | Not applicable | Not a news or S&P 100 study | Low ML look-ahead; do not transfer its filing result to headlines | https://doi.org/10.1111/j.1540-6261.2010.01625.x |
 
 ### Evidence Interpretation
@@ -1164,7 +1166,7 @@ A released model's release date is only an upper bound on the latest possible tr
 
 | Work | Type | Main Contribution | Practical Implication | Link |
 |---|---|---|---|---|
-| Lopez-Lira, Tang, and Zhu (2025), The Memorization Problem: Can We Trust LLMs' Economic Forecasts? | Working paper | Demonstrates that LLMs can recall historical economic and market outcomes; prominent large-cap stocks have elevated memorization risk. | Treat historical modern-LLM forecasts inside training coverage as contaminated by default. | Public working-paper identifier should be rechecked before formal citation. |
+| Lopez-Lira, Tang, and Zhu (2025), The Memorization Problem: Can We Trust LLMs' Economic Forecasts? | Working paper | Demonstrates that LLMs can recall historical economic and market outcomes; prominent large-cap stocks have elevated memorization risk. | Treat historical modern-LLM forecasts inside training coverage as contaminated by default. | Public working-paper identifier should be rechecked before formal citation. `[R12: arXiv 2504.14765]` |
 | Gao, Jiang, and Yan (2025/2026), Detecting Lookahead Bias in LLM Forecasts | arXiv working paper | Introduces Lookahead Propensity and recall-interaction test for headlines and earnings-call tasks. | Use as a diagnostic for a modern model; positive forecast-by-LAP interaction is evidence of contamination. | https://arxiv.org/search/?query=Detecting+Lookahead+Bias+in+LLM+Forecasts&searchtype=all |
 | He, Lv, Manela, and Wu (2025), Chronologically Consistent Large Language Models | Working paper and released weights | Releases ChronoBERT, ChronoGPT, and instruction-tuned variants trained on annual historical cutoffs from 1999 to 2024. | Best available historical control when a vintage predates the evaluated article. | https://huggingface.co/manelalab |
 | DatedGPT (2026) | Working paper and released weights | Released 1.3B parameter dated models with annual cutoffs from 2013 to 2024. | Useful modern vintage-model cross-check for 2015 onward. | https://huggingface.co/datedGPT |
@@ -1477,3 +1479,54 @@ For a direct Alpaca individual account, do not presume cash or margin treatment;
 6. What ordering, replay, retention, and duplication guarantees apply to trade_updates, and what REST activity history is available to an individual Trading API account?
 7. Are API keys scope-limited, rotation-capable without downtime, and configurable with customer IP allowlists?
 8. What paper-trading fill rules apply to nonmarketable limit orders and bracket children, and how do they differ from live routing?
+
+## R12 - 2026-09-27 - Verification of Quoted Paper Values
+
+Status: `[EVIDENCE]` for every value read from a primary table; `[UNVERIFIED]` where marked. Full report with sources: `docs/research/2026-09-27-rq-12-quoted-values-verification.md`.
+
+### Research Question
+
+Are the values this log quotes from Lehmann (1990), Jegadeesh (1990), de Groot, Huij & Zhou (2012), Tetlock, Saar-Tsechansky & Macskassy (2008), Heston & Sinha (2017), Ke, Kelly & Xiu (2019), Lopez-Lira & Tang, and Lopez-Lira, Tang & Zhu (2025) accurate, and in what context do they apply? (RQ-12)
+
+### Answer Summary
+
+The values are almost all real. The errors lie in what they are attached to: a neighbouring table, strategy, version, or journal issue. There are two specification errors, one claim stitched across versions, and two wrong DOIs. Across 22 claim parts: 13 match, 7 partly, 2 no. No correction changes the 3–8 bp band in PREREGISTRATION.md §3.2.
+
+### Corrections
+
+| Item | Logged | Verified (location) | Status |
+|---|---|---|---|
+| Jegadeesh | 2.49% loser-minus-winner decile spread | 2.49% (t 16.82) is strategy S0, deciles on one-step-ahead forecasts. The loser-minus-winner sort S1 is 1.99%/month (t 12.55). JF Table II | `[EVIDENCE]` |
+| Jegadeesh DOI | 10.1111/j.1540-6261.1990.tb05138.x | Does not resolve. Correct: 10.1111/j.1540-6261.1990.tb05110.x | `[EVIDENCE]` |
+| Tetlock et al. t | -5.32 | -4.83 (Table II, DJNS, FFCAR+1,+1). The 5.32 is in Table I's earnings regression | `[EVIDENCE]`; published typeset table unseen |
+| Heston & Sinha DOI | 10.2469/faj.v73.n2.4 | That DOI is Cremers, FAJ 73(2). Correct: 10.2469/faj.v73.n3.3 | `[EVIDENCE]` |
+| Heston & Sinha sample | not verified | 2003–2010, 417 weeks | `[EVIDENCE]` (FEDS 2016-048) |
+| Lopez-Lira & Tang | +30 bp with t 4.5–4.7 / 2.4–2.8, sample late 2021–2022 | The +30 bp is only in v6 (0.189 intraday + 0.116 close-to-close, t 2.31). The t-statistics are only in v1 (gpt coefficient, Tables 3 and 5). The sample is v1–v4's | `[EVIDENCE]` |
+| Lopez-Lira & Tang id | SSRN 4412788 | Unconfirmed; cite arXiv 2304.07619 with version | `[UNVERIFIED]` |
+| Lopez-Lira, Tang & Zhu id | to be rechecked | arXiv 2504.14765 | `[EVIDENCE]` |
+
+### Confirmed as Logged
+
+- Lehmann: 1.79%/week (QJE Table I, t 41.07), on a portfolio long $1 and short $1 with return-deviation weights.
+- de Groot et al.: 77.9 bp gross (t 9.4); 53.1 bp net under Nomura costs (t 6.4), or 77.1 bp under Keim-Madhavan.
+- Tetlock et al.: -3.2 bp per SD.
+- Heston & Sinha: day 0/1/2 returns of 1.99%/0.17%/0.04% (t 63.9/9.8/2.5), and a 2.24% smallest-decile difference.
+- Ke, Kelly & Xiu: 33/10 bp EW/VW, Sharpe 4.29/1.33.
+- Lopez-Lira, Tang & Zhu: memorization is strongest for recent, larger-cap data.
+
+### Implications for Priors
+
+- The 3–8 bp one-day band stands. Version-matched GPT-4 coefficients for non-small stocks sit at or just above its upper edge before costs: v6 gives 0.087 pp for overnight-news drift (t 4.09) and 0.116 pp close-to-close (t 2.31). They come from a stronger model than arm C, and their construction differs from a per-SD panel coefficient.
+- Ke, Kelly & Xiu's value-weighted spread is almost all long leg (9 bp/day, FF3 alpha 7) at 89–96% daily turnover. Net of R06 conservative costs it does not survive.
+- A decision made after the close can use only close-to-close or next-day-drift figures, never same-day intraday drift.
+- For any one-month reversal reference, use Jegadeesh's S1 (1.99%/month). Name the cost model beside any de Groot net figure.
+
+### Current Decision
+
+RQ-12 is answered. Figures in R01, R03 and R09 carry inline `[R12: ...]` markers; the original wording is preserved.
+
+### Open Questions
+
+1. Do the published FAJ 73(3) tables of Heston & Sinha and the JF 63(3) Table II of Tetlock et al. match the working papers read here?
+2. Do SSRN 4412788 and 5217505 correspond to the two Lopez-Lira papers?
+3. Does the SSRN copy of Ke, Kelly & Xiu (3389884, September 2020) change Table 2 or Table 4?

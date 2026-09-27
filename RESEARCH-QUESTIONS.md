@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Location** | `docs/research/RESEARCH-QUESTIONS.md` |
-| **Last updated** | 2026-09-24 (the OD-8 brokerage list gains fractional-share brackets and queued DAY orders at the open, per D-020 and D-022) |
+| **Last updated** | 2026-09-27 (RQ-12 answered as R12) |
 | **Purpose** | Every open question that needs outside evidence, written as a self-contained prompt for deep research |
 | **Results** | `docs/research/research-log.md`. RQ-01 to RQ-11 are answered there as entries R01 to R11 |
 
@@ -31,7 +31,7 @@
 | RQ-09 | Look-ahead bias protocol for LLM signals | C | Q3 historical evidence rules | Done (R09) |
 | RQ-10 | Choosing the pinned local LLM and FinBERT variant | C | OD-3 | Done (R10) |
 | RQ-11 | Alpaca brokerage mechanics and personal account rules | D | Live lane; OD-1 | Done (R11) |
-| RQ-12 | Verify quoted values from key papers | A | Priors used in PREREGISTRATION.md scenarios. The research log's High-Risk Verification Queue item 1 requires these before preregistration, so this cannot sit behind Steps 4–5 | Not started |
+| RQ-12 | Verify quoted values from key papers | A | Priors used in PREREGISTRATION.md scenarios. The research log's High-Risk Verification Queue item 1 requires these before preregistration, so this cannot sit behind Steps 4–5 | Done (R12) |
 | RQ-13 | Free reconstruction of S&P 500 membership, and how far survivorship bias reaches | C | The exploratory historical check in PREREGISTRATION.md §2.4 | Not started |
 
 **Priority key.** A: before tagging the charter and preregistration. B: before Steps 4–5. C: before any text scoring. D: before the live lane.
