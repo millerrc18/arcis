@@ -112,7 +112,7 @@ Create the layout above, and move what is already in the repo into place: `RESEA
 **`README.md`** is the entry point for a reader who knows nothing. Sections, in this order:
 
 1. **What this is.** A personal research project testing whether a long-only pullback strategy on the point-in-time S&P 500 has an edge worth trading. Not a product, not advice, no capital at risk today.
-2. **Status.** Which step of SCOPE.md §5 is current, what exists, and what deliberately does not exist yet.
+2. **Status.** Which step of SCOPE.md §5 is current, what exists, and what deliberately does not exist yet. Then the **roadmap**: copy Appendix R from the end of this file and re-date any row that has moved.
 3. **Documentation map.** A table of every document, what question it answers, and when to read it: SCOPE.md (what is in scope, and what each component must do), PREREGISTRATION.md (what counts as evidence and what decides each question), `docs/research/research-log.md` (the outside evidence behind those choices), `docs/research/RESEARCH-QUESTIONS.md` (open questions and their prompts), `docs/sprints/` (units of work), `docs/runbooks/` (how to operate what is running), `CLAUDE.md` (rules for agent sessions), `CHANGELOG.md` (what changed).
 4. **Quickstart.** Install with `uv`, run every check with one command, configure the recorder, run one poll, run `verify`.
 5. **Where the data lives.** Outside the repository, outside any cloud-sync folder, and why both matter (I-7).
@@ -129,12 +129,12 @@ Keep it under roughly 150 lines. It points at the other documents rather than re
 - Never invent a value, a rule, or a result. Record it as `UNRESOLVED` and ask.
 - Code rules: Python 3.12, no source file over 400 lines, no function over 60 lines, no blind exception handling, typed errors, fail-closed configuration, tests with every task.
 - Never commit credentials, market data, news article text, personal records, or large binaries. The repository is public.
-- Branch naming `feat/sNN-slug`, one sprint per branch, the PR template checklist must pass, and every sprint updates the README documentation map (if it added a document), the CHANGELOG, and its own sprint report.
+- Branch naming `feat/sNN-slug`, one sprint per branch, the PR template checklist must pass, and every sprint updates the README documentation map (if it added a document), the roadmap row of any step it closes, the CHANGELOG, and its own sprint report.
 - Run `uv run python tools/checks.py` before opening a PR; it runs exactly what CI runs.
 
 **`CHANGELOG.md`** follows Keep a Changelog, starting with an `Unreleased` section.
 
-**`.github/pull_request_template.md`** carries a checklist: sprint and task list; ledger row exists and is Active; checks pass locally; no file over 400 lines and no function over 60 lines; nothing from the sprint's Out list in the diff; no credentials, data, article text, or personal records added; documentation map, CHANGELOG, and sprint report updated; any `# hygiene: allow` pragma justified.
+**`.github/pull_request_template.md`** carries a checklist: sprint and task list; ledger row exists and is Active; checks pass locally; no file over 400 lines and no function over 60 lines; nothing from the sprint's Out list in the diff; no credentials, data, article text, or personal records added; documentation map, roadmap, CHANGELOG, and sprint report updated; any `# hygiene: allow` pragma justified.
 
 **`.gitignore`** covers `.env*`, virtual environments, caches, `*.sqlite*`, and any local data directory.
 
@@ -248,7 +248,7 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
   - Recovery: `sweep` covers up to 72 hours; longer outages use `sweep --lookback-hours N`, and late capture shows honestly in `fetched_at`.
   - **Storage mode:** full text is the default (SCOPE D-018), stored only under the data root and never committed (I-16). It does not permit training or fine-tuning on the text; that needs Alpaca's written confirmation (I-13). If Alpaca refuses storage rights in writing, set `storage.retain_text: false` and rewrite stored lines as fingerprint-mode lines, regenerating manifests and logging the rewrite. `version_sha256` and `text_sha256` survive the rewrite, because both are computed before text is removed. The rewrite tool is built only if a refusal arrives.
   - Where the data lives and why it stays outside the repo and outside sync folders.
-- Update the README documentation map with the runbook, and the Status section with what now exists.
+- Update the README documentation map with the runbook, and the Status section with what now exists, including the date on the roadmap's S01 T1 row.
 - Add the CHANGELOG entry.
 - Update SCOPE.md D-004 with the preflight result.
 - Append the sprint report below: what was built, deviations and why, T1 findings, the volatile-field list, and open issues.
@@ -276,7 +276,7 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
 2. Register both scheduled tasks from the runbook.
 3. Create the Healthchecks.io check.
 4. GitHub settings: require the CI check before merging on `main`, confirm secret-scanning push protection is on, and turn off wiki and projects if unused.
-5. After 7 days with `gaps` clean and `verify` passing, Step 1 is done (SCOPE.md §5).
+5. After 7 days with `gaps` clean and `verify` passing, Step 1 is done (SCOPE.md §5). Date its roadmap row in README and re-date the forecast rows after it.
 
 ## Sprint report
 
@@ -328,3 +328,48 @@ _(Claude Code appends here.)_
 **Pass 7 — early preflight (2026-09-23).**
 
 1. T1 was run ahead of `charter-v1` and got 401 on every endpoint, including the paper trading account, which needs no data subscription. The keys were invalid. The original rule, "if 401 or 403, stop the sprint", would have read that as a plan refusal, stopped S01, rewritten D-004, and opened OD-5. T1 now checks the credential against the account endpoint first, so an authentication failure and an authorization refusal can no longer be confused.
+
+**Pass 8 — roadmap (2026-09-28).**
+
+1. Ryan asked for a dated roadmap with gates and milestones, and chose README's Status section as its home (2026-09-27). SCOPE.md §5 holds the gates and PREREGISTRATION.md the evidence clocks, but neither carries a date. Dates in the binding charter would make every slip a §6 change, and README is already in the documentation set (§11).
+2. Appendix R holds the first draft. T2 carries it into README. The CLAUDE.md rule and the PR checklist make keeping it current part of every sprint, and the After-merge list dates Step 1's row.
+3. Drafting it surfaced a gap: PREREGISTRATION.md §3.2 schedules the Q2/Q3 looks at 6, 12, and 24 months but gives them no start date, while §0 rule 4 requires the look calendar frozen before the tag. The roadmap lists it as a need of `prereg-v1` rather than guessing a date.
+
+---
+
+## Appendix R — Roadmap for README's Status section (draft, 2026-09-28)
+
+T2 copies everything below the rule into README's Status section, re-dating any row that has moved by then. From then on, README holds the maintained copy and this appendix is history.
+
+---
+
+### Roadmap
+
+The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table adds dates and does not restate them. **Forecast** dates move with the work. **Clock** dates are fixed by the preregistration once their anchor exists, and nothing built can bring them forward. **Count** dates depend on closed trades and are the earliest possible.
+
+| Milestone | Needs | Date | Kind | If it fails |
+|---|---|---|---|---|
+| Step 0 · `charter-v1` | — | 2026-09-27 | done | — |
+| S01 T1 · news-access preflight | Paper API keys | Oct 2026 | forecast | S01 stops after T1 and OD-5 opens |
+| Step 1 · recorder, 7 clean days | S01 merged | late Oct 2026 | forecast | — |
+| Step 2 · S02 report, `incumbent_v1` frozen | — | late Oct 2026 | forecast | — |
+| Step 2m · S03 power figures | S01 merged, S02 T4 | early Nov 2026 | forecast | If 25 bp is undetectable at 24 months, a decision before the tag (S03) |
+| **Step 2t · `prereg-v1`; the Q1 clock starts** | Steps 2 and 2m; a start date for the Q2/Q3 looks (PREREGISTRATION.md §0 rule 4) | **mid-Nov 2026** | forecast | — |
+| Step 3 · data plane | `prereg-v1` | Q1 2027 | forecast | — |
+| Step 4 · ranker, cost model, metrics | Step 3 | Q2 2027 | forecast | — |
+| Step P · paper lane | Step 4 | from Q2 2027 | forecast | — |
+| Step 5 · simulator, ledger, harness, registry | Step 4 | Q3 2027 | forecast | — |
+| Implementation freeze (PREREGISTRATION.md §0 rule 4) | Steps 3–5 | before Nov 2027 | deadline | No look can be evaluated without it |
+| §2.4 historical check, run once | Step 5 | Q3–Q4 2027 | forecast | Net alpha ≤ 0 retires the incumbent |
+| Q1 12-month look | The freeze | Nov 2027 | clock | `b_Q` ≤ 0 fails Q1; it may also stop for futility |
+| **Q1 24-month look: the gating decision** | The 12-month look | **Nov 2028** | clock | No capital |
+| Q2/Q3 Stage A looks at 6, 12, and 24 months | `textscore` (after Step 5), OD-3 | not dated | clock, no anchor yet | PREREGISTRATION.md §3.4 |
+| $2,000 live canary to 60 closed trades | A Q1 pass, paper plumbing holding, OD-1, OD-2, OD-8 | Dec 2028 → Dec 2029 at the earliest | count | No $5,000 stage; the kill rule runs from its first trade |
+| $5,000 first real-money stage | The canary's fill-quality pass | Jan 2030 at the earliest | count | Kill rule: a 25% drawdown, or the edge bound below zero after 150 trades |
+| Doublings to the $40,000 cap | 150 more closed trades each, estimate ≥ 25 bp | 2032 at the earliest | count | No doubling |
+
+**Critical path:** S01 and S02, then S03, then `prereg-v1`, then 24 months, then the Q1 decision, the canary, and $5,000. Until the tag, every week of delay moves every later row by a week. After it the clock sets the pace, and the one deadline in the builders' hands is the implementation freeze before the 12-month look.
+
+Count dates assume R01's 8.5-session average hold at full occupancy: about 60 closed trades a year for the two-position canary, and R01's 100–150 a year after it. Fewer candidates mean later dates. Deferred items (SCOPE.md §3.3) have gates, not dates, and are not on this roadmap.
+
+**Upkeep:** when a step closes or a look is evaluated, its row gets the actual date, and the forecast rows after it are re-dated in the same commit.
