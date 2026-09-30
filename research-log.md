@@ -57,6 +57,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 - SCOPE D-018 (2026-09-23) supersedes fingerprint-only capture (D-010, withdrawn). R08's finding that the public terms do not clearly grant storage rights still stands; the risk was accepted, not resolved. Model training on retained text remains blocked.
 - Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`. Sprint S03 does this (SCOPE D-024).
 - R12 (2026-09-27) corrects quoted values and identifiers in R01, R03 and R09: Jegadeesh's specification and DOI, Tetlock et al.'s t-statistic, Heston-Sinha's DOI and sample, the Lopez-Lira-Tang version stitching, and the Lopez-Lira-Tang-Zhu identifier. Original wording is preserved with inline `[R12: ...]` markers.
+- PREREGISTRATION.md v0.7 (2026-09-30) starts the Q2/Q3 clock at the `prereg-v1` tag and drops R07's 6-month interim look, because `textscore` is built after Step 5 and no look is evaluated before its implementation is frozen (PREREGISTRATION.md §0 rule 4). R07's 12-month interim look and 24-month efficacy look stand.
 - SCOPE D-020 (2026-09-24) supersedes R05 rule 3 as the primary fill for an entry whose open is at or below the buy limit: the specification fills at the open plus the adverse buffer, and R05's fill-at-limit and no-fill rules become reported sensitivities.
 - PREREGISTRATION.md v0.6 §3.1 supersedes R10's continuous `direction` and `materiality` schema with 5-point scales, so repeatability is judged by label agreement rather than a numeric-drift tolerance.
 
@@ -992,7 +993,7 @@ Multiple-testing rule:
 
 - Treat h = 1 FinBERT and h = 1 LLM-incremental coefficients as two co-primary information hypotheses. Apply one-sided Holm control at family alpha 2.5% at the final analysis.
 - Treat h = 2, 5, 10, alternate aggregators, and event-type interactions as secondary; control them with Holm or Romano-Wolf and label them exploratory.
-- Use interim 6- and 12-month looks for data quality and nonbinding futility only. Reserve formal efficacy claims for the 24-month final look to preserve maximum final power.
+- Use interim 6- and 12-month looks for data quality and nonbinding futility only. Reserve formal efficacy claims for the 24-month final look to preserve maximum final power. `[Superseded in part 2026-09-30: no 6-month look; PREREGISTRATION.md §3.2]`
 - If early efficacy declarations are required, use separate Lan-DeMets O'Brien-Fleming spending for each co-primary endpoint, with the family alpha allocated before launch. This is valid but materially less powerful.
 
 ### Power Table

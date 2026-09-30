@@ -335,6 +335,8 @@ _(Claude Code appends here.)_
 2. Appendix R holds the first draft. T2 carries it into README. The CLAUDE.md rule and the PR checklist make keeping it current part of every sprint, and the After-merge list dates Step 1's row.
 3. Drafting it surfaced a gap: PREREGISTRATION.md §3.2 schedules the Q2/Q3 looks at 6, 12, and 24 months but gives them no start date, while §0 rule 4 requires the look calendar frozen before the tag. The roadmap lists it as a need of `prereg-v1` rather than guessing a date.
 
+**Pass 9 — Q2/Q3 look calendar (2026-09-30).** Ryan started the Q2/Q3 clock at `prereg-v1`, with the first look at 12 months and no 6-month look (PREREGISTRATION.md v0.7). Appendix R now dates both Q2/Q3 looks, and the tag no longer waits on a start date.
+
 ---
 
 ## Appendix R — Roadmap for README's Status section (draft, 2026-09-28)
@@ -354,16 +356,17 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 | Step 1 · recorder, 7 clean days | S01 merged | late Oct 2026 | forecast | — |
 | Step 2 · S02 report, `incumbent_v1` frozen | — | late Oct 2026 | forecast | — |
 | Step 2m · S03 power figures | S01 merged, S02 T4 | early Nov 2026 | forecast | If 25 bp is undetectable at 24 months, a decision before the tag (S03) |
-| **Step 2t · `prereg-v1`; the Q1 clock starts** | Steps 2 and 2m; a start date for the Q2/Q3 looks (PREREGISTRATION.md §0 rule 4) | **mid-Nov 2026** | forecast | — |
+| **Step 2t · `prereg-v1`; the Q1 clock starts** | Steps 2 and 2m | **mid-Nov 2026** | forecast | — |
 | Step 3 · data plane | `prereg-v1` | Q1 2027 | forecast | — |
 | Step 4 · ranker, cost model, metrics | Step 3 | Q2 2027 | forecast | — |
 | Step P · paper lane | Step 4 | from Q2 2027 | forecast | — |
 | Step 5 · simulator, ledger, harness, registry | Step 4 | Q3 2027 | forecast | — |
-| Implementation freeze (PREREGISTRATION.md §0 rule 4) | Steps 3–5 | before Nov 2027 | deadline | No look can be evaluated without it |
+| Implementation freeze (PREREGISTRATION.md §0 rule 4) | Steps 3–5, and `textscore` for Q2/Q3 | before Nov 2027 | deadline | No look can be evaluated without it |
 | §2.4 historical check, run once | Step 5 | Q3–Q4 2027 | forecast | Net alpha ≤ 0 retires the incumbent |
 | Q1 12-month look | The freeze | Nov 2027 | clock | `b_Q` ≤ 0 fails Q1; it may also stop for futility |
 | **Q1 24-month look: the gating decision** | The 12-month look | **Nov 2028** | clock | No capital |
-| Q2/Q3 Stage A looks at 6, 12, and 24 months | `textscore` (after Step 5), OD-3 | not dated | clock, no anchor yet | PREREGISTRATION.md §3.4 |
+| Q2/Q3 12-month look | The freeze; OD-3 | Nov 2027 | clock | It may stop for futility (nonbinding) |
+| Q2/Q3 24-month look: efficacy | The 12-month look | Nov 2028 | clock | PREREGISTRATION.md §3.4 |
 | $2,000 live canary to 60 closed trades | A Q1 pass, paper plumbing holding, OD-1, OD-2, OD-8 | Dec 2028 → Dec 2029 at the earliest | count | No $5,000 stage; the kill rule runs from its first trade |
 | $5,000 first real-money stage | The canary's fill-quality pass | Jan 2030 at the earliest | count | Kill rule: a 25% drawdown, or the edge bound below zero after 150 trades |
 | Doublings to the $40,000 cap | 150 more closed trades each, estimate ≥ 25 bp | 2032 at the earliest | count | No doubling |

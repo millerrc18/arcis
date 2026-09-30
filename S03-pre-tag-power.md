@@ -116,7 +116,7 @@ standard errors.
   planning rate from S02 T3's candidate counts. Report the effect detectable with 80% power at the 12- and
   24-month looks.
 - **§3.2:** Q2 and Q3 as co-primary hypotheses under Holm at a family α of 2.5%, the 1-day beta-adjusted outcome,
-  and the news-bearing share from T3. Report the effect detectable at 6, 12, and 24 months, per one-standard-deviation
+  and the news-bearing share from T3. Report the effect detectable at 12 and 24 months, per one-standard-deviation
   score difference as R07 did.
 
 **Done when:** both tables exist and the script reproduces them from the recorded seeds.
@@ -141,7 +141,7 @@ standard errors.
 1. No bars, news metadata, or per-stock series are tracked by git; the data is under the data root (I-7, I-16).
 2. A test asserts the script never opens `config/incumbent_v1.yaml`, and the PR description confirms that no
    signal-conditional statistic was computed.
-3. The §2.1 table covers every listed qualification rate at 12 and 24 months; the §3.2 table covers 6, 12, and
+3. The §2.1 table covers every listed qualification rate at 12 and 24 months; the §3.2 table covers 12 and
    24 months; both reproduce from recorded seeds.
 4. PREREGISTRATION.md §2.1 and §3.2 carry the measured figures in place of the planning figures.
 5. The report states both biases: the unbracketed label overstates dispersion, and survivorship understates it.

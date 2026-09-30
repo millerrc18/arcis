@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | DRAFT v0.6 (2026-09-24). Frozen once tagged `prereg-v1`. |
+| **Status** | DRAFT v0.7 (2026-09-30). Frozen once tagged `prereg-v1`. |
 | **Tag deadline** | Before Step 3 begins (SCOPE.md §5) |
 | **Governs** | Q1 (incumbent edge), Q2 (cheap text), Q3 (LLM). Q4 is reserved. |
 | **Evidence base** | `docs/research/research-log.md`: R04 (Q1 protocol), R05–R06 (simulation and costs), R07–R10 (text questions) |
@@ -155,20 +155,20 @@ Plumbing evidence accrues from the first order of the paper-only lane (SCOPE.md 
 ### 3.1 Arms
 
 - **B, FinBERT:** ProsusAI/finbert, ONNX INT8, pinned by hash. Per article: P(positive) − P(negative) on the headline and Alpaca's `summary` field, concatenated. An article with an empty summary is scored on its headline alone, and the fallback rate is reported. The FinBERT feature never uses LLM output.
-- **C, LLM:** one pinned general instruction model (SCOPE OD-3). Weights hash, quantization, tokenizer, system prompt, decoding settings, schema version, and code hash are frozen before the first scored article. Per article, schema-constrained output: `direction` in {−1, −0.5, 0, 0.5, 1}, `materiality` in {0, 0.25, 0.5, 0.75, 1}, and `event_type` from a fixed enum. The 5-point scales make repeatability a label check; R10 notes that schema decoding cannot guarantee calibrated numbers.
+- **C, LLM:** one pinned general instruction model (SCOPE OD-3), released before the `prereg-v1` tag so that its training data cannot overlap the evidence window (§1.4). Weights hash, quantization, tokenizer, system prompt, decoding settings, schema version, and code hash are frozen before the first scored article. Per article, schema-constrained output: `direction` in {−1, −0.5, 0, 0.5, 1}, `materiality` in {0, 0.25, 0.5, 0.75, 1}, and `event_type` from a fixed enum. The 5-point scales make repeatability a label check; R10 notes that schema decoding cannot guarantee calibrated numbers.
 - **Repeatability gate, before first scoring:** five clean runs over a 1,000-article corpus with at least 99.5% agreement on every parsed label (direction, materiality, and event type) and 100% schema validity. Because the outputs are discrete, no separate numeric-drift tolerance is needed.
 - **Runtime failures:** any schema failure, timeout, or out-of-range value records `LLM_SCORE_UNAVAILABLE` and is counted (SCOPE I-14). If more than 5% of news-bearing stock-days lack an LLM score at a look, that look is void and the configuration must be fixed as a new trial.
 
 ### 3.2 Stage A — Information test (primary)
 
-- **Rows:** every universe stock-day, with or without news.
+- **Rows:** every universe stock-day from the `prereg-v1` tag onward, with or without news. As in §2.1, the clock starts at the tag: articles are recorded from then on (§1.3) and scored later by the frozen arms, and prices can be pulled later.
 - **Aggregation** over eligible, novelty-filtered articles per stock-day: `F` = mean FinBERT score; `L` = mean of direction × materiality; `N` = 1 if any eligible article exists.
 - **Outcome:** one-day forward return from the first tradable post-close point, beta-adjusted with the rolling 252-session stock betas of §2.5. Sector-adjusted return is a reported sensitivity, and raw return is secondary.
 - **Model:** `r = α_i + δ_t + b_R·R + b_F·(N·F) + b_L·(N·L) + b_N·N + γ'X + ε`, with stock and date fixed effects.
 - **Controls `X`:** prior 1-, 5-, 20-, and 60-day returns; abnormal volume; realized volatility; overnight return; sector return; earnings-window indicators; analyst-action indicator; article count; unique-story count; source and event-type controls.
 - **Estimation:** pooled fixed-effects panel, standard errors clustered by stock and date, plus a date-block bootstrap. Fama–MacBeth is a secondary check; Driscoll–Kraay is a 24-month sensitivity.
 - **Hypotheses:** Q2 is `b_F > 0` in the model without the LLM term. Q3 is `b_L > 0` in the full model. They are co-primary, tested one-sided with Holm control at a family α of 2.5%.
-- **Looks:** 6 and 12 months for data quality and nonbinding futility only. Efficacy is judged once, at 24 months.
+- **Looks:** counted from the tag. 12 months for data quality and nonbinding futility only; efficacy is judged once, at 24 months. There is no 6-month look: `textscore` is built after Step 5 (SCOPE.md §3.1), and no look is evaluated before its implementation is frozen (§0 rule 4).
 - **Secondary:** a two-day horizon as confirmation; five- and ten-day horizons as exploratory, with non-overlapping robustness checks; alternate aggregators (unweighted mean, most recent, maximum absolute score, novelty-weighted first report, six-hour half-life) reported but never optimized. Secondary families use Holm or Romano–Wolf control.
 - **Supporting:** chronological out-of-sample R² and Clark–West comparisons.
 - **Planning power:** R07's scenarios for a 100-name panel give minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). The S&P 500 panel improves on this by less than the row count suggests, because same-day moves are correlated. The real figure is simulated on the actual panel before tagging and recorded here (sprint S03, SCOPE D-024).
