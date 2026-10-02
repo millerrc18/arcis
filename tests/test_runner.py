@@ -24,7 +24,7 @@ from arcis.recorder.universe import build_universe
 def make_config(tmp_path: Path, symbols=("AAPL", "MSFT")) -> Config:
     return Config(
         data_root=tmp_path / "data",
-        alpaca_base_url="https://paper-api.alpaca.markets",
+        alpaca_base_url="https://data.alpaca.markets",
         alpaca_api_key="k",
         alpaca_api_secret="s",
         universe_name="sp500",

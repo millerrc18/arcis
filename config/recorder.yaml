@@ -3,7 +3,7 @@
 # data_root must be outside this repo and outside cloud-sync folders.
 
 data_root: /home/hatch/arcis-data
-alpaca_base_url: https://paper-api.alpaca.markets
+alpaca_base_url: https://data.alpaca.markets
 universe_name: sp500
 universe_source: "Wikipedia List of S&P 500 companies, retrieved 2026-10-02 via MediaWiki API"
 symbols:

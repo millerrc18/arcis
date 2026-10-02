@@ -12,7 +12,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 GOOD_DOC = {
     "data_root": "/tmp/arcis-test-data",
-    "alpaca_base_url": "https://paper-api.alpaca.markets",
+    "alpaca_base_url": "https://data.alpaca.markets",
     "universe_name": "sp500",
     "universe_source": "test",
     "symbols": ["AAPL", "MSFT"],

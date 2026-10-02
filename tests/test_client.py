@@ -19,7 +19,7 @@ from arcis.recorder.config import Config
 from arcis.recorder.errors import AuthError, ClientError, RateLimitError
 
 REPO = Path(__file__).resolve().parent.parent
-BASE_URL = "https://paper-api.alpaca.markets"
+BASE_URL = "https://data.alpaca.markets"
 
 
 def make_config(**overrides) -> Config:

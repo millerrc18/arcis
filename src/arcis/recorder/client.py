@@ -91,7 +91,9 @@ class AlpacaNewsClient:
         self.config = config
         # trust_env=False: some environments ship a no_proxy that httpx
         # cannot parse (bracketed IPv6 wildcards); read the proxy explicitly.
+        # ARCIS_CA_BUNDLE overrides TLS verification (sandbox MITM proxy).
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        verify = os.environ.get("ARCIS_CA_BUNDLE", True)
         self.client = httpx.Client(
             base_url=str(config.alpaca_base_url),
             headers={
@@ -101,6 +103,7 @@ class AlpacaNewsClient:
             timeout=30.0,
             trust_env=False,
             proxy=proxy,
+            verify=verify,
         )
         self.server_dates: list[str] = []
         self._minute_window: deque[float] = deque()
