@@ -282,6 +282,59 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
 
 _(Claude Code appends here.)_
 
+### T1 — Live preflight (2026-10-02, run by Pip from the dev sandbox)
+
+**Verdict: access works. The sprint proceeds.** No OD-5.
+
+1. **Credential check.** `GET https://paper-api.alpaca.markets/v2/account` with the
+   paper keys returned **200** — keys valid. (An earlier shared pair returned 401
+   on this endpoint and was replaced; per the T1 rule that was an invalid-keys
+   case, not a news refusal.)
+2. **News access.** Two identical requests —
+   `GET https://data.alpaca.markets/v1beta1/news?symbols=AAPL,MSFT,NVDA`,
+   24h window (`2026-10-01T22:35:26Z` → `2026-10-02T22:35:26Z`), `limit=50`,
+   `sort=asc`, `include_content=true` — both returned **200**. The plan allows
+   news access on these keys.
+3. **Envelope and pagination.** Top-level keys: `news`, `next_page_token`.
+   `next_page_token` was present but null (single page; 35 articles < limit 50).
+   Pagination is followed via that token when non-null (T5).
+4. **Rate limits.** Response headers: `x-ratelimit-limit: 200`,
+   `x-ratelimit-remaining: 199`, `x-ratelimit-reset: <unix>`. The 200 req/min
+   Basic-plan figure from the plan material is confirmed by measurement.
+5. **Volatile fields: none.** All 35 articles were byte-identical across the two
+   identical requests (per-field SHA-256 comparison). Nothing needs excluding
+   from the T7 version hash on volatility grounds. `updated_at` tracked
+   `created_at` within ~1s on the sampled articles.
+6. **Filter semantics.** 0 of 35 articles had `created_at` before `start`
+   (`created_at` range `2026-10-02T01:54:21Z` → `2026-10-02T21:00:11Z`, fully
+   inside the window). No article with `created_at < start` but
+   `updated_at > start` was found, so the spec's design (works either way)
+   stands; the recorder treats the window as given and relies on its own
+   `fetched_at`.
+7. **Schema (field names and types, no text values).** Article fields:
+   `id` int; `headline`, `summary`, `content`, `author`, `created_at`,
+   `updated_at`, `url`, `source` str (`content` may be null);
+   `symbols` list[str]; `images` list of `{size: str, url: str}` (may be empty).
+   The synthetic fixture in `tests/fixtures/news_page_1.json` reproduces this
+   shape with invented text, including a null-`content` case and an empty-images
+   case.
+
+**Scale note.** 35 articles / 3 symbols / 24h ≈ 12 articles per symbol-day.
+At ~500 symbols that is ~6,000 articles/day; the 10-request poll fits easily
+inside the 200/min budget.
+
+**Sandbox note (dev-environment only).** This sandbox's egress proxy MITMs TLS
+with a private CA. The uv-managed Python SSL stack rejected the chain even
+with the platform CA bundle set via `SSL_CERT_FILE`, and httpx misparsed the
+proxy env vars, so the preflight ran over curl via subprocess with bodies held
+in pipes (nothing persisted — T1's in-memory rule held). The deliverable T5
+client uses standard httpx configuration, which is correct on the operator
+host and in CI; only sandbox live-tests need the curl workaround.
+
+**Done when (T1):** report section exists (this section); no response body was
+persisted (all inspection in memory/pipes); access works, so the synthetic
+fixture is committed in this same commit.
+
 ---
 
 ## Ralph Loop log (spec review before hand-off)
