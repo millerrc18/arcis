@@ -53,7 +53,8 @@ def test_fails_on_key_id_shaped_string(tmp_path):
 
 
 def test_fails_on_private_key_block(tmp_path):
-    rel = make(tmp_path, "key.pem", "-----BEGIN RSA PRIVATE KEY-----\n")
+    marker = "-----BEGIN " + "RSA PRIVATE KEY-----\n"
+    rel = make(tmp_path, "key.pem", marker)
     assert any("private key" in e for e in check_hygiene.check(tmp_path, [rel]))
 
 
