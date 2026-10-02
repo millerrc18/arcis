@@ -37,3 +37,11 @@ class AuthError(ClientError):
 
 class RateLimitError(ClientError):
     """Rate limit still in effect after retries (429)."""
+
+
+class ClockError(RecorderError):
+    """Alpaca clock skew exceeds the allowed maximum; refusing to record."""
+
+
+class LockError(RecorderError):
+    """Another poll holds the recorder lock."""
