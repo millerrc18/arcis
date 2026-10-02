@@ -9,10 +9,13 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def repo_docs():
+    def visible(p: Path) -> bool:
+        return not any(part.startswith(".") for part in p.parts)
+
     return sorted(
         p.relative_to(REPO).as_posix()
         for p in REPO.rglob("*.md")
-        if ".git/" not in p.as_posix()
+        if visible(p.relative_to(REPO))
     )
 
 

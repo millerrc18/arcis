@@ -1,0 +1,20 @@
+# Secrets and environment
+.env*
+
+# Virtual environments
+.venv/
+venv/
+.env/
+
+# Caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uv.lock.tmp
+
+# Local data (I-7: data lives outside the repo and outside sync folders)
+*.sqlite*
+*.sqlite3*
+data/
