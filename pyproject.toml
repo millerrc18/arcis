@@ -21,7 +21,12 @@ dev = [
     # versions of both, locally and in CI (justified in the S01 sprint report).
     "ruff",
     "mypy",
+    # Type stubs for mypy --strict (dev-only).
+    "types-PyYAML",
 ]
+
+[project.scripts]
+arcis-recorder = "arcis.recorder.cli:main"
 
 [build-system]
 requires = ["hatchling"]

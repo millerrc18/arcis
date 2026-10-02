@@ -1,0 +1,27 @@
+"""Typed errors for the news recorder. Every failure mode has its own
+type; nothing is raised as a bare Exception outside the CLI boundary."""
+from __future__ import annotations
+
+
+class RecorderError(Exception):
+    """Base type for all recorder failures."""
+
+
+class ConfigError(RecorderError):
+    """Configuration is missing, invalid, or unsafe."""
+
+
+class UniverseError(RecorderError):
+    """Universe snapshot is missing, mismatched, or would be mutated."""
+
+
+class StoreError(RecorderError):
+    """Append-only store or manifest invariant violated."""
+
+
+class VerifyError(RecorderError):
+    """Verification of stored data failed."""
+
+
+class ClientError(RecorderError):
+    """Alpaca API client failure (transport, auth, rate limit, schema)."""
