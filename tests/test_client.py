@@ -113,7 +113,7 @@ def test_pagination_follows_next_page_token():
         articles = list(client.fetch_news(["AAPL"], START, END))
     finally:
         client.close()
-    assert [a.id for a in articles] == [1, 2]
+    assert [f.article.id for f in articles] == [1, 2]
     assert route.call_count == 2
     assert "page_token=tok" in str(route.calls[1].request.url)
 
@@ -150,7 +150,7 @@ def test_retry_then_success_on_429():
             articles = list(client.fetch_news(["AAPL"], START, END))
     finally:
         client.close()
-    assert [a.id for a in articles] == [7]
+    assert [f.article.id for f in articles] == [7]
 
 
 @respx.mock

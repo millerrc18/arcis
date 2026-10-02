@@ -19,6 +19,10 @@ class StoreError(RecorderError):
     """Append-only store or manifest invariant violated."""
 
 
+class StorageLayoutError(StoreError):
+    """A path escaped the data root or the layout was violated."""
+
+
 class VerifyError(RecorderError):
     """Verification of stored data failed."""
 

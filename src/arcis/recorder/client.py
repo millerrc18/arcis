@@ -16,7 +16,9 @@ import os
 import time
 from collections import deque
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -62,6 +64,21 @@ class NewsPage(BaseModel):
 
     news: list[Article]
     next_page_token: str | None = None
+
+
+@dataclass
+class FetchedArticle:
+    """An article with both its validated form and the raw JSON as received.
+    The store persists the raw form (T6); the version hash covers it (T7)."""
+
+    raw: dict[str, Any]
+    article: Article
+
+
+@dataclass
+class FetchedPage:
+    articles: list[FetchedArticle]
+    next_page_token: str | None
 
 
 def chunked(items: list[str], size: int) -> Iterator[list[str]]:
@@ -117,7 +134,7 @@ class AlpacaNewsClient:
         self._minute_window.append(now)
         self._day_count += 1
 
-    def _get_page(self, params: dict[str, str]) -> NewsPage:
+    def _get_page(self, params: dict[str, str]) -> FetchedPage:
         retry = self.config.retry
         delay = retry.base_delay_seconds
         last_error: Exception | None = None
@@ -134,9 +151,18 @@ class AlpacaNewsClient:
                 last_status = response.status_code
                 if last_status == 200:
                     try:
-                        return NewsPage(**response.json())
+                        data = response.json()
+                        page = NewsPage(**data)
                     except (ValueError, ValidationError) as e:
                         raise ClientError(f"unparseable news page: {e}") from e
+                    raws = data.get("news", [])
+                    if not isinstance(raws, list) or len(raws) != len(page.news):
+                        raise ClientError("news page shape changed: raw/article count mismatch")
+                    fetched = [
+                        FetchedArticle(raw=r, article=a)
+                        for r, a in zip(raws, page.news, strict=True)
+                    ]
+                    return FetchedPage(articles=fetched, next_page_token=page.next_page_token)
                 if last_status in (401, 403):
                     raise AuthError(f"alpaca rejected the credentials (HTTP {last_status})")
                 if last_status in RETRYABLE_STATUS:
@@ -164,7 +190,7 @@ class AlpacaNewsClient:
         start: datetime,
         end: datetime,
         max_pages: int = 50,
-    ) -> Iterator[Article]:
+    ) -> Iterator[FetchedArticle]:
         """Yield articles for the symbols in [start, end), oldest first."""
         for chunk in chunked(symbols, CHUNK_SIZE):
             params = {
@@ -181,7 +207,7 @@ class AlpacaNewsClient:
                 elif "page_token" in params:
                     del params["page_token"]
                 page = self._get_page(params)
-                yield from page.news
+                yield from page.articles
                 page_token = page.next_page_token
                 if not page_token:
                     break
