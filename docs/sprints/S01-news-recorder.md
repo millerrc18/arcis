@@ -337,6 +337,97 @@ fixture is committed in this same commit.
 
 ---
 
+### T2–T10 — Build (2026-10-02, Pip)
+
+**T2 — Repository scaffold and documentation set.** Created `README.md`
+(85 lines), `CLAUDE.md`, `CHANGELOG.md`, `.github/pull_request_template.md`,
+and `tests/test_docs.py`. Moved `RESEARCH-QUESTIONS.md`,
+`S01/S02/S03-news-recorder.md`, and `reference-architecture.md` into
+`docs/`; `research-log.md` → `docs/research/` is blocked (165 KB exceeds the
+GitHub CLI's ~128 KB single-argument limit — see Deviations). The docs test
+asserts every document is in README's map and no root duplicates remain.
+
+**T3 — Tooling, checks, and CI.** `pyproject.toml` (Python 3.12, `src/`
+layout; `httpx`, `pydantic` v2, `pyyaml`; dev: `pytest`, `pytest-cov`,
+`respx`, `ruff`, `mypy`, `types-PyYAML` — the last three justified below),
+`.python-version`, `.gitignore`, `uv.lock` (committed). `tools/check_ledger.py`
+(SCOPE §3 vs `src/arcis/`), `tools/check_size.py` (400/60 via `ast`),
+`tools/check_hygiene.py` (I-16: data extensions, >1 MB, sprint naming,
+credential-shaped strings, `# hygiene: allow` pragma),
+`tools/checks.py` (single entry: ruff, mypy --strict, three checks, pytest),
+`.github/workflows/ci.yml`. Each check has failing-example tests. `uv run
+python tools/checks.py` is green.
+
+**T4 — Configuration, data-root guard, universe, daily snapshot.**
+`Config` (pydantic, `extra="forbid"`, no defaults; secrets env-only) with
+nested `RateLimit`/`Retry`; the loader refuses repo-local or cloud-sync
+`data_root`. Vendored `config/sp500.csv` (503 symbols) and `config/sp100.csv`
+(101 symbols) from Wikipedia via the MediaWiki API on 2026-10-02 (source and
+date recorded in `universe_source`). `arcis-recorder universe` writes the
+dated immutable snapshot; every run validates it. 503-symbol config committed
+(`ON` quoted — YAML 1.1 parses bare `ON` as boolean).
+
+**T5 — Alpaca news client.** `AlpacaNewsClient`: 50-symbol chunks, `sort=asc`,
+`next_page_token` pagination, manual exponential backoff on 429/5xx/network
+(no tenacity — not a dependency), `Retry-After` honored, client-side
+per-minute/per-day enforcement, every `Date` header captured. Typed errors:
+`AuthError` (401/403), `RateLimitError` (429 after retries), `ClientError`.
+`Article` schema matches T1 exactly (`content` nullable, unknown fields
+ignored, `symbols`/`images` default `[]`). Yields `FetchedArticle`
+(raw + parsed) so T7 hashes the raw JSON.
+
+**T6 — Append-only store, manifests, verify.** `data_root/articles/<symbol>/
+<YYYY-MM-DD>.jsonl` (raw JSON, arrival order, deduped by `(symbol, id)`),
+atomic `.manifest.json` (`sha256`, `bytes`, `records`, `first/last_created_at`,
+`article_ids`). `verify()` recomputes manifests and flags duplicates and
+out-of-order `created_at`. `StorageLayoutError` on path escape; symbol
+allowlist blocks traversal.
+
+**T7 — Version hash, index, rebuild.** `version_hash` = sha256 over canonical
+JSON of the raw article minus `EXCLUDED_FIELDS`, which is **empty** — T1 found
+no volatile fields, documented at the constant. `data_root/index/<symbol>.jsonl`
+maps `article_id -> version_hash` (append, deduped). `rebuild()` replays all
+JSONL, rewrites indexes from scratch, and reports hash mismatches
+(tamper-evident).
+
+**T8 — poll/sweep/gaps, OS lock, clock checks, heartbeat.** `poll` (cron,
+*/15): `fcntl` exclusive lock on `data_root/recorder.lock`, universe
+validation, 24h fetch, clock check (Alpaca `Date` vs local, >300s refuses
+before any write), stores under every configured tagged symbol, atomic
+`heartbeat.json` on success only. `sweep --start/--end` backfills without
+touching the heartbeat. `gaps` reports heartbeat age and per-day counts
+(exit 1 on missing days).
+
+**T9 — Tests, coverage, live smoke.** 105 tests, 94% line coverage on
+`src/arcis/recorder/` (≥90% required). `tools/smoke.py --mode full` ran a live
+poll (35 articles, 42 pairs stored, heartbeat written, verify clean);
+`--mode fingerprint` verified hash stability and tamper detection on live data.
+
+**T10 — Runbook, docs, changelog, sprint report, PR prep.** This report,
+`docs/runbooks/news-recorder.md`, CHANGELOG, README roadmap row.
+
+**Deviations and justifications**
+
+1. `alpaca_base_url` is `https://data.alpaca.markets`, not the paper trading
+   host. The news API lives on the data host (T1 confirmed); the paper host
+   404s `/v1beta1/news`. The spec's "(paper URL by default? no)" assumed the
+   wrong host.
+2. Dev dependencies `ruff`, `mypy`, `types-PyYAML` added: `tools/checks.py`
+   must invoke pinned linters locally and in CI.
+3. `ARCIS_CA_BUNDLE` env override and `trust_env=False` in the client: the dev
+   sandbox MITMs TLS with a private CA and ships a `no_proxy` httpx cannot
+   parse. Production default (system CAs, env proxy) is unchanged.
+4. `research-log.md` (165 KB) and `uv.lock` (148 KB) exceed the GitHub CLI's
+   ~128 KB single-argument transport limit and cannot be pushed via the
+   integration. Both are committed locally; final push needs a PAT or the
+   web-UI move (research-log) — tracked as the sprint's blocked item.
+5. Full-text storage implemented per T6 (D-018). The fingerprint-mode reversal
+   (config switch + rewrite tool) is documented in the runbook but not built,
+   per the "no speculative fallbacks" rule — it is constructed only if a
+   written refusal arrives.
+
+---
+
 ## Ralph Loop log (spec review before hand-off)
 
 **Pass 1 — draft.** Scope, API facts from Alpaca's docs, and ten tasks with a preflight gate.

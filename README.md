@@ -8,9 +8,9 @@ A personal research project testing whether a long-only pullback strategy on the
 
 Current step: SCOPE.md §5 **Step 1** — the forward news recorder (sprint S01, branch `feat/s01-news-recorder`).
 
-What exists: the binding charter (SCOPE.md v1.0, tagged `charter-v1`), the research preregistration (draft v0.7), the research log (entries R01–R12), and the S01 spec with its T1 news-access preflight complete (2026-10-02).
+What exists: the binding charter (SCOPE.md v1.0, tagged `charter-v1`), the research preregistration (draft v0.7), the research log (entries R01–R12), and the S01 news recorder — built 2026-10-02 (105 tests, 94% coverage, live smoke passed; PR pending).
 
-What deliberately does not exist yet: any code. No data plane, no ranker, no simulator, no live lane. Per the charter, nothing is built before its step.
+What deliberately does not exist yet: the data plane beyond news, no ranker, no simulator, no live lane. Per the charter, nothing is built before its step.
 
 ### Roadmap
 
@@ -20,6 +20,7 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 |---|---|---|---|---|
 | Step 0 · `charter-v1` | — | 2026-09-27 | done | — |
 | S01 T1 · news-access preflight | Paper API keys | 2026-10-02 | done | — |
+| S01 T2–T10 · recorder built | — | 2026-10-02 | done | — |
 | Step 1 · recorder, 7 clean days | S01 merged | late Oct 2026 | forecast | — |
 | Step 2 · S02 report, `incumbent_v1` frozen | — | late Oct 2026 | forecast | — |
 | Step 2m · S03 power figures | S01 merged, S02 T4 | early Nov 2026 | forecast | If 25 bp is undetectable at 24 months, a decision before the tag (S03) |
@@ -63,9 +64,10 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 ```sh
 uv sync
 uv run python tools/checks.py   # ruff, mypy, ledger/size/hygiene checks, pytest
-# configure the recorder (see docs/runbooks/recorder.md), then:
-uv run python -m arcis.recorder poll
-uv run python -m arcis.recorder verify
+# configure the recorder (see docs/runbooks/news-recorder.md), then:
+uv run arcis-recorder universe
+uv run arcis-recorder poll
+uv run arcis-recorder verify
 ```
 
 ## Where the data lives

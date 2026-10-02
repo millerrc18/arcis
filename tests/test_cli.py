@@ -101,3 +101,22 @@ def test_recorder_error_exits_nonzero(tmp_path, monkeypatch, capsys):
     rc = main(["--config", str(config), "poll"])
     assert rc == 1
     assert "error: boom" in capsys.readouterr().err
+
+
+def test_verify_command_ok(tmp_path, monkeypatch, capsys):
+    config = write_full_config(tmp_path)
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_API_SECRET", "s")
+    # Empty data root: verify passes vacuously.
+    rc = main(["--config", str(config), "verify"])
+    assert rc == 0
+    assert "verify: OK" in capsys.readouterr().out
+
+
+def test_rebuild_command_ok(tmp_path, monkeypatch, capsys):
+    config = write_full_config(tmp_path)
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_API_SECRET", "s")
+    rc = main(["--config", str(config), "rebuild"])
+    assert rc == 0
+    assert "rebuild: OK" in capsys.readouterr().out

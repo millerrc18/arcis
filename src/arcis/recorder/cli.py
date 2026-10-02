@@ -12,7 +12,9 @@ from arcis.recorder.errors import RecorderError
 from arcis.recorder.runner import gaps as gaps_run
 from arcis.recorder.runner import poll as poll_run
 from arcis.recorder.runner import sweep as sweep_run
+from arcis.recorder.store import NewsStore
 from arcis.recorder.universe import build_universe
+from arcis.recorder.versioning import VersionIndex
 
 
 def _add_config_arg(parser: argparse.ArgumentParser) -> None:
@@ -53,6 +55,26 @@ def cmd_gaps(args: argparse.Namespace) -> int:
     return 1 if report["missing_days"] or report["last_poll_at"] is None else 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    errors = NewsStore(config.data_root).verify()
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    print("verify: OK")
+    return 0
+
+
+def cmd_rebuild(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    errors = VersionIndex(config.data_root).rebuild()
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    print("rebuild: OK")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="arcis-recorder", description="Forward news recorder")
     _add_config_arg(parser)
@@ -73,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_gaps = sub.add_parser("gaps", help="report coverage gaps")
     p_gaps.add_argument("--days", type=int, default=7, help="days to report (default: 7)")
     p_gaps.set_defaults(func=cmd_gaps)
+
+    p_verify = sub.add_parser("verify", help="verify every JSONL against its manifest")
+    p_verify.set_defaults(func=cmd_verify)
+
+    p_rebuild = sub.add_parser("rebuild", help="rebuild every version index from scratch")
+    p_rebuild.set_defaults(func=cmd_rebuild)
     return parser
 
 
