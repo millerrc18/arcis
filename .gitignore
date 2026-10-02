@@ -18,3 +18,4 @@ uv.lock.tmp
 *.sqlite*
 *.sqlite3*
 data/
+.coverage
