@@ -25,3 +25,11 @@ class VerifyError(RecorderError):
 
 class ClientError(RecorderError):
     """Alpaca API client failure (transport, auth, rate limit, schema)."""
+
+
+class AuthError(ClientError):
+    """Alpaca rejected the credentials (401/403)."""
+
+
+class RateLimitError(ClientError):
+    """Rate limit still in effect after retries (429)."""
