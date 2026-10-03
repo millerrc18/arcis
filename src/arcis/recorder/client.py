@@ -202,6 +202,8 @@ class AlpacaNewsClient:
                 "end": end.isoformat(),
                 "limit": str(PAGE_SIZE),
                 "sort": "asc",
+                # D-018: store full article text. Without this the API omits content.
+                "include_content": "true",
             }
             page_token: str | None = None
             for _ in range(max_pages):

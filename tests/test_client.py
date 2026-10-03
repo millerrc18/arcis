@@ -119,6 +119,22 @@ def test_pagination_follows_next_page_token():
 
 
 @respx.mock
+def test_request_includes_content_and_sort_params():
+    route = respx.get(f"{BASE_URL}/v1beta1/news").mock(
+        httpx.Response(200, json=page_dict([]))
+    )
+    client = AlpacaNewsClient(make_config())
+    try:
+        list(client.fetch_news(["AAPL"], START, END))
+    finally:
+        client.close()
+    url = str(route.calls[0].request.url)
+    assert "include_content=true" in url
+    assert "sort=asc" in url
+    assert "limit=50" in url
+
+
+@respx.mock
 def test_symbols_chunked_at_50():
     route = respx.get(f"{BASE_URL}/v1beta1/news").mock(
         httpx.Response(200, json=page_dict([]))
