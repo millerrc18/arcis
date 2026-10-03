@@ -49,7 +49,7 @@ If a task appears to need anything from **Out**, stop and write it up in the spr
 
 - Clone `https://github.com/millerrc18/arcis-legacy.git` into a scratch directory outside the new repo's working tree.
 - Record the commit SHA, its date, the branch, and the file count. Every later task cites this SHA.
-- Extract the local legacy archive, read-only, into the same scratch area. It was made on 2026-09-28 on the operator's machine, outside any sync folder, and its README and ADDENDUM explain the layout. It holds what never reached GitHub: 18 commits on no remote, 11 stashes, the agent worktrees, the databases as Finnhub-free copies, training data, and logs. Record its SHA-256 from SHA256SUMS.txt; any claim drawn from it cites that hash and the archive path.
+- Extract the local legacy archive, read-only, into the same scratch area. It was made on 2026-09-28 on the operator's machine, outside any sync folder, and its README and ADDENDUM explain the layout. It holds what never reached GitHub: 18 commits on no remote, 11 stashes, the agent worktrees, the databases as Finnhub-free copies, training data, and logs. Record its SHA-256 from SHA256SUMS.txt; any claim drawn from it cites that hash and the archive path. Work from no other copy of the legacy folders, so nothing outside this archive and the GitHub clone enters the inventory.
 - Produce a one-page map of the repository: top-level directories, file counts, and what each area appears to hold.
 
 **Done when:** the map, the SHA, and the archive hash are in the report, and nothing was written to the legacy clone or the archive.
@@ -122,7 +122,7 @@ For each: what it did, where it lives, what is known to be wrong with it, and wh
 
 - List the data vendors and endpoints the old platform used, what each provided, and which subscriptions have lapsed.
 - List what data was stored locally or in the repository, its format, and its size.
-- Flag anything covered by a vendor license, especially news text, so it is never reused (I-13). Finnhub's terms require deleting all Finnhub data once the subscription to it ends (Premium lapsed 2026-07-30; Fundamental 1 lapses 2026-10-30), so none of it was carried into the local legacy archive (2026-09-28): the nine collector tables, the prompt text that merged Finnhub feeds, and the export folder were left out, and the archive's exclusion lists record each item. Report those lists rather than searching the legacy stores again (SCOPE D-023). The legacy git history holds no Finnhub data files.
+- Flag anything covered by a vendor license, especially news text, so it is never reused (I-13). Finnhub's terms require deleting all Finnhub data once the subscription to it ends (Premium lapsed 2026-07-30; Fundamental 1 lapses 2026-10-30), so none of it is in the 2026-09-28 archive this sprint works from: the nine collector tables, the prompt text that merged Finnhub feeds, and the export folder were left out, and the archive's exclusion lists record each item. Report those lists rather than searching the legacy stores again (SCOPE D-023). The legacy git history holds no Finnhub data files.
 - Note which sources would need point-in-time re-verification if they were ever used again.
 
 **Done when:** the table is in the report, with license-restricted items clearly marked.
