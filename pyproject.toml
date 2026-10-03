@@ -1,0 +1,57 @@
+[project]
+name = "arcis"
+version = "0.1.0"
+description = "Personal systematic trading research (rebuild)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx",
+    "pydantic>=2,<3",
+    "pyyaml",
+]
+
+[dependency-groups]
+# Test + tooling dependencies. `uv sync` installs these by default, so
+# `uv run python tools/checks.py` works with no extra flags.
+dev = [
+    "pytest",
+    "pytest-cov",
+    "respx",
+    # ruff and mypy are dev-only: tools/checks.py must invoke pinned
+    # versions of both, locally and in CI (justified in the S01 sprint report).
+    "ruff",
+    "mypy",
+    # Type stubs for mypy --strict (dev-only).
+    "types-PyYAML",
+]
+
+[project.scripts]
+arcis-recorder = "arcis.recorder.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arcis"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "BLE", "B", "SIM"]
+ignore = ["SIM108"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+show_error_codes = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = ["--cov=src/arcis", "--cov-report=term-missing"]
+
+[tool.coverage.run]
+source = ["src/arcis"]

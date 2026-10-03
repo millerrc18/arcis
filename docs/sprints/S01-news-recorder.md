@@ -282,6 +282,150 @@ The only broad exception handler allowed is at the CLI entry point; it logs, sen
 
 _(Claude Code appends here.)_
 
+### T1 — Live preflight (2026-10-02, run by Pip from the dev sandbox)
+
+**Verdict: access works. The sprint proceeds.** No OD-5.
+
+1. **Credential check.** `GET https://paper-api.alpaca.markets/v2/account` with the
+   paper keys returned **200** — keys valid. (An earlier shared pair returned 401
+   on this endpoint and was replaced; per the T1 rule that was an invalid-keys
+   case, not a news refusal.)
+2. **News access.** Two identical requests —
+   `GET https://data.alpaca.markets/v1beta1/news?symbols=AAPL,MSFT,NVDA`,
+   24h window (`2026-10-01T22:35:26Z` → `2026-10-02T22:35:26Z`), `limit=50`,
+   `sort=asc`, `include_content=true` — both returned **200**. The plan allows
+   news access on these keys.
+3. **Envelope and pagination.** Top-level keys: `news`, `next_page_token`.
+   `next_page_token` was present but null (single page; 35 articles < limit 50).
+   Pagination is followed via that token when non-null (T5).
+4. **Rate limits.** Response headers: `x-ratelimit-limit: 200`,
+   `x-ratelimit-remaining: 199`, `x-ratelimit-reset: <unix>`. The 200 req/min
+   Basic-plan figure from the plan material is confirmed by measurement.
+5. **Volatile fields: none.** All 35 articles were byte-identical across the two
+   identical requests (per-field SHA-256 comparison). Nothing needs excluding
+   from the T7 version hash on volatility grounds. `updated_at` tracked
+   `created_at` within ~1s on the sampled articles.
+6. **Filter semantics.** 0 of 35 articles had `created_at` before `start`
+   (`created_at` range `2026-10-02T01:54:21Z` → `2026-10-02T21:00:11Z`, fully
+   inside the window). No article with `created_at < start` but
+   `updated_at > start` was found, so the spec's design (works either way)
+   stands; the recorder treats the window as given and relies on its own
+   `fetched_at`.
+7. **Schema (field names and types, no text values).** Article fields:
+   `id` int; `headline`, `summary`, `content`, `author`, `created_at`,
+   `updated_at`, `url`, `source` str (`content` may be null);
+   `symbols` list[str]; `images` list of `{size: str, url: str}` (may be empty).
+   The synthetic fixture in `tests/fixtures/news_page_1.json` reproduces this
+   shape with invented text, including a null-`content` case and an empty-images
+   case.
+
+**Scale note.** 35 articles / 3 symbols / 24h ≈ 12 articles per symbol-day.
+At ~500 symbols that is ~6,000 articles/day; the 10-request poll fits easily
+inside the 200/min budget.
+
+**Sandbox note (dev-environment only).** This sandbox's egress proxy MITMs TLS
+with a private CA. The uv-managed Python SSL stack rejected the chain even
+with the platform CA bundle set via `SSL_CERT_FILE`, and httpx misparsed the
+proxy env vars, so the preflight ran over curl via subprocess with bodies held
+in pipes (nothing persisted — T1's in-memory rule held). The deliverable T5
+client uses standard httpx configuration, which is correct on the operator
+host and in CI; only sandbox live-tests need the curl workaround.
+
+**Done when (T1):** report section exists (this section); no response body was
+persisted (all inspection in memory/pipes); access works, so the synthetic
+fixture is committed in this same commit.
+
+---
+
+### T2–T10 — Build (2026-10-02, Pip)
+
+**T2 — Repository scaffold and documentation set.** Created `README.md`
+(85 lines), `CLAUDE.md`, `CHANGELOG.md`, `.github/pull_request_template.md`,
+and `tests/test_docs.py`. Moved `RESEARCH-QUESTIONS.md`,
+`S01/S02/S03-news-recorder.md`, and `reference-architecture.md` into
+`docs/`; `research-log.md` → `docs/research/` is blocked (165 KB exceeds the
+GitHub CLI's ~128 KB single-argument limit — see Deviations). The docs test
+asserts every document is in README's map and no root duplicates remain.
+
+**T3 — Tooling, checks, and CI.** `pyproject.toml` (Python 3.12, `src/`
+layout; `httpx`, `pydantic` v2, `pyyaml`; dev: `pytest`, `pytest-cov`,
+`respx`, `ruff`, `mypy`, `types-PyYAML` — the last three justified below),
+`.python-version`, `.gitignore`, `uv.lock` (committed). `tools/check_ledger.py`
+(SCOPE §3 vs `src/arcis/`), `tools/check_size.py` (400/60 via `ast`),
+`tools/check_hygiene.py` (I-16: data extensions, >1 MB, sprint naming,
+credential-shaped strings, `# hygiene: allow` pragma),
+`tools/checks.py` (single entry: ruff, mypy --strict, three checks, pytest),
+`.github/workflows/ci.yml`. Each check has failing-example tests. `uv run
+python tools/checks.py` is green.
+
+**T4 — Configuration, data-root guard, universe, daily snapshot.**
+`Config` (pydantic, `extra="forbid"`, no defaults; secrets env-only) with
+nested `RateLimit`/`Retry`; the loader refuses repo-local or cloud-sync
+`data_root`. Vendored `config/sp500.csv` (503 symbols) and `config/sp100.csv`
+(101 symbols) from Wikipedia via the MediaWiki API on 2026-10-02 (source and
+date recorded in `universe_source`). `arcis-recorder universe` writes the
+dated immutable snapshot; every run validates it. 503-symbol config committed
+(`ON` quoted — YAML 1.1 parses bare `ON` as boolean).
+
+**T5 — Alpaca news client.** `AlpacaNewsClient`: 50-symbol chunks, `sort=asc`,
+`next_page_token` pagination, manual exponential backoff on 429/5xx/network
+(no tenacity — not a dependency), `Retry-After` honored, client-side
+per-minute/per-day enforcement, every `Date` header captured. Typed errors:
+`AuthError` (401/403), `RateLimitError` (429 after retries), `ClientError`.
+`Article` schema matches T1 exactly (`content` nullable, unknown fields
+ignored, `symbols`/`images` default `[]`). Yields `FetchedArticle`
+(raw + parsed) so T7 hashes the raw JSON.
+
+**T6 — Append-only store, manifests, verify.** `data_root/articles/<symbol>/
+<YYYY-MM-DD>.jsonl` (raw JSON, arrival order, deduped by `(symbol, id)`),
+atomic `.manifest.json` (`sha256`, `bytes`, `records`, `first/last_created_at`,
+`article_ids`). `verify()` recomputes manifests and flags duplicates and
+out-of-order `created_at`. `StorageLayoutError` on path escape; symbol
+allowlist blocks traversal.
+
+**T7 — Version hash, index, rebuild.** `version_hash` = sha256 over canonical
+JSON of the raw article minus `EXCLUDED_FIELDS`, which is **empty** — T1 found
+no volatile fields, documented at the constant. `data_root/index/<symbol>.jsonl`
+maps `article_id -> version_hash` (append, deduped). `rebuild()` replays all
+JSONL, rewrites indexes from scratch, and reports hash mismatches
+(tamper-evident).
+
+**T8 — poll/sweep/gaps, OS lock, clock checks, heartbeat.** `poll` (cron,
+*/15): `fcntl` exclusive lock on `data_root/recorder.lock`, universe
+validation, 24h fetch, clock check (Alpaca `Date` vs local, >300s refuses
+before any write), stores under every configured tagged symbol, atomic
+`heartbeat.json` on success only. `sweep --start/--end` backfills without
+touching the heartbeat. `gaps` reports heartbeat age and per-day counts
+(exit 1 on missing days).
+
+**T9 — Tests, coverage, live smoke.** 105 tests, 94% line coverage on
+`src/arcis/recorder/` (≥90% required). `tools/smoke.py --mode full` ran a live
+poll (35 articles, 42 pairs stored, heartbeat written, verify clean);
+`--mode fingerprint` verified hash stability and tamper detection on live data.
+
+**T10 — Runbook, docs, changelog, sprint report, PR prep.** This report,
+`docs/runbooks/news-recorder.md`, CHANGELOG, README roadmap row.
+
+**Deviations and justifications**
+
+1. `alpaca_base_url` is `https://data.alpaca.markets`, not the paper trading
+   host. The news API lives on the data host (T1 confirmed); the paper host
+   404s `/v1beta1/news`. The spec's "(paper URL by default? no)" assumed the
+   wrong host.
+2. Dev dependencies `ruff`, `mypy`, `types-PyYAML` added: `tools/checks.py`
+   must invoke pinned linters locally and in CI.
+3. `ARCIS_CA_BUNDLE` env override and `trust_env=False` in the client: the dev
+   sandbox MITMs TLS with a private CA and ships a `no_proxy` httpx cannot
+   parse. Production default (system CAs, env proxy) is unchanged.
+4. `research-log.md` (165 KB) and `uv.lock` (148 KB) exceed the GitHub CLI's
+   ~128 KB single-argument transport limit and cannot be pushed via the
+   integration. Both are committed locally; final push needs a PAT or the
+   web-UI move (research-log) — tracked as the sprint's blocked item.
+5. Full-text storage implemented per T6 (D-018). The fingerprint-mode reversal
+   (config switch + rewrite tool) is documented in the runbook but not built,
+   per the "no speculative fallbacks" rule — it is constructed only if a
+   written refusal arrives.
+
 ---
 
 ## Ralph Loop log (spec review before hand-off)
