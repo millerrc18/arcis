@@ -66,11 +66,11 @@ def test_manifest_written_atomically_with_correct_fields(tmp_path):
     assert m["bytes"] > 0
 
 
-def test_append_rejects_out_of_order(tmp_path):
+def test_append_skips_out_of_order(tmp_path):
     store = NewsStore(tmp_path / "data")
-    store.append("AAPL", fetched(1, "2026-10-02T11:00:00Z"))
-    with pytest.raises(StoreError, match="out-of-order"):
-        store.append("AAPL", fetched(2, "2026-10-02T10:00:00Z"))
+    assert store.append("AAPL", fetched(1, "2026-10-02T11:00:00Z")) is True
+    # Older article arriving late (overlapping poll window) is skipped, not stored.
+    assert store.append("AAPL", fetched(2, "2026-10-02T10:00:00Z")) is False
 
 
 def test_rejects_path_traversal_symbol(tmp_path):
