@@ -78,17 +78,16 @@ class NewsStore:
 
     def append(self, symbol: str, fetched: FetchedArticle) -> bool:
         """Append the article unless (symbol, id) is already stored.
-        Returns True when the article was appended."""
+        Returns True when the article was appended. Out-of-order articles
+        (older than the last stored) are skipped, not stored — the 24h poll
+        window overlaps previously stored data by design."""
         day = parse_day(fetched.article.created_at)
         path = self._article_path(symbol, day)
         existing_ids, last_created = self._read_ids(path)
         if fetched.article.id in existing_ids:
             return False
         if last_created is not None and fetched.article.created_at < last_created:
-            raise StoreError(
-                f"{path}: out-of-order created_at {fetched.article.created_at} "
-                f"after {last_created}"
-            )
+            return False
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as f:
             f.write(canonical_json(fetched.raw) + "\n")
