@@ -1,0 +1,38 @@
+# incumbent_v1.yaml — Frozen incumbent strategy definition
+#
+# STATUS: UNRESOLVED
+#
+# No incumbent_v1.yaml exists in the legacy repository
+# (millerrc18/arcis-legacy @ 78c788ec8592254bd77f5bcf856918ff282835a8).
+# The legacy platform's own documents conclude YAML extraction was BLOCKED:
+#   - docs/sprints/incumbent_v1_yaml_evaluation.md
+#   - docs/sprints/incumbent_v1_yaml_research.md
+#
+# Reasons extraction is blocked:
+#   1. LLM-in-the-loop bracket pricing: the legacy strategy used an LLM
+#      to set bracket prices at runtime; a static YAML cannot capture this.
+#   2. Missing daily_scan runtime support: the legacy platform lacked the
+#      runtime infrastructure to execute a YAML-defined daily scan.
+#
+# Strategy source candidates identified (not yet reconciled):
+#   - src/ranking/ranker.py
+#   - src/platform/strategy_spec.py
+#   - src/platform/_strategy_spec_ranking.py
+#   - src/platform/specs/lazy_prices_v1.yaml
+#   - src/platform/specs/post_audit_ruleset_v1.yaml
+#   - src/features/engine.py
+#   - src/features/pullback_logistic.py
+#   - src/services/scan_service.py
+#
+# The legacy strategy is S&P 100 pullback-oriented. The rebuild targets
+# the S&P 500 (SCOPE D-012), so it is not a direct port in any case.
+#
+# Resolution requires the local 37GB archive (local-only commits, stashes,
+# databases) — see S02 T2/T4. Until then, this file records the absence
+# of a definition rather than inventing one.
+
+frozen: {}
+status: UNRESOLVED
+legacy_repo_sha: 78c788ec8592254bd77f5bcf856918ff282835a8
+assessment_date: "2026-10-04"
+blocked_reason: "No incumbent_v1.yaml in legacy repo; legacy docs conclude extraction BLOCKED (LLM-in-the-loop bracket pricing, missing daily_scan runtime). Pending local archive."
