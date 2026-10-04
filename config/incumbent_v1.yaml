@@ -164,9 +164,13 @@ sp100_assumptions:
   - regime adjustment magnitudes
 
 frozen:
-  sha256: 3d548d19a472dd3e36e6f92becfc84fadf4f635636b5c7aaafeaaabe564e45bc
+  sha256: 524dd858d95a08453167e46e976836601fe3f281b8d94f763cee843277e24b82
   date: "2026-10-04"
   unresolved_at_freeze:
-    - "T3: all 150 recorded ranking_at_entry scores are 0; regime_at_entry is binary GREEN/None, not the detailed regime labels in the Sprint F doc. The recorded behavior does not reflect the documented ranker."
+    - "T3 (partially resolved 2026-10-04): ranking_at_entry is all zeros (dead field), but rec_priority_score carries live ranker output (183/287 trades, 60-100 range, mean 84). Regime_at_entry is binary GREEN/None, not the detailed Sprint F labels."
     - "T3: 171/287 pullback exits are 'reconciled_stale', not clean mechanical exits."
-    - "S&P 100 thresholds flagged per SCOPE D-012; require re-examination for S&P 500." 
+    - "S&P 100 thresholds flagged per SCOPE D-012; require re-examination for S&P 500."
+  ceo_decisions_2026_10_04:
+    - "Q1: incumbent identity (Sprint F pullback ranker) CONFIRMED."
+    - "Q2: dig deeper DONE — rec_priority_score is the live score field."
+    - "Q5: corpus manifest hash (43c2e3ed...) SUFFICIENT for Q3 eligibility." 

@@ -85,7 +85,7 @@ incumbent rules. **Discrepancies found:**
 
 | # | Discrepancy | Severity |
 |---|---|---|
-| 1 | All 150 recorded `ranking_at_entry` scores are **0** (92 int, 58 string "0"). The documented 0–100 ranker scores were not captured in the trade records. | **HIGH** — cannot verify the ranker drove entry decisions |
+| 1 | `ranking_at_entry` is all zeros (dead field), but `rec_priority_score` carries the live ranker output: 183/287 trades scored 60–100 (mean 84). | **RESOLVED 2026-10-04** — ranker scores verifiable via `rec_priority_score` |
 | 2 | `regime_at_entry` is binary `GREEN`/`None` (150/137), not the detailed regime labels (`calm_uptrend`, `transitional`, etc.) in the Sprint F doc. | **MEDIUM** — regime adjustments unverifiable from records |
 | 3 | 171/287 (60%) exits are `reconciled_stale`, not clean mechanical exits (`target_1`, `stop_loss`). Only 42/287 hit documented exit reasons. | **MEDIUM** — exit discipline unverifiable for majority |
 | 4 | Mean PnL across 105 trades with numeric PnL: **+0.03%** (min −6.88%, max +8.23%). | INFO — consistent with the April forensic audit's ~zero excess |
@@ -111,7 +111,7 @@ existed in the clone. This finding is now moot.
 ## T4 — Freeze: COMPLETE
 
 - `config/incumbent_v1.yaml` normalized and frozen 2026-10-04.
-- SHA-256: `3d548d19a472dd3e36e6f92becfc84fadf4f635636b5c7aaafeaaabe564e45bc`
+- SHA-256: `524dd858d95a08453167e46e976836601fe3f281b8d94f763cee843277e24b82`
 - Recorded in the YAML's `frozen:` block with date and unresolved items.
 - Verification script: `tools/verify_incumbent_freeze.py` (recomputes hash;
   exits 0 on match, 1 on mismatch). Verified working.
@@ -333,21 +333,12 @@ are not in the GitHub clone (gitignored); they live in the local archive.
 
 ## Open questions for the CEO
 
-1. **T2 (resolved, confirm)**: The incumbent is the Sprint F pullback ranker.
-   Confirm this matches your understanding of what the old platform ran, or
-   flag if a different strategy was live.
-2. **T3 (discrepancy)**: Recorded ranker scores are all 0 and regimes are
-   binary — the records don't prove the documented ranker drove entries.
-   Options: (a) accept the document-based freeze with the discrepancy noted
-   (current state), (b) dig deeper into the archive for score logs, or
-   (c) treat the freeze as provisional pending S03's exploratory check.
-3. **T4 (done, confirm)**: Freeze hash `3d548d19…` recorded. Confirm it goes
-   into PREREGISTRATION.md §1 at `prereg-v1` tag time.
+1. **T2**: CONFIRMED 2026-10-04 — incumbent is the Sprint F pullback ranker.
+2. **T3**: RESOLVED 2026-10-04 — `rec_priority_score` is the live score field (183/287 trades, 60–100). Remaining: binary regimes, 60% `reconciled_stale` exits.
+3. **T4**: Freeze hash `524dd858…` recorded. Goes into PREREGISTRATION.md §1 at `prereg-v1` tag time (CEO agreed 2026-10-04).
 4. **T7**: Confirm the seven specs are worth SCOPE.md §9 `(proposed)` entries
    for clean-room reimplementation, and their priority order.
-5. **T9**: The model weight hash is not in the repo or the extracts. Is the
-   corpus manifest hash (`43c2e3ed…`) sufficient for Q3 eligibility, or must
-   the `.gguf` hash be recovered?
+5. **T9**: RESOLVED 2026-10-04 — corpus manifest hash (`43c2e3ed…`) SUFFICIENT for Q3 eligibility.
 
 ---
 
