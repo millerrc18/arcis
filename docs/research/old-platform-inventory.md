@@ -30,68 +30,99 @@ extensive rigor/validation harness. The rebuild targets the S&P 500
 
 ---
 
-## T2 — Incumbent strategy definition: UNRESOLVED
+## T2 — Incumbent strategy definition: RESOLVED (from local archive)
 
-No `incumbent_v1.yaml` exists in the legacy repository. The legacy platform's
-own documents conclude YAML extraction was **BLOCKED**:
+**Update 2026-10-04:** The local archive yielded the missing definition.
+Sprint F's evaluation document (`docs/sprints/sprint_F_evaluation.md`,
+recovered from local archive, not in GitHub clone) states:
 
-- `docs/sprints/incumbent_v1_yaml_evaluation.md`
-- `docs/sprints/incumbent_v1_yaml_research.md`
+> "Sprint F ports the **incumbent pullback ranker** onto the existing
+> strategy-spec surface"
 
-Blocking reasons:
-1. **LLM-in-the-loop bracket pricing** — the strategy used an LLM to set
-   bracket prices at runtime; a static YAML cannot capture this.
-2. **Missing `daily_scan` runtime support** — the platform lacked runtime
-   infrastructure to execute a YAML-defined daily scan.
+The incumbent is the **pullback ranker** — a mean-reversion strategy scoring
+S&P 100 tickers 0–100 on pullback depth, trend state, relative strength, and
+volatility signals. Full definition in `config/incumbent_v1.yaml`, sourced
+line-by-line from the Sprint F doc's citations to:
+- `src/ranking/ranker.py` (scoring bands, regime adjustments, sector RS)
+- `src/features/engine.py` (feature computation)
+- `src/features/enrichment.py` (post-scan dispatch)
+- `src/data_enrichment/enricher.py` (enrichment orchestrator)
 
-Strategy source candidates (identified, not reconciled):
+**Clarifications from local archive:**
+- `lazy_prices_v1` (Cohen-Malloy-Nguyen 2020) was a **separate candidate**,
+  formally **shelved** post-bootcamp (`status: shelved` in the `8b429217`
+  variant, with revival criteria). It is NOT the incumbent.
+- `post_audit_ruleset_v1` is a filter layer on `lazy_prices`, not the incumbent.
+- The 8 truly unpushed local commits (from `t2_unpushed_commits.csv`) are all
+  infrastructure/ops (auditor, GPU, telemetry, scheduler) — none contain
+  strategy definitions.
+- Three `lazy_prices_v1.yaml` variants recovered show evolution: `edf1cb1d`
+  (earliest, no `derived_from`) → `24c1940e` (adds R8(a) `derived_from: null`)
+  → `8b429217` (adds `status: shelved`).
 
-| Path | Role |
-|---|---|
-| `src/ranking/ranker.py` | Signal ranking |
-| `src/platform/strategy_spec.py` | Strategy spec framework |
-| `src/platform/_strategy_spec_ranking.py` | Ranking spec internals |
-| `src/platform/specs/lazy_prices_v1.yaml` | Lazy-prices ruleset spec |
-| `src/platform/specs/post_audit_ruleset_v1.yaml` | Post-audit ruleset spec |
-| `src/features/engine.py` | Feature engine |
-| `src/features/pullback_logistic.py` | Pullback logistic model |
-| `src/services/scan_service.py` | Scan service |
-| `docs/specs/strategy-schema.md` | Strategy schema documentation |
+**S&P 100 assumptions flagged** (SCOPE D-012): every threshold was tuned
+against S&P 100 mega-cap liquidity. Listed in the YAML under
+`sp100_assumptions`; require re-examination for S&P 500, never silent adoption.
 
-**S&P 100 assumptions flagged** (SCOPE D-012): every threshold in these
-candidates was tuned against mega-cap S&P 100 liquidity. Any carried-forward
-parameter must be re-examined against S&P 500 breadth, never adopted silently.
-
-`config/incumbent_v1.yaml` in this repo records this UNRESOLVED state.
-Resolution requires the local 37GB archive (local-only commits, stashes).
-
----
-
-## T3 — Reconciliation against what actually ran: NOT PERFORMABLE (GitHub side)
-
-T3 requires sampling ≥20 recorded decisions (signals, candidate lists, orders)
-and checking each against extracted rules. **No machine-readable decision
-records exist in the GitHub clone:**
-
-- Zero database files tracked (`.db`, `.sqlite`, `.duckdb`).
-- `src/shadow_trading/` (25 files) is code-only; data lived in local PostgreSQL.
-- `data/corpus/stage1-001/entries.jsonl` (67,528 entries) not in clone.
-- `docs/archive/sprint-receipts/` contains narratives, no decision logs.
-
-**Finding:** the frozen definition would rest on documents alone — which is how
-a rule that was never implemented becomes canon. The ≥20-decision sample must
-come from the local archive's databases once transferred. This is recorded as
-a finding, not a gap to guess across.
+No `incumbent_v1.yaml` existed in the legacy repository itself. The legacy
+platform's own docs (`docs/sprints/incumbent_v1_yaml_evaluation.md`)
+concluded extraction was BLOCKED for the LLM-bracket-pricing reason — but
+the Sprint F doc provides the deterministic ranker rules, which are what
+is frozen here. The LLM-in-the-loop bracket pricing remains excluded
+(documented in the YAML).
 
 ---
 
-## T4 — Freeze: DEFERRED (no definition to freeze)
+## T3 — Reconciliation against what actually ran: PERFORMED (local archive)
 
-T4 requires normalizing `config/incumbent_v1.yaml` and recording its SHA-256.
-With T2 UNRESOLVED, there is nothing to freeze. The freeze — and the
-`tools/` hash-recomputation script — will be completed once the incumbent
-definition is resolved from the local archive. This is the correct outcome:
-freezing an invented definition would be worse than freezing nothing.
+**Update 2026-10-04:** The local archive yielded `t3_closed_trades.json` —
+620 closed trades from the local databases, of which **287 are
+`strategy_type: pullback`** (the incumbent), spanning 2026-03-24 to 2026-06-30
+across 61 unique tickers.
+
+A random sample of 20 pullback trades (seed 42) was checked against the
+incumbent rules. **Discrepancies found:**
+
+| # | Discrepancy | Severity |
+|---|---|---|
+| 1 | All 150 recorded `ranking_at_entry` scores are **0** (92 int, 58 string "0"). The documented 0–100 ranker scores were not captured in the trade records. | **HIGH** — cannot verify the ranker drove entry decisions |
+| 2 | `regime_at_entry` is binary `GREEN`/`None` (150/137), not the detailed regime labels (`calm_uptrend`, `transitional`, etc.) in the Sprint F doc. | **MEDIUM** — regime adjustments unverifiable from records |
+| 3 | 171/287 (60%) exits are `reconciled_stale`, not clean mechanical exits (`target_1`, `stop_loss`). Only 42/287 hit documented exit reasons. | **MEDIUM** — exit discipline unverifiable for majority |
+| 4 | Mean PnL across 105 trades with numeric PnL: **+0.03%** (min −6.88%, max +8.23%). | INFO — consistent with the April forensic audit's ~zero excess |
+
+**Candidate counts:** trades cluster 2–22 per entry date (e.g., 2026-03-24: 20
+trades, 2026-04-01: 22 trades). With S&P 100 universe, the median daily
+qualification rate is approximately 15–20% — recorded here for S03's planning
+(SCOPE D-024). Exact median: left for S03 to compute from the full date series.
+
+**Conclusion:** The frozen definition rests on the Sprint F document, **not**
+on verified behavior. The records show pullback-labeled trades occurred, but
+the scores and regimes that should explain *why* each trade was taken were
+not captured. This is recorded as an UNRESOLVED item in the freeze block:
+the definition is the best available, but its behavioral fidelity is
+unproven. S03's exploratory historical check (PREREGISTRATION §2.4) is the
+mechanism that will test whether the documented rules have edge.
+
+GitHub-side assessment (superseded): no machine-readable decision records
+existed in the clone. This finding is now moot.
+
+---
+
+## T4 — Freeze: COMPLETE
+
+- `config/incumbent_v1.yaml` normalized and frozen 2026-10-04.
+- SHA-256: `3d548d19a472dd3e36e6f92becfc84fadf4f635636b5c7aaafeaaabe564e45bc`
+- Recorded in the YAML's `frozen:` block with date and unresolved items.
+- Verification script: `tools/verify_incumbent_freeze.py` (recomputes hash;
+  exits 0 on match, 1 on mismatch). Verified working.
+
+This is the hash PREREGISTRATION.md §1 refers to. After `prereg-v1` is tagged,
+changing it creates a new trial.
+
+**Unresolved at freeze** (in the YAML's `frozen.unresolved_at_freeze`):
+1. T3 discrepancy: recorded scores/regimes don't reflect the documented ranker.
+2. T3: 60% of exits are `reconciled_stale`, not mechanical.
+3. S&P 100 thresholds flagged per SCOPE D-012.
 
 ---
 
@@ -272,17 +303,23 @@ are not in the GitHub clone (gitignored); they live in the local archive.
 
 ## Carrying forward
 
-1. **The rigor harness** (T7.1, T7.2, T7.7): walk-forward R1–R8 + CPCV +
+1. **The incumbent definition** (`config/incumbent_v1.yaml`, frozen
+   `3d548d19…`): the pullback ranker from Sprint F, with T3 discrepancies
+   explicitly recorded. This is the baseline every future trial is measured
+   against.
+2. **The rigor harness** (T7.1, T7.2, T7.7): walk-forward R1–R8 + CPCV +
    trials/DSR, as a clean-room reimplementation. This is the anti-self-deception
    machinery the charter demands, already debugged once.
-2. **Bracket math** (T7.3): deterministic pct/ATR stop/target with floor/cap.
-3. **Attribution schema** (T7.5) and **cost calibration loop** (T7.6): templates
+3. **Bracket math** (T7.3): deterministic pct/ATR stop/target with floor/cap.
+4. **Attribution schema** (T7.5) and **cost calibration loop** (T7.6): templates
    for honest LLM-value and net-of-cost measurement.
-4. **Regime scenario catalog** (T7.4): 13 scenarios as a stress-test checklist.
-5. **Trial ledger** (`docs/research/trial-ledger.csv`): the 13-configuration
+5. **Regime scenario catalog** (T7.4): 13 scenarios as a stress-test checklist.
+6. **Trial ledger** (`docs/research/trial-ledger.csv`): the 13-configuration
    record, feeding the Deflated Sharpe audit.
-6. **Date-range union** (T6): the contamination region for PREREGISTRATION §2.4.
-7. **Model training cutoff** (T9): 2026-04-28 — the Q3 eligibility boundary.
+7. **Date-range union** (T6): the contamination region for PREREGISTRATION §2.4.
+8. **Model training cutoff** (T9): 2026-04-28 — the Q3 eligibility boundary.
+9. **T3 trade sample**: 287 pullback trades (2026-03-24 → 2026-06-30) now
+   available for S03's qualification-rate planning.
 
 ## Not carrying forward
 
@@ -296,22 +333,21 @@ are not in the GitHub clone (gitignored); they live in the local archive.
 
 ## Open questions for the CEO
 
-1. **T2**: The incumbent definition is UNRESOLVED. Do you want to (a) wait for
-   the local archive and attempt extraction from local-only commits/stashes,
-   (b) declare the legacy strategy unrecoverable and define incumbent_v1 from
-   the documented rulesets (`lazy_prices_v1.yaml`,
-   `post_audit_ruleset_v1.yaml`) with explicit UNRESOLVED markers, or
-   (c) something else?
-2. **T3**: No recorded decisions exist GitHub-side. Should the ≥20-decision
-   reconciliation sample come from the local archive databases, or is the
-   document-only freeze acceptable with a written rationale?
-3. **T4**: Freeze is deferred until T2 resolves. Confirm the freeze hash goes
-   into PREREGISTRATION.md §1 at that time.
+1. **T2 (resolved, confirm)**: The incumbent is the Sprint F pullback ranker.
+   Confirm this matches your understanding of what the old platform ran, or
+   flag if a different strategy was live.
+2. **T3 (discrepancy)**: Recorded ranker scores are all 0 and regimes are
+   binary — the records don't prove the documented ranker drove entries.
+   Options: (a) accept the document-based freeze with the discrepancy noted
+   (current state), (b) dig deeper into the archive for score logs, or
+   (c) treat the freeze as provisional pending S03's exploratory check.
+3. **T4 (done, confirm)**: Freeze hash `3d548d19…` recorded. Confirm it goes
+   into PREREGISTRATION.md §1 at `prereg-v1` tag time.
 4. **T7**: Confirm the seven specs are worth SCOPE.md §9 `(proposed)` entries
    for clean-room reimplementation, and their priority order.
-5. **T9**: The model weight hash is not in the repo. Is the corpus manifest
-   hash (`43c2e3ed…`) sufficient for Q3 eligibility, or must the `.gguf` hash
-   be recovered from the local archive?
+5. **T9**: The model weight hash is not in the repo or the extracts. Is the
+   corpus manifest hash (`43c2e3ed…`) sufficient for Q3 eligibility, or must
+   the `.gguf` hash be recovered?
 
 ---
 
