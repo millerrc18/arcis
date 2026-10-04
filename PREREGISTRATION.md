@@ -108,7 +108,12 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 - **Secondary:** `b_S > 0`, that the score ranks within the qualified set. Reported, never a gate on its own.
 - **Looks:** 12 months for data quality and nonbinding futility; 24 months for efficacy, one-sided α = 2.5%. Futility at 12 months if the conditional power under the minimum effect is below 10%.
 - **Minimum effect worth having:** a point estimate of at least 25 bp net per trade, alongside the significance threshold. On R01's basis (8.5-session average holds, 252 sessions a year) this is about 7.4% a year, above R01's 4% research gate at 100–150 trades a year (SCOPE D-022).
-- **Power:** the minimum detectable effect is computed on the actual panel before tagging, using measured dispersion and within-date correlation, and recorded here (sprint S03, SCOPE D-024).
+- **Power:** the minimum detectable effect is computed on the actual panel before tagging, using measured dispersion and within-date correlation (sprint S03, SCOPE D-024). Date-block bootstrap (20-session blocks, 2,000 replications per cell, seeds 304–315) on 10-session beta-adjusted forward returns (1,178,640 rows, 504 symbols, 2016-01-04–2026-10-02), with synthetic effects on randomly assigned stock-days. Measured MDE at 80% power, one-sided α=2.5%:
+  | Window | q=0.5% | q=1% | q=2% | q=5% | q=10% | q=17.5% (planning) |
+  |---|---|---|---|---|---|---|
+  | 12 mo | 68.1 bp | 46.2 bp | 33.8 bp | 21.1 bp | 16.9 bp | 14.0 bp |
+  | 24 mo | 46.6 bp | 34.4 bp | 23.0 bp | 16.5 bp | 11.9 bp | **8.9 bp** |
+  The 24-month MDE at the S02 planning qualification rate (17.5%, midpoint of the 15–20% range in `docs/research/old-platform-inventory.md`) is 8.9 bp, below the 25 bp minimum effect: the test can detect the minimum effect it is intended to detect. Power at 25 bp is 1.00 at the planning rate (24 mo). Two opposing biases apply: unbracketed 10-session returns overstate dispersion versus bracketed labels (MDE biased up); current-constituent survivorship understates dispersion (MDE biased down). Neither is called conservative.
 - **Pass:** `b_Q` clears the threshold at 24 months and the point estimate is at least the minimum effect.
 - **Fail:** `b_Q` point estimate is at or below zero at either look, or no pass at 24 months.
 
@@ -171,7 +176,7 @@ Plumbing evidence accrues from the first order of the paper-only lane (SCOPE.md 
 - **Looks:** counted from the tag. 12 months for data quality and nonbinding futility only; efficacy is judged once, at 24 months. There is no 6-month look: `textscore` is built after Step 5 (SCOPE.md §3.1), and no look is evaluated before its implementation is frozen (§0 rule 4).
 - **Secondary:** a two-day horizon as confirmation; five- and ten-day horizons as exploratory, with non-overlapping robustness checks; alternate aggregators (unweighted mean, most recent, maximum absolute score, novelty-weighted first report, six-hour half-life) reported but never optimized. Secondary families use Holm or Romano–Wolf control.
 - **Supporting:** chronological out-of-sample R² and Clark–West comparisons.
-- **Planning power:** R07's scenarios for a 100-name panel give minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). The S&P 500 panel improves on this by less than the row count suggests, because same-day moves are correlated. The real figure is simulated on the actual panel before tagging and recorded here (sprint S03, SCOPE D-024).
+- **Planning power:** R07's scenarios for a 100-name panel give minimum detectable effects of about 9.9, 7.0, and 4.9 bp at 6, 12, and 24 months, against realistic one-day effects of about 3–8 bp (R03). The S&P 500 panel improves on this by less than the row count suggests, because same-day moves are correlated. The real figure is simulated on the actual panel before tagging (sprint S03, SCOPE D-024): date-block bootstrap (20-session blocks, 2,000 replications, seed 416) on one-day beta-adjusted forward returns (1,183,149 rows), with synthetic scores on a synthetic 8% news-bearing share (the measured share). Measured MDE at 80% power, Holm family α=2.5% (per-test 1.25%): **4.3 bp at 24 months**, within R03's realistic 3–8 bp range. The test can detect effects at the low end of the realistic range.
 
 ### 3.3 Stage B — Strategy test (only after Stage A)
 

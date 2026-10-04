@@ -24,6 +24,12 @@ dev = [
     # Type stubs for mypy --strict (dev-only).
     "types-PyYAML",
 ]
+research = [
+    "pandas>=3.0.6",
+    "pyarrow>=25.0.1",
+    "requests>=2.34.2",
+    "scipy>=1.18.1",
+]
 
 [project.scripts]
 arcis-recorder = "arcis.recorder.cli:main"
