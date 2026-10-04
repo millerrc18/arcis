@@ -81,6 +81,15 @@ def test_validate_universe_missing_snapshot(tmp_path):
         validate_universe(config, DAY)
 
 
+def test_validate_universe_falls_back_to_latest(tmp_path):
+    from datetime import date
+    config = make_config(tmp_path)
+    config_dir = make_vendored(tmp_path, SYMBOLS)
+    # Only yesterday's snapshot exists; today's poll falls back to it.
+    build_universe(config, date(2026, 10, 1), config_dir)
+    validate_universe(config, date(2026, 10, 2))  # no error
+
+
 def test_validate_universe_symbol_mismatch(tmp_path):
     config = make_config(tmp_path)
     target = tmp_path / "data" / "universe" / "2026-10-02.csv"

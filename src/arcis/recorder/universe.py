@@ -62,14 +62,38 @@ def build_universe(config: Config, day: date, config_dir: Path) -> Path:
     return target
 
 
+def latest_snapshot(config: Config, day: date) -> Path | None:
+    """Most recent snapshot on or before `day`. Returns None when no snapshot
+    exists yet (fresh data root)."""
+    universe_dir = config.data_root / "universe"
+    if not universe_dir.is_dir():
+        return None
+    candidates = []
+    for csv_path in universe_dir.glob("*.csv"):
+        try:
+            snap_day = date.fromisoformat(csv_path.stem)
+        except ValueError:
+            continue
+        if snap_day <= day:
+            candidates.append((snap_day, csv_path))
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
 def validate_universe(config: Config, day: date) -> None:
-    """Fail-closed check run before every recording run: the dated snapshot
-    must exist and its symbols must equal config.symbols."""
+    """Fail-closed check run before every recording run: a snapshot for `day`
+    must exist (falling back to the latest available when today's snapshot
+    hasn't been built yet — e.g. polls running between 00:00 UTC and the
+    00:05 ET snapshot cron), and its symbols must equal config.symbols."""
     target = snapshot_path(config, day)
     if not target.is_file():
-        raise UniverseError(
-            f"{target} is missing; run `arcis-recorder universe` first"
-        )
+        fallback = latest_snapshot(config, day)
+        if fallback is None:
+            raise UniverseError(
+                f"{target} is missing; run `arcis-recorder universe` first"
+            )
+        target = fallback
     if read_symbols(target) != config.symbols:
         raise UniverseError(
             f"{target} symbols differ from config.symbols; refusing to record"
