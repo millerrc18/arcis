@@ -7,7 +7,7 @@
 
 ## Verdict
 
-The preregistered Q1 (§2.1) and Q2/Q3 (§3.2) tests can detect the minimum effects they are intended to detect. The 24-month §2.1 MDE at the 5% forward planning qualification rate (set by the CEO on 2026-10-04) is **18.3 bp**, below the 25 bp minimum effect (power at 25 bp is 0.98). The §3.2 MDE is **2.9 bp at 12 months** and **2.0 bp at 24 months**, within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
+The preregistered Q1 (§2.1) and Q2/Q3 (§3.2) tests can detect the minimum effects they are intended to detect. The 24-month §2.1 MDE at the 5% forward planning qualification rate (set by the CEO on 2026-10-04, SCOPE D-025) is **18.3 bp**, below the 25 bp minimum effect (power at 25 bp is 0.98). The §3.2 MDE is **2.9 bp at 12 months** and **2.0 bp at 24 months**, below R03's realistic 3–8 bp range — the test is powered for effects smaller than the realistic range. **prereg-v1 is clear to proceed.**
 
 ## What was measured
 
@@ -21,7 +21,7 @@ Alpaca paper API: bars and news endpoints returned HTTP 200 with active account 
 
 **Bars:** 504/504 symbols (503 S&P 500 constituents + SPY), 1,310,296 rows, 2016-01-04 to 2026-10-02. Not all symbols have data from 2016: late starters include tickers that listed after 2016 (e.g., GEV, SOLV, KVUE, VLTO, CEG, ABNB). The manifest records per-symbol first/last dates; see `/home/hatch/arcis-data/raw/bars/manifest.json`. Nothing under the data root is tracked by git.
 
-**News metadata:** 504/504 symbols, 45,397 stock-days with news, 2025-10-04 to 2026-10-04. Metadata only: per stock-day article count and earliest `created_at` (America/New_York). No text, headlines, summaries, URLs, or raw responses retained. Manifest at `/home/hatch/arcis-data/raw/news_metadata/manifest.json`.
+**News metadata:** 504/504 symbols, 45,391 stock-days with news (UTC calendar days), 2025-10-04 to 2026-10-04. Metadata only: per stock-day article count and earliest `created_at` (stored in UTC; converted to America/New_York in post-processing). No text, headlines, summaries, URLs, or raw responses retained. Manifest at `/home/hatch/arcis-data/raw/news_metadata/manifest.json`.
 
 ### T3 — Second moments
 
@@ -56,7 +56,7 @@ Computed by `tools/run_power_sims.py` (core in `tools/s03_power_lib.py`). Date-b
 
 Power at 25 bp (24 mo, q=5%): 0.98.
 
-**Family B (§3.2):** r = α_i + δ_t + b·(N·F) + ε, Holm at family α=2.5% (per-test 1.25%). Outcome: 1-day beta-adjusted forward return. News share: 7.74% (measured).
+**Family B (§3.2):** r = α_i + δ_t + b·(N·F) + ε, Holm at family α=2.5% (per-test 1.25%). Outcome: 1-day beta-adjusted forward return. News share: 32.15% (measured, windowed).
 
 | Window | MDE (80% power) |
 |---|---|
@@ -67,25 +67,25 @@ Power at 25 bp (24 mo, q=5%): 0.98.
 
 **Opposing biases:** unbracketed 15-session returns overstate dispersion versus bracketed labels (MDE biased up); current-constituent survivorship understates dispersion (MDE biased down). Neither is called conservative.
 
-**Limitations:** synthetic qualification is iid per stock-day; real qualifiers persist across consecutive days and cluster in time, so the MDE may be understated. The two-way demeaning in Family B uses the approximation x − x̄_d − x̄_s + x̄ rather than alternating projections; on the ~13% unbalanced bootstrap panel this leaves small residual date means. The effect on the MDEs is expected to be small but is not verified.
-
-## Deviations from spec (carried over)
-
-- T1 access facts: per-call status codes, earliest bar date, and rate-limit headers are not recorded in the report (available in logs).
-- T2: no full gap analysis; late-starter list is in the manifest, not the report.
-- T3: by-year dispersion tables and by-year correlation are computed but not tabulated in the report (in `second_moments.json`).
-
-## Clean-room compliance
-
-- No S03 script opens `config/incumbent_v1.yaml` (verified by `tests/test_s03_cleanroom.py`: AST check for file I/O on the incumbent path, plus runtime guard using `raise` not `assert`).
-- Planning rate is a preregistered forward parameter, not derived from historical strategy application.
-- Raw panels stay under `/home/hatch/arcis-data` (outside the repo); only aggregates in git.
+**Limitations:**
+- Synthetic qualification is iid per stock-day; real qualifiers persist across consecutive days and cluster in time, so the MDE may be understated.
+- The two-way demeaning in Family B uses the approximation x − x̄_d − x̄_s + x̄ rather than alternating projections; on the ~13% unbalanced bootstrap panel this leaves small residual date means. The effect on the MDEs is expected to be small but is not verified.
+- **NY-timezone undercount:** `pull_news_metadata.py` buckets articles by UTC calendar date (`created[:10]`) and keeps only the earliest timestamp per (symbol, UTC day). `measure_second_moments.py` then converts that single timestamp to America/New_York. Articles on the same UTC day but different NY days are collapsed: e.g., 01:00Z and 15:00Z on Jan 6 become one row dated Jan 5 NY, losing the Jan 6 NY article. The 32.15% news share is therefore biased low, and the §3.2 MDE biased up (conservative direction, but undisclosed until now). A full fix requires bucketing by NY date in `_reduce_articles` and re-pulling.
 
 ## Deviations from spec
 
 1. **Four scripts instead of one** `tools/measure_power.py`: split into `pull_bars_panel.py`, `pull_news_metadata.py`, `measure_second_moments.py`, `run_power_sims.py` (+ `s03_power_lib.py`) for size-limit compliance and separation of concerns.
-2. **Planning rate 5% (forward parameter)** instead of S02's 15–20%: the legacy figure could not be verified; 5% is preregistered for the S&P 500 universe.
+2. **Planning rate 5% (forward parameter, SCOPE D-025)** instead of S02's 15–20%: the legacy figure could not be verified; 5% set by CEO decision 2026-10-04 for the S&P 500 universe.
 3. All scripts pass the 400-line / 60-line function size checks (`tools/checks.py` now checks `tools/` as well as `src/`).
+4. T1 access facts: per-call status codes, earliest bar date, and rate-limit headers are not recorded in the report (available in logs).
+5. T2: no full gap analysis; late-starter list is in the manifest, not the report.
+6. T3: by-year dispersion tables and by-year correlation are computed but not tabulated in the report (in `second_moments.json`).
+
+## Clean-room compliance
+
+- No S03 script opens `config/incumbent_v1.yaml` (verified by `tests/test_s03_cleanroom.py`: AST check for file I/O on the incumbent path, plus runtime guard using `raise` not `assert`).
+- Planning rate is a CEO-set forward parameter (SCOPE D-025), not derived from historical strategy application.
+- Raw panels stay under `/home/hatch/arcis-data` (outside the repo); only aggregates in git.
 
 ## Dependencies
 
