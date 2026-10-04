@@ -81,6 +81,26 @@ def test_validate_universe_missing_snapshot(tmp_path):
         validate_universe(config, DAY)
 
 
+def test_validate_universe_falls_back_to_latest(tmp_path):
+    from datetime import date
+    config = make_config(tmp_path)
+    config_dir = make_vendored(tmp_path, SYMBOLS)
+    # Only yesterday's snapshot exists; today's poll falls back to it.
+    build_universe(config, date(2026, 10, 1), config_dir)
+    used = validate_universe(config, date(2026, 10, 2))  # no error
+    assert used.name == "2026-10-01.csv"
+
+
+def test_validate_universe_rejects_stale_snapshot(tmp_path):
+    from datetime import date
+    config = make_config(tmp_path)
+    config_dir = make_vendored(tmp_path, SYMBOLS)
+    # Snapshot from 3 days ago is too stale; fail-closed.
+    build_universe(config, date(2026, 9, 29), config_dir)
+    with pytest.raises(UniverseError, match="no snapshot within 1 day"):
+        validate_universe(config, date(2026, 10, 2))
+
+
 def test_validate_universe_symbol_mismatch(tmp_path):
     config = make_config(tmp_path)
     target = tmp_path / "data" / "universe" / "2026-10-02.csv"
