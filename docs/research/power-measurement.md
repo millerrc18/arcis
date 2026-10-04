@@ -7,7 +7,7 @@
 
 ## Verdict
 
-The preregistered Q1 (§2.1) and Q2/Q3 (§3.2) tests can detect the minimum effects they are intended to detect. The 24-month §2.1 MDE at the S02 planning qualification rate (17.5%) is **8.9 bp**, well below the 25 bp minimum effect. The 24-month §3.2 MDE is **4.3 bp**, within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
+The preregistered Q1 (§2.1) and Q2/Q3 (§3.2) tests can detect the minimum effects they are intended to detect. The 24-month §2.1 MDE at the preregistered 5% forward planning qualification rate is **18.3 bp**, below the 25 bp minimum effect (power at 25 bp is 0.98). The §3.2 MDE is **6.3 bp at 12 months** and **4.3 bp at 24 months**, within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
 
 ## What was measured
 
@@ -15,71 +15,70 @@ S03 calibrates the statistical power of the two primary preregistered tests befo
 
 ### T1 — Access check
 
-Alpaca paper API: bars and news endpoints returned HTTP 200 with active account status. Bar fields: `c,h,l,n,o,t,v,vw`. News requested with `include_content=false`; response still included a `content` key, so the T2 collector strips content fields defensively and never persists raw responses.
+Alpaca paper API: bars and news endpoints returned HTTP 200 with active account status. Bar fields: `c,h,l,n,o,t,v,vw`. News requested with `include_content=false`; response still included a `content` key, so the T2 collector strips content fields defensively and never persists raw responses. Data feed: `sip`.
 
 ### T2 — Data panels
 
-**Bars:** 504/504 symbols (503 S&P 500 constituents + SPY), 1,310,296 rows, 2016-01-04 to 2026-10-02. All symbols have data from 2016. Manifest with SHA-256 at `/home/hatch/arcis-data/raw/bars/manifest.json`. Nothing under the data root is tracked by git.
+**Bars:** 504/504 symbols (503 S&P 500 constituents + SPY), 1,310,296 rows, 2016-01-04 to 2026-10-02. Not all symbols have data from 2016: late starters include tickers that listed after 2016 (e.g., GEV, SOLV, KVUE, VLTO, CEG, ABNB). The manifest records per-symbol first/last dates; see `/home/hatch/arcis-data/raw/bars/manifest.json`. Nothing under the data root is tracked by git.
 
-**News metadata:** 504/504 symbols, 45,397 stock-days with news, 2025-10-04 to 2026-10-04. Metadata only: per stock-day article count and earliest `created_at`. No text, headlines, summaries, URLs, or raw responses retained. Manifest at `/home/hatch/arcis-data/raw/news_metadata/manifest.json`.
+**News metadata:** 504/504 symbols, 45,397 stock-days with news, 2025-10-04 to 2026-10-04. Metadata only: per stock-day article count and earliest `created_at` (America/New_York). No text, headlines, summaries, URLs, or raw responses retained. Manifest at `/home/hatch/arcis-data/raw/news_metadata/manifest.json`.
 
 ### T3 — Second moments
 
 Computed by `tools/measure_second_moments.py`. Beta-adjusted forward-return dispersion (252-session rolling betas vs SPY):
 
-| Horizon | Beta-adj. dispersion | Within-date resid. corr. |
-|---|---|---|
-| 1 session | 1.69% | −0.0065 |
-| 2 sessions | 2.40% | −0.0015 |
-| 5 sessions | 3.80% | +0.0002 |
-| 10 sessions | 5.35% | −0.0030 |
-| 15 sessions | 6.56% | −0.0022 |
+| Horizon | Raw disp. | Mkt-adj. disp. | Beta-adj. disp. | Resid. corr. |
+|---|---|---|---|---|
+| 1 session | 1.73% | 1.73% | 1.69% | +0.0485 |
+| 2 sessions | 2.46% | 2.46% | 2.40% | +0.0490 |
+| 5 sessions | 3.89% | 3.89% | 3.80% | +0.0499 |
+| 10 sessions | 5.47% | 5.47% | 5.35% | +0.0488 |
+| 15 sessions | 6.71% | 6.71% | 6.56% | +0.0481 |
 
-- Per-stock lag-1 autocorrelation (1-day): median −0.037 (IQR: −0.089 to +0.018).
-- News-bearing share: **8.0%** of stock-days (45,397 of 567,000 in the 12-month window).
-- Within-date residual correlations are near zero, consistent with beta adjustment removing most common variation.
+Median per-stock lag-1 autocorrelation (1-day returns): −0.0370.
+
+**Residual correlation methodology:** average pairwise time-series correlation over 2,000 random stock pairs (minimum 30 overlapping sessions). The prior z-score method was mechanically −1/(n−1) and has been replaced.
+
+**News-bearing share methodology (reproducible):** article `created_at` converted to America/New_York, bucketed by NY calendar date, intersected with trading days from the bars panel. Measured share: **7.74%** (45,397 news-bearing stock-days / 586,000+ total stock-days in window).
 
 ### T4 — Power simulations
 
-Computed by `tools/run_power_sims.py`. Date-block bootstrap (20-session blocks, 2,000 replications per cell, fixed seeds 304–315 and 416). All effects synthetic and randomly assigned.
+Computed by `tools/run_power_sims.py` (core in `tools/s03_power_lib.py`). Date-block bootstrap (20-session blocks), 2,000 replications per cell, seeds fixed and recorded. All effects synthetic and randomly assigned. Power SEs are binomial: sqrt(p(1−p)/2000) ≈ 0.9pp at 80% power.
 
-**Family A (§2.1, Q1):** outcome is 10-session beta-adjusted forward return (closest to R01's 8.5-session average hold). Model: date-FE regression of return on synthetic qualification indicator. One-sided α=2.5%.
+**Family A (§2.1):** label = b_Q·Qualified + ε, date FE, date-clustered SE, one-sided α=2.5%. Label proxy: **15-session beta-adjusted forward return** (per S03 spec T4). Qualification rates: 0.5%, 1%, 2%, 5%, 10%.
 
-| Window | q=0.5% | q=1% | q=2% | q=5% | q=10% | q=17.5% (planning) |
-|---|---|---|---|---|---|---|
-| 12 mo MDE | 68.1 bp | 46.2 bp | 33.8 bp | 21.1 bp | 16.9 bp | 14.0 bp |
-| 24 mo MDE | 46.6 bp | 34.4 bp | 23.0 bp | 16.5 bp | 11.9 bp | **8.9 bp** |
-| 24 mo power at 25 bp | 0.34 | 0.58 | 0.87 | 0.99 | 1.00 | **1.00** |
+| Window | q=0.5% | q=1% | q=2% | q=5% (planning) | q=10% |
+|---|---|---|---|---|---|
+| 12 mo | 78.1 bp | 58.4 bp | 42.3 bp | 25.2 bp | 18.8 bp |
+| 24 mo | 58.7 bp | 41.2 bp | 27.9 bp | **18.3 bp** | 15.3 bp |
 
-The planning qualification rate (17.5%) is the midpoint of S02's 15–20% range (`docs/research/old-platform-inventory.md`), derived from legacy candidate counts, not from applying the strategy historically.
+Power at 25 bp (24 mo, q=5%): 0.98.
 
-**Family B (§3.2, Q2/Q3):** outcome is one-day beta-adjusted forward return. Synthetic 8% news-bearing share (the measured share) with synthetic N(0,1) scores. Two-way (stock + date) FE, two-way clustered SE. Holm family α=2.5% (per-test 1.25%).
+**Family B (§3.2):** r = α_i + δ_t + b·(N·F) + ε, Holm at family α=2.5% (per-test 1.25%). Outcome: 1-day beta-adjusted forward return. News share: 7.74% (measured).
 
 | Window | MDE (80% power) |
 |---|---|
+| 12 mo | 6.3 bp |
 | 24 mo | **4.3 bp** |
 
-This sits within R03's realistic one-day effect range of 3–8 bp: the test can detect effects at the low end of the realistic range.
+**Planning qualification rate:** 5% of S&P 500 stock-days (≈25 names/day) is preregistered as the forward planning parameter. This replaces the S02 15–20% figure, which was a rough estimate on the S&P 100 universe that S03 could not verify from available legacy data (only closed trades, not daily qualification records).
 
-### Opposing biases (stated, not netted)
+**Opposing biases:** unbracketed 15-session returns overstate dispersion versus bracketed labels (MDE biased up); current-constituent survivorship understates dispersion (MDE biased down). Neither is called conservative.
 
-1. **Unbracketed returns overstate dispersion.** The simulations use unbracketed forward returns; the §2.1 label is bracketed (stop/target). Bracketed labels have lower dispersion, so the true MDE is lower than measured. This bias pushes the MDE **up**.
-2. **Current-constituent survivorship understates dispersion.** The panel uses current S&P 500 members; delisted names (typically more volatile) are missing. This bias pushes the MDE **down**.
-
-Neither bias is called conservative. They oppose each other; the net direction is unknown.
-
-## Figures recorded in PREREGISTRATION.md
-
-- §2.1 "Power" bullet: full MDE table, the 8.9 bp planning-rate figure, power at 25 bp, and both biases.
-- §3.2 "Planning power" bullet: 4.3 bp MDE at 24 months, Holm 1.25% per-test threshold, 8% synthetic news share.
+**Limitations:** synthetic qualification is iid per stock-day; real qualifiers persist across consecutive days and cluster in time, so the MDE may be understated. The report states this; it is not corrected.
 
 ## Clean-room compliance
 
-- `tools/measure_second_moments.py` and `tools/run_power_sims.py` never open `config/incumbent_v1.yaml` (assert-guarded via `ARCIS_ALLOW_INCUMBENT`).
-- No statistic conditions on incumbent qualification, ranker score, text score, or any real signal.
-- Planning qualification rate from S02 legacy counts, not from historical strategy application.
-- Only aggregate statistics enter git; bars, news metadata, and per-stock series stay under `/home/hatch/arcis-data`.
+- No S03 script opens `config/incumbent_v1.yaml` (verified by `tests/test_s03_cleanroom.py`: AST check for file I/O on the incumbent path, plus runtime guard using `raise` not `assert`).
+- Planning rate is a preregistered forward parameter, not derived from historical strategy application.
+- Raw panels stay under `/home/hatch/arcis-data` (outside the repo); only aggregates in git.
+
+## Deviations from spec
+
+1. **Four scripts instead of one** `tools/measure_power.py`: split into `pull_bars_panel.py`, `pull_news_metadata.py`, `measure_second_moments.py`, `run_power_sims.py` (+ `s03_power_lib.py`) for size-limit compliance and separation of concerns.
+2. **Planning rate 5% (forward parameter)** instead of S02's 15–20%: the legacy figure could not be verified; 5% is preregistered for the S&P 500 universe.
+3. All scripts pass the 400-line / 60-line function size checks (`tools/checks.py` now checks `tools/` as well as `src/`).
 
 ## Dependencies
 
-Research group additions (justified per S03 acceptance): `pandas` + `pyarrow` (panel I/O), `scipy` (normal quantiles for test thresholds), `numpy` (already present). `requests` was already a project dependency.
+Research group: `numpy`, `pandas`, `pyarrow` (parquet I/O), `requests` (Alpaca API), `scipy` (normal quantiles for power thresholds). All justified: numpy/pandas for panel math, pyarrow for parquet, requests for the Alpaca REST calls, scipy for `stats.norm.ppf`.

@@ -39,7 +39,8 @@ def main() -> int:
     steps: list[tuple[str, list[str]]] = [
         ("ruff", [py, "-m", "ruff", "check", "."]),
         ("ledger", [py, str(TOOLS / "check_ledger.py")]),
-        ("size", [py, str(TOOLS / "check_size.py")]),
+        ("size-src", [py, str(TOOLS / "check_size.py"), str(REPO / "src")]),
+        ("size-tools", [py, str(TOOLS / "check_size.py"), str(TOOLS)]),
         ("hygiene", [py, str(TOOLS / "check_hygiene.py")]),
         ("pytest", [py, "-m", "pytest"]),
     ]

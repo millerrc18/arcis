@@ -37,11 +37,21 @@ BETA_WINDOW = 252
 
 
 def _check_forbidden(config_dir: str) -> None:
-    forbidden = os.path.join(config_dir, _FORBIDDEN_CONFIG)
-    assert not os.environ.get("ARCIS_ALLOW_INCUMBENT"), (
-        "S03 scripts must not run with incumbent access enabled"
-    )
-    _ = forbidden
+    """Fail if incumbent access is explicitly enabled.
+
+    This guard prevents accidental contamination: S03 measurement scripts
+    must not condition on the incumbent definition. It does not (and cannot)
+    prevent deliberate file access; the guarantee rests on code review
+    (no open() of the incumbent path in these scripts, verified by
+    tests/test_s03_cleanroom.py) plus this runtime check.
+    Uses explicit raise, not assert, so it survives python -O.
+    """
+    if os.environ.get("ARCIS_ALLOW_INCUMBENT"):
+        raise RuntimeError(
+            "S03 scripts must not run with incumbent access enabled"
+        )
+    # Reference the forbidden path so reviewers can see what is guarded.
+    _ = os.path.join(config_dir, _FORBIDDEN_CONFIG)
 
 
 def load_panel(data_root: str) -> pd.DataFrame:
@@ -99,144 +109,143 @@ def forward_returns(panel: pd.DataFrame, h: int) -> pd.Series:
     return fwd
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="S03 T3 second moments")
-    parser.add_argument("--data-root", default="/home/hatch/arcis-data")
-    parser.add_argument("--config-dir", default="config")
-    args = parser.parse_args()
-
-    _check_forbidden(args.config_dir)
-
-    out_dir = os.path.join(args.data_root, "s03")
-    os.makedirs(out_dir, exist_ok=True)
-
+def _prepare_panel(data_root: str) -> tuple[pd.DataFrame, dict]:
+    """Load panel, compute log returns, rolling betas, lag-1 autocorr."""
     print("Loading panel...", flush=True)
-    panel = load_panel(args.data_root)
+    panel = load_panel(data_root)
     panel = compute_log_returns(panel)
     print(f"  {len(panel):,} rows, {panel['symbol'].nunique()} symbols", flush=True)
-
-    # Market (SPY) series indexed by date
     spy = panel[panel["symbol"] == "SPY"].set_index("date")["log_ret"]
     panel["mkt_ret"] = panel["date"].map(spy)
-
     print("Computing rolling betas...", flush=True)
     panel["beta"] = rolling_betas(panel, spy)
     panel["resid"] = panel["log_ret"] - panel["beta"] * panel["mkt_ret"]
-
-    # Per-stock lag-1 autocorrelation of 1-session log returns (unconditional)
     print("Lag-1 autocorrelation...", flush=True)
     ac1 = (
         panel.groupby("symbol")["log_ret"]
         .apply(lambda s: s.autocorr(lag=1))
         .dropna()
     )
+    ac_stats = {
+        "median": float(ac1.median()),
+        "q25": float(ac1.quantile(0.25)),
+        "q75": float(ac1.quantile(0.75)),
+        "n_stocks": int(len(ac1)),
+    }
+    return panel, ac_stats
 
-    results: dict = {
-        "generated_at": datetime.now(UTC).isoformat(),
-        "n_symbols": int(panel["symbol"].nunique()),
-        "n_rows": int(len(panel)),
-        "date_min": str(panel["date"].min().date()),
-        "date_max": str(panel["date"].max().date()),
-        "horizons": HORIZONS,
-        "beta_window": BETA_WINDOW,
-        "by_horizon": {},
-        "lag1_autocorr_1d": {
-            "median": float(ac1.median()),
-            "q25": float(ac1.quantile(0.25)),
-            "q75": float(ac1.quantile(0.75)),
-            "n_stocks": int(len(ac1)),
-        },
+
+def _dispersion_stats(series: pd.Series, panel: pd.DataFrame) -> dict:
+    """Cross-sectional dispersion per date, then time-series average."""
+    valid = series.dropna()
+    disp_by_date = valid.groupby(panel.loc[valid.index, "date"]).std()
+    return {
+        "xs_dispersion_mean": float(disp_by_date.mean()),
+        "xs_dispersion_std": float(disp_by_date.std()),
+        "n_dates": int(disp_by_date.count()),
     }
 
-    for h in HORIZONS:
-        print(f"Horizon {h}...", flush=True)
-        panel[f"fwd{h}"] = forward_returns(panel, h)
-        # market forward return: shift SPY closes by h sessions on SPY's own
-        # calendar, then align to each stock-date via the date map
-        spy_close = panel[panel["symbol"] == "SPY"].set_index("date")["close"]
-        spy_fwd = np.log(spy_close.shift(-h)) - np.log(spy_close)
-        panel[f"mkt_fwd{h}"] = panel["date"].map(spy_fwd)
 
-        fwd = panel[f"fwd{h}"]
-        mkt_adj = fwd - panel[f"mkt_fwd{h}"]
-        beta_adj = fwd - panel["beta"] * panel[f"mkt_fwd{h}"]
+def _pairwise_corr(
+    resid_pivot: pd.DataFrame,
+    rng: np.random.Generator,
+    n_pairs: int,
+    min_overlap: int,
+) -> list[float]:
+    """Average pairwise time-series correlation over random stock pairs."""
+    symbols_list = list(resid_pivot.columns)
+    corrs = []
+    for _ in range(n_pairs):
+        s1, s2 = rng.choice(symbols_list, size=2, replace=False)
+        x = resid_pivot[s1].dropna()
+        y = resid_pivot[s2].dropna()
+        common = x.index.intersection(y.index)
+        if len(common) < min_overlap:
+            continue
+        c = float(np.corrcoef(x.loc[common], y.loc[common])[0, 1])
+        if np.isfinite(c):
+            corrs.append(c)
+    return corrs
 
-        cell: dict = {}
-        for name, series in [
-            ("raw", fwd),
-            ("market_adjusted", mkt_adj),
-            ("beta_adjusted", beta_adj),
-        ]:
-            # cross-sectional dispersion per date, then time-series average
-            valid = series.dropna()
-            disp_by_date = valid.groupby(panel.loc[valid.index, "date"]).std()
-            cell[name] = {
-                "xs_dispersion_mean": float(disp_by_date.mean()),
-                "xs_dispersion_std": float(disp_by_date.std()),
-                "n_dates": int(disp_by_date.count()),
-            }
 
-        # within-date residual correlation of beta-adjusted forward returns.
-        # With one observation per stock per date, the mean pairwise product
-        # of cross-sectionally standardized residuals estimates the mean
-        # pairwise correlation. Sample up to 60 dates for tractability.
-        resid_fwd = beta_adj.dropna()
-        date_groups = resid_fwd.groupby(panel.loc[resid_fwd.index, "date"])
-        rng = np.random.default_rng(303)
-        all_dates = np.array(sorted(date_groups.groups.keys()))
-        sample_dates = rng.choice(
-            all_dates, size=min(60, len(all_dates)), replace=False
-        )
-        corrs = []
-        by_year: dict[int, list[float]] = {}
-        for d in sample_dates:
-            vals = date_groups.get_group(d).values.astype(float)
-            vals = vals[np.isfinite(vals)]
-            if len(vals) < 10:
-                continue
-            z = (vals - vals.mean()) / vals.std()
-            # mean pairwise product of standardized residuals
-            n = len(z)
-            # use random pairs to avoid O(n^2)
-            pairs = rng.integers(0, n, size=(2000, 2))
-            pairs = pairs[pairs[:, 0] != pairs[:, 1]]
-            if len(pairs) == 0:
-                continue
-            mc = float(np.mean(z[pairs[:, 0]] * z[pairs[:, 1]]))
-            corrs.append(mc)
-            yr = int(pd.Timestamp(d).year)
-            by_year.setdefault(yr, []).append(mc)
+def _horizon_cell(panel: pd.DataFrame, h: int) -> dict:
+    """Second moments for one horizon: dispersions + residual correlation."""
+    print(f"Horizon {h}...", flush=True)
+    panel[f"fwd{h}"] = forward_returns(panel, h)
+    spy_close = panel[panel["symbol"] == "SPY"].set_index("date")["close"]
+    spy_fwd = np.log(spy_close.shift(-h)) - np.log(spy_close)
+    panel[f"mkt_fwd{h}"] = panel["date"].map(spy_fwd)
+    fwd = panel[f"fwd{h}"]
+    mkt_adj = fwd - panel[f"mkt_fwd{h}"]
+    beta_adj = fwd - panel["beta"] * panel[f"mkt_fwd{h}"]
+    cell: dict = {}
+    for name, series in [
+        ("raw", fwd),
+        ("market_adjusted", mkt_adj),
+        ("beta_adjusted", beta_adj),
+    ]:
+        cell[name] = _dispersion_stats(series, panel)
+    resid_fwd = beta_adj.dropna()
+    resid_pivot = pd.DataFrame({
+        "symbol": panel.loc[resid_fwd.index, "symbol"].values,
+        "date": panel.loc[resid_fwd.index, "date"].values,
+        "r": resid_fwd.values,
+    }).pivot_table(index="date", columns="symbol", values="r")
+    rng = np.random.default_rng(303)
+    pair_corrs = _pairwise_corr(resid_pivot, rng, 2000, 30)
+    by_year: dict[int, list[float]] = {}
+    for yr in sorted(set(pd.Timestamp(d).year for d in resid_pivot.index)):
+        yr_dates = [d for d in resid_pivot.index if pd.Timestamp(d).year == yr]
+        if len(yr_dates) < 30:
+            continue
+        yr_corrs = _pairwise_corr(resid_pivot.loc[yr_dates], rng, 200, 20)
+        if yr_corrs:
+            by_year[yr] = yr_corrs
+    cell["residual_corr"] = {
+        "method": "average pairwise time-series correlation (2000 random pairs)",
+        "pooled_mean": float(np.mean(pair_corrs)) if pair_corrs else float("nan"),
+        "pooled_std": float(np.std(pair_corrs)) if pair_corrs else float("nan"),
+        "n_pairs": int(len(pair_corrs)),
+        "by_year": {str(y): float(np.mean(v)) for y, v in sorted(by_year.items())},
+    }
+    return cell
 
-        cell["residual_corr"] = {
-            "pooled_mean": float(np.mean(corrs)) if corrs else float("nan"),
-            "pooled_std": float(np.std(corrs)) if corrs else float("nan"),
-            "n_sampled_dates": int(len(corrs)),
-            "by_year": {
-                str(y): float(np.mean(v)) for y, v in sorted(by_year.items())
-            },
-        }
-        results["by_horizon"][str(h)] = cell
 
-    # News-bearing share (metadata only)
+def _news_share(data_root: str, panel: pd.DataFrame) -> dict:
+    """News-bearing share of stock-days.
+
+    Methodology (reproducible):
+    1. Convert article created_at to America/New_York (US equity timezone).
+    2. Bucket by NY calendar date.
+    3. A stock-day is "news-bearing" if >=1 article maps to that NY date
+       AND that date is a trading day for the symbol in the bars panel.
+    4. Share = news-bearing stock-days / total stock-days in window.
+    """
     print("News metadata...", flush=True)
     news = pd.read_parquet(
-        os.path.join(args.data_root, "raw", "news_metadata", "news_metadata.parquet")
+        os.path.join(data_root, "raw", "news_metadata", "news_metadata.parquet")
     )
-    news["date"] = pd.to_datetime(news["date"], utc=True)
-    # stock-days in the news window with at least one article
-    news_days = set(zip(news["symbol"], news["date"].dt.date.astype(str), strict=True))
-    # all stock-days in the same window from bars
-    n_start = pd.Timestamp(news["date"].min())
-    bars_window = panel[panel["date"] >= n_start]
+    news["created_ny"] = pd.to_datetime(
+        news["earliest_created_at"], utc=True
+    ).dt.tz_convert("America/New_York")
+    news["ny_date"] = news["created_ny"].dt.date.astype(str)
+    news_days = set(zip(news["symbol"], news["ny_date"], strict=True))
+    n_start_ny = news["created_ny"].min().date().isoformat()
+    panel_ny_date = panel["date"].dt.tz_convert("America/New_York").dt.date.astype(str)
+    bars_window = panel[panel_ny_date >= n_start_ny]
     all_days = set(
-        zip(bars_window["symbol"], bars_window["date"].dt.date.astype(str), strict=True)
+        zip(bars_window["symbol"], panel_ny_date[bars_window.index], strict=True)
     )
     bearing = len(news_days & all_days)
     total = len(all_days)
-    counts = news.groupby(["symbol", "date"])["article_count"].sum()
-    results["news"] = {
-        "window_start": str(n_start.date()),
-        "window_end": str(pd.Timestamp(news['date'].max()).date()),
+    counts = news.groupby(["symbol", "ny_date"])["article_count"].sum()
+    return {
+        "window_start": n_start_ny,
+        "window_end": news["created_ny"].max().date().isoformat(),
+        "methodology": (
+            "created_at converted to America/New_York; bucketed by NY date; "
+            "intersected with trading days from bars panel"
+        ),
         "news_bearing_share": float(bearing / total) if total else float("nan"),
         "news_bearing_stock_days": int(bearing),
         "total_stock_days": int(total),
@@ -248,6 +257,30 @@ def main() -> int:
         },
     }
 
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="S03 T3 second moments")
+    parser.add_argument("--data-root", default="/home/hatch/arcis-data")
+    parser.add_argument("--config-dir", default="config")
+    args = parser.parse_args()
+    _check_forbidden(args.config_dir)
+    out_dir = os.path.join(args.data_root, "s03")
+    os.makedirs(out_dir, exist_ok=True)
+    panel, ac_stats = _prepare_panel(args.data_root)
+    results: dict = {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "n_symbols": int(panel["symbol"].nunique()),
+        "n_rows": int(len(panel)),
+        "date_min": str(panel["date"].min().date()),
+        "date_max": str(panel["date"].max().date()),
+        "horizons": HORIZONS,
+        "beta_window": BETA_WINDOW,
+        "by_horizon": {},
+        "lag1_autocorr_1d": ac_stats,
+    }
+    for h in HORIZONS:
+        results["by_horizon"][str(h)] = _horizon_cell(panel, h)
+    results["news"] = _news_share(args.data_root, panel)
     out_path = os.path.join(out_dir, "second_moments.json")
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)

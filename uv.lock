@@ -55,6 +55,7 @@ dev = [
     { name = "types-pyyaml" },
 ]
 research = [
+    { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "requests" },
@@ -78,6 +79,7 @@ dev = [
     { name = "types-pyyaml" },
 ]
 research = [
+    { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "pyarrow", specifier = ">=25.0.1" },
     { name = "requests", specifier = ">=2.34.2" },

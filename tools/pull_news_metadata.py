@@ -66,13 +66,21 @@ def _get(url: str, headers: dict, params: dict) -> dict:
 
 
 def _check_forbidden(config_dir: str) -> None:
-    # Guard: nothing in this script's execution should depend on the
-    # incumbent definition. We do not read it; assert we are not asked to.
-    forbidden = os.path.join(config_dir, _FORBIDDEN_CONFIG)
-    assert not os.environ.get("ARCIS_ALLOW_INCUMBENT"), (
-        "S03 scripts must not run with incumbent access enabled"
-    )
-    _ = forbidden  # path referenced only for the assertion message
+    """Fail if incumbent access is explicitly enabled.
+
+    This guard prevents accidental contamination: S03 measurement scripts
+    must not condition on the incumbent definition. It does not (and cannot)
+    prevent deliberate file access; the guarantee rests on code review
+    (no open() of the incumbent path in these scripts, verified by
+    tests/test_s03_cleanroom.py) plus this runtime check.
+    Uses explicit raise, not assert, so it survives python -O.
+    """
+    if os.environ.get("ARCIS_ALLOW_INCUMBENT"):
+        raise RuntimeError(
+            "S03 scripts must not run with incumbent access enabled"
+        )
+    # Reference the forbidden path so reviewers can see what is guarded.
+    _ = os.path.join(config_dir, _FORBIDDEN_CONFIG)
 
 
 def load_symbols(config_dir: str) -> list[str]:
@@ -85,11 +93,38 @@ def load_symbols(config_dir: str) -> list[str]:
     return symbols
 
 
+def _reduce_articles(
+    payload: dict, symbols: list[str], per_day: dict[tuple[str, str], dict]
+) -> None:
+    """Reduce each article immediately to (symbol, day, count, earliest).
+
+    Never retains text fields. Mutates per_day in place.
+    """
+    for article in payload.get("news", []):
+        if not isinstance(article, dict):
+            continue
+        created = article.get("created_at")
+        article_symbols = article.get("symbols", [])
+        if not created or not article_symbols:
+            continue
+        day = created[:10]
+        for sym in article_symbols:
+            if not isinstance(sym, str):
+                continue
+            sym = sym.strip()
+            if sym not in symbols:
+                continue
+            key = (sym, day)
+            cell = per_day.setdefault(key, {"count": 0, "earliest": created})
+            cell["count"] += 1
+            if created < cell["earliest"]:
+                cell["earliest"] = created
+
+
 def fetch_batch_metadata(
     symbols: list[str], headers: dict, start: datetime, end: datetime
 ) -> pd.DataFrame:
-    """Fetch news for a batch of symbols; return per-day (count, earliest created_at)."""
-    # per_day[(symbol, day)] = {"count": n, "earliest": ts}
+    """Fetch news for a batch of symbols; return per-day (count, earliest)."""
     per_day: dict[tuple[str, str], dict] = {}
     page_token = None
     pages = 0
@@ -106,32 +141,20 @@ def fetch_batch_metadata(
         if page_token:
             params["page_token"] = page_token
         payload = _get(NEWS_URL, headers, params)
-        # Reduce each article immediately to (symbol, date, created_at);
-        # never retain text fields. Strip any content-related key defensively.
-        for article in payload.get("news", []):
-            if not isinstance(article, dict):
-                continue
-            created = article.get("created_at")
-            article_symbols = article.get("symbols", [])
-            if not created or not article_symbols:
-                continue
-            day = created[:10]
-            for sym in article_symbols:
-                if not isinstance(sym, str):
-                    continue
-                sym = sym.strip()
-                if sym not in symbols:
-                    continue
-                key = (sym, day)
-                cell = per_day.setdefault(key, {"count": 0, "earliest": created})
-                cell["count"] += 1
-                if created < cell["earliest"]:
-                    cell["earliest"] = created
+        _reduce_articles(payload, symbols, per_day)
         page_token = payload.get("next_page_token")
         pages += 1
         time.sleep(RATE_LIMIT_PAUSE_S)
         if not page_token:
             break
+    # Fail closed on truncation: if we hit the page cap with more pages
+    # available, the data is incomplete. Do not silently drop articles.
+    if page_token:
+        raise RuntimeError(
+            f"News pagination truncated for batch {symbols_param[:50]}...: "
+            f"hit MAX_PAGES_PER_BATCH={MAX_PAGES_PER_BATCH} with next_page_token "
+            f"still set. Increase the cap or reduce BATCH_SIZE."
+        )
     rows = [
         {
             "symbol": sym,
@@ -141,81 +164,41 @@ def fetch_batch_metadata(
         }
         for (sym, day), cell in sorted(per_day.items())
     ]
-    return pd.DataFrame(rows, columns=["symbol", "date", "article_count", "earliest_created_at"])
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="S03 news metadata-only panel pull (batched)")
-    parser.add_argument("--data-root", default="/home/hatch/arcis-data")
-    parser.add_argument("--config-dir", default="config")
-    args = parser.parse_args()
-
-    _check_forbidden(args.config_dir)
-
-    api_key = os.environ.get("ALPACA_API_KEY")
-    api_secret = os.environ.get("ALPACA_API_SECRET")
-    if not api_key or not api_secret:
-        print("ALPACA_API_KEY / ALPACA_API_SECRET not set", file=sys.stderr)
-        return 2
-    headers = {"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": api_secret}
-
-    end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = end - timedelta(days=365)
-
-    out_dir = os.path.join(args.data_root, "raw", "news_metadata")
-    if not os.path.abspath(out_dir).startswith(os.path.abspath(args.data_root)):
-        print("data root guard failed", file=sys.stderr)
-        return 2
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "news_metadata.parquet")
-    manifest_path = os.path.join(out_dir, "manifest.json")
-
-    manifest: dict = {}
-    if os.path.exists(manifest_path):
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-    done_symbols: set[str] = set(manifest.get("complete_symbols", []))
-
-    symbols = load_symbols(args.config_dir)
-    remaining = [s for s in symbols if s not in done_symbols]
-    
-    frames: list[pd.DataFrame] = []
-    if os.path.exists(out_path):
-        frames.append(pd.read_parquet(out_path))
-
-    # Batch the remaining symbols
-    batches = [remaining[i:i+BATCH_SIZE] for i in range(0, len(remaining), BATCH_SIZE)]
-    total_batches = len(batches)
-    
-    for i, batch in enumerate(batches, 1):
-        try:
-            df = fetch_batch_metadata(batch, headers, start, end)
-        except RuntimeError as exc:
-            print(f"ERROR batch {i}: {exc}", file=sys.stderr)
-            return 1
-        frames.append(df)
-        done_symbols.update(batch)
-        if i % 5 == 0 or i == total_batches:
-            print(f"[{i}/{total_batches}] batches ... "
-                  f"({len(done_symbols)}/{len(symbols)} symbols)", flush=True)
-            # checkpoint
-            combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-            combined.to_parquet(out_path, index=False)
-            manifest["complete_symbols"] = sorted(done_symbols)
-            with open(manifest_path, "w") as f:
-                json.dump(manifest, f, indent=2)
-
-    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-    combined = combined.drop_duplicates(subset=["symbol", "date"]).sort_values(
-        ["symbol", "date"]
+    return pd.DataFrame(
+        rows, columns=["symbol", "date", "article_count", "earliest_created_at"]
     )
-    combined.to_parquet(out_path, index=False)
 
+
+def _checkpoint(
+    frames: list[pd.DataFrame],
+    out_path: str,
+    manifest_path: str,
+    manifest: dict,
+    done_symbols: set[str],
+) -> None:
+    """Write intermediate parquet + manifest (resumable)."""
+    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    combined.to_parquet(out_path, index=False)
+    manifest["complete_symbols"] = sorted(done_symbols)
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def _finalize_manifest(
+    out_path: str,
+    manifest_path: str,
+    manifest: dict,
+    symbols: list[str],
+    done_symbols: set[str],
+    combined: pd.DataFrame,
+    start: datetime,
+    end: datetime,
+) -> None:
+    """Write final manifest with sha256 and counts."""
     digest = hashlib.sha256()
     with open(out_path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             digest.update(chunk)
-
     manifest.update(
         {
             "generated_at": datetime.now(UTC).isoformat(),
@@ -232,6 +215,74 @@ def main() -> int:
     )
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
+
+
+def _setup_run(
+    args: argparse.Namespace,
+) -> tuple[dict, datetime, datetime, str, str, dict, set[str], list[str], list]:
+    """Validate env, create dirs, load manifest and symbol lists."""
+    _check_forbidden(args.config_dir)
+    api_key = os.environ.get("ALPACA_API_KEY")
+    api_secret = os.environ.get("ALPACA_API_SECRET")
+    if not api_key or not api_secret:
+        print("ALPACA_API_KEY / ALPACA_API_SECRET not set", file=sys.stderr)
+        raise SystemExit(2)
+    headers = {"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": api_secret}
+    end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=365)
+    out_dir = os.path.join(args.data_root, "raw", "news_metadata")
+    if not os.path.abspath(out_dir).startswith(os.path.abspath(args.data_root)):
+        print("data root guard failed", file=sys.stderr)
+        raise SystemExit(2)
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "news_metadata.parquet")
+    manifest_path = os.path.join(out_dir, "manifest.json")
+    manifest: dict = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    done_symbols: set[str] = set(manifest.get("complete_symbols", []))
+    symbols = load_symbols(args.config_dir)
+    frames: list = []
+    if os.path.exists(out_path):
+        frames.append(pd.read_parquet(out_path))
+    return (headers, start, end, out_path, manifest_path, manifest,
+            done_symbols, symbols, frames)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="S03 news metadata-only panel pull (batched)")
+    parser.add_argument("--data-root", default="/home/hatch/arcis-data")
+    parser.add_argument("--config-dir", default="config")
+    args = parser.parse_args()
+    (headers, start, end, out_path, manifest_path, manifest,
+     done_symbols, symbols, frames) = _setup_run(args)
+    remaining = [s for s in symbols if s not in done_symbols]
+    batches = [remaining[i:i+BATCH_SIZE] for i in range(0, len(remaining), BATCH_SIZE)]
+    total_batches = len(batches)
+    
+    for i, batch in enumerate(batches, 1):
+        try:
+            df = fetch_batch_metadata(batch, headers, start, end)
+        except RuntimeError as exc:
+            print(f"ERROR batch {i}: {exc}", file=sys.stderr)
+            return 1
+        frames.append(df)
+        done_symbols.update(batch)
+        if i % 5 == 0 or i == total_batches:
+            print(f"[{i}/{total_batches}] batches ... "
+                  f"({len(done_symbols)}/{len(symbols)} symbols)", flush=True)
+            _checkpoint(frames, out_path, manifest_path, manifest, done_symbols)
+
+    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    combined = combined.drop_duplicates(subset=["symbol", "date"]).sort_values(
+        ["symbol", "date"]
+    )
+    combined.to_parquet(out_path, index=False)
+    _finalize_manifest(
+        out_path, manifest_path, manifest, symbols, done_symbols,
+        combined, start, end,
+    )
     print(f"Done. Stock-days with news: {len(combined)}. Manifest: {manifest_path}")
     return 0
 
