@@ -65,14 +65,19 @@ def load_beta_adjusted_returns(data_root: str, h: int) -> pd.DataFrame:
 
 
 def _rolling_betas(panel: pd.DataFrame, spy: pd.Series) -> pd.Series:
-    """252-session rolling beta vs SPY, vectorized per symbol."""
+    """252-session rolling beta vs SPY, vectorized per symbol.
+
+    Uses the 252 sessions *prior* to day t (excludes t), consistent with
+    tools/measure_second_moments.py.
+    """
     betas = pd.Series(np.nan, index=panel.index)
     for _symbol, grp in panel.groupby("symbol"):
         idx = grp.index.values
         rs = pd.Series(grp["log_ret"].values, index=idx)
         ms = pd.Series(spy.reindex(grp["date"]).values, index=idx)
-        cov = rs.rolling(252).cov(ms)
-        var = ms.rolling(252).var()
+        # shift by 1 to exclude day t, then rolling 252
+        cov = rs.shift(1).rolling(252).cov(ms.shift(1))
+        var = ms.shift(1).rolling(252).var()
         betas.loc[idx] = (cov / var).values
     return betas
 

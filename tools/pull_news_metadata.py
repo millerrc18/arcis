@@ -217,11 +217,31 @@ def _finalize_manifest(
         json.dump(manifest, f, indent=2)
 
 
+def _guard_data_root(data_root: str) -> None:
+    """Refuse repo and cloud-sync paths (S01 invariant I-7).
+
+    Resolve first so relative paths cannot bypass the check.
+    Raises SystemExit(2) on violation.
+    """
+    from pathlib import Path
+    resolved = Path(data_root).resolve()
+    repo = Path(__file__).resolve().parent.parent
+    if repo in resolved.parents or resolved == repo:
+        print("REFUSING: data root inside the repo", file=sys.stderr)
+        raise SystemExit(2)
+    for sync in ("Dropbox", "OneDrive", "Google Drive", "iCloud"):
+        if sync.lower() in str(resolved).lower():
+            print(f"REFUSING: data root looks like a sync folder ({sync})",
+                  file=sys.stderr)
+            raise SystemExit(2)
+
+
 def _setup_run(
     args: argparse.Namespace,
 ) -> tuple[dict, datetime, datetime, str, str, dict, set[str], list[str], list]:
     """Validate env, create dirs, load manifest and symbol lists."""
     _check_forbidden(args.config_dir)
+    _guard_data_root(args.data_root)
     api_key = os.environ.get("ALPACA_API_KEY")
     api_secret = os.environ.get("ALPACA_API_SECRET")
     if not api_key or not api_secret:
@@ -231,9 +251,6 @@ def _setup_run(
     end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     start = end - timedelta(days=365)
     out_dir = os.path.join(args.data_root, "raw", "news_metadata")
-    if not os.path.abspath(out_dir).startswith(os.path.abspath(args.data_root)):
-        print("data root guard failed", file=sys.stderr)
-        raise SystemExit(2)
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "news_metadata.parquet")
     manifest_path = os.path.join(out_dir, "manifest.json")

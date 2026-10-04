@@ -7,7 +7,7 @@
 
 ## Verdict
 
-The preregistered Q1 (§2.1) and Q2/Q3 (§3.2) tests can detect the minimum effects they are intended to detect. The 24-month §2.1 MDE at the preregistered 5% forward planning qualification rate is **18.3 bp**, below the 25 bp minimum effect (power at 25 bp is 0.98). The §3.2 MDE is **6.3 bp at 12 months** and **4.3 bp at 24 months**, within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
+The preregistered Q1 (§2.1) and Q2/Q3 (§3.2) tests can detect the minimum effects they are intended to detect. The 24-month §2.1 MDE at the 5% forward planning qualification rate (set by the CEO on 2026-10-04) is **18.3 bp**, below the 25 bp minimum effect (power at 25 bp is 0.98). The §3.2 MDE is **2.9 bp at 12 months** and **2.0 bp at 24 months**, within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
 
 ## What was measured
 
@@ -39,7 +39,9 @@ Median per-stock lag-1 autocorrelation (1-day returns): −0.0370.
 
 **Residual correlation methodology:** average pairwise time-series correlation over 2,000 random stock pairs (minimum 30 overlapping sessions). The prior z-score method was mechanically −1/(n−1) and has been replaced.
 
-**News-bearing share methodology (reproducible):** article `created_at` converted to America/New_York, bucketed by NY calendar date, intersected with trading days from the bars panel. Measured share: **7.74%** (45,397 news-bearing stock-days / 586,000+ total stock-days in window).
+**News-bearing share methodology (reproducible):** article `created_at` converted to America/New_York, bucketed by NY calendar date, intersected with trading days from the bars panel. Window from manifest (2025-10-04 to 2026-10-04), not data min. Measured share: **32.15%** (40,396 news-bearing stock-days / 125,644 total stock-days in window).
+
+**Note:** the raw and market-adjusted dispersion columns are identical by construction: subtracting a per-date constant (the SPY return) does not change the cross-sectional standard deviation.
 
 ### T4 — Power simulations
 
@@ -58,14 +60,20 @@ Power at 25 bp (24 mo, q=5%): 0.98.
 
 | Window | MDE (80% power) |
 |---|---|
-| 12 mo | 6.3 bp |
-| 24 mo | **4.3 bp** |
+| 12 mo | 2.9 bp |
+| 24 mo | **2.0 bp** |
 
-**Planning qualification rate:** 5% of S&P 500 stock-days (≈25 names/day) is preregistered as the forward planning parameter. This replaces the S02 15–20% figure, which was a rough estimate on the S&P 100 universe that S03 could not verify from available legacy data (only closed trades, not daily qualification records).
+**Planning qualification rate:** 5% of S&P 500 stock-days (≈25 names/day), set by the CEO on 2026-10-04 as a preregistered forward design parameter. This replaces the S02 15–20% figure, which was a rough estimate on the S&P 100 universe that could not be verified from available legacy data (only closed trades, not daily qualification records). The legacy trade series implies a lower bound of ~4% on S&P 100 (median 4 trades/day); the 5% S&P 500 rate is a forward-looking design choice.
 
 **Opposing biases:** unbracketed 15-session returns overstate dispersion versus bracketed labels (MDE biased up); current-constituent survivorship understates dispersion (MDE biased down). Neither is called conservative.
 
-**Limitations:** synthetic qualification is iid per stock-day; real qualifiers persist across consecutive days and cluster in time, so the MDE may be understated. The report states this; it is not corrected.
+**Limitations:** synthetic qualification is iid per stock-day; real qualifiers persist across consecutive days and cluster in time, so the MDE may be understated. The two-way demeaning in Family B uses the approximation x − x̄_d − x̄_s + x̄ rather than alternating projections; on the ~13% unbalanced bootstrap panel this leaves small residual date means. The effect on the MDEs is expected to be small but is not verified.
+
+## Deviations from spec (carried over)
+
+- T1 access facts: per-call status codes, earliest bar date, and rate-limit headers are not recorded in the report (available in logs).
+- T2: no full gap analysis; late-starter list is in the manifest, not the report.
+- T3: by-year dispersion tables and by-year correlation are computed but not tabulated in the report (in `second_moments.json`).
 
 ## Clean-room compliance
 

@@ -167,7 +167,9 @@ standard errors.
 6. **Size limits:** all scripts refactored to ≤400 lines / ≤60-line functions; `tools/checks.py` now checks `tools/` as well as `src/`.
 7. **Missing outputs:** Family B now reports 12-month MDE (6.3 bp); all cells include binomial power SEs (≈0.9pp at 80% power).
 
-**Results:** 24-month §2.1 MDE at 5% planning rate is **18.3 bp** (< 25 bp minimum effect; power at 25 bp is 0.98). §3.2 MDE is 6.3 bp (12 mo) / 4.3 bp (24 mo), within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
+**Results:** 24-month §2.1 MDE at 5% planning rate is **18.3 bp** (< 25 bp minimum effect; power at 25 bp is 0.98). §3.2 MDE is 2.9 bp (12 mo) / 2.0 bp (24 mo), within the realistic 3–8 bp range. **prereg-v1 is clear to proceed.**
+
+**Planning rate decision (2026-10-04):** The CEO set 5% of S&P 500 stock-days (≈25 names/day) as the preregistered forward design parameter. This replaces the S02 15–20% figure (a rough S&P 100 estimate that could not be verified from legacy data — only closed trades, not daily qualification records, were available). The legacy trade series implies a lower bound of ~4% on S&P 100.
 
 **Deviations:** four scripts instead of the single `tools/measure_power.py` (size-limit compliance); planning rate is a forward parameter, not S02-derived.
 

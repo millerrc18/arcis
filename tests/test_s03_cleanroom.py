@@ -20,6 +20,7 @@ S03_SCRIPTS = [
     "pull_news_metadata.py",
     "measure_second_moments.py",
     "run_power_sims.py",
+    "s03_power_lib.py",
 ]
 FORBIDDEN_NAME = "incumbent_v1.yaml"
 

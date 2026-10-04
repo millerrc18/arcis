@@ -23,7 +23,7 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 | S01 T2–T10 · recorder built | — | 2026-10-02 | done | — |
 | Step 1 · recorder, 7 clean days | S01 merged | late Oct 2026 | forecast | — |
 | Step 2 · S02 report, `incumbent_v1` frozen | — | late Oct 2026 | forecast | — |
-| Step 2m · S03 power figures | S01 merged, S02 T4 | early Nov 2026 | forecast | If 25 bp is undetectable at 24 months, a decision before the tag (S03) |
+| Step 2m · S03 power figures | S01 merged, S02 T4 | 2026-10-04 | done | 24-mo §2.1 MDE 18.3 bp at 5% planning rate (< 25 bp); §3.2 MDE 2.0 bp — prereg-v1 clear (S03) |
 | **Step 2t · `prereg-v1`; the Q1 clock starts** | Steps 2 and 2m | **mid-Nov 2026** | forecast | — |
 | Step 3 · data plane | `prereg-v1` | Q1 2027 | forecast | — |
 | Step 4 · ranker, cost model, metrics | Step 3 | Q2 2027 | forecast | — |

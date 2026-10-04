@@ -222,17 +222,24 @@ def _news_share(data_root: str, panel: pd.DataFrame) -> dict:
     4. Share = news-bearing stock-days / total stock-days in window.
     """
     print("News metadata...", flush=True)
-    news = pd.read_parquet(
-        os.path.join(data_root, "raw", "news_metadata", "news_metadata.parquet")
-    )
+    news_path = os.path.join(data_root, "raw", "news_metadata")
+    news = pd.read_parquet(os.path.join(news_path, "news_metadata.parquet"))
+    # Use manifest window, not data min (data may have stray rows)
+    with open(os.path.join(news_path, "manifest.json")) as f:
+        manifest = json.load(f)
+    window_start = manifest["start"]  # e.g., "2025-10-04"
+    window_end = manifest["end"]
     news["created_ny"] = pd.to_datetime(
         news["earliest_created_at"], utc=True
     ).dt.tz_convert("America/New_York")
     news["ny_date"] = news["created_ny"].dt.date.astype(str)
+    # Filter to manifest window
+    news = news[(news["ny_date"] >= window_start) & (news["ny_date"] <= window_end)]
     news_days = set(zip(news["symbol"], news["ny_date"], strict=True))
-    n_start_ny = news["created_ny"].min().date().isoformat()
     panel_ny_date = panel["date"].dt.tz_convert("America/New_York").dt.date.astype(str)
-    bars_window = panel[panel_ny_date >= n_start_ny]
+    bars_window = panel[
+        (panel_ny_date >= window_start) & (panel_ny_date <= window_end)
+    ]
     all_days = set(
         zip(bars_window["symbol"], panel_ny_date[bars_window.index], strict=True)
     )
@@ -240,11 +247,12 @@ def _news_share(data_root: str, panel: pd.DataFrame) -> dict:
     total = len(all_days)
     counts = news.groupby(["symbol", "ny_date"])["article_count"].sum()
     return {
-        "window_start": n_start_ny,
-        "window_end": news["created_ny"].max().date().isoformat(),
+        "window_start": window_start,
+        "window_end": window_end,
         "methodology": (
             "created_at converted to America/New_York; bucketed by NY date; "
-            "intersected with trading days from bars panel"
+            "intersected with trading days from bars panel; "
+            "window from manifest (not data min)"
         ),
         "news_bearing_share": float(bearing / total) if total else float("nan"),
         "news_bearing_stock_days": int(bearing),

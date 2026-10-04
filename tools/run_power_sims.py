@@ -45,8 +45,8 @@ Q_RATES_A = [0.005, 0.01, 0.02, 0.05, 0.10]
 WINDOWS_A = [12, 24]
 # Family B: §3.2 windows (spec requires 12 and 24 months)
 WINDOWS_B = [12, 24]
-# News share: measured 0.0774 in T3 (second_moments.json)
-NEWS_SHARE_B = 0.0774
+# News share: measured 0.3215 in T3 (second_moments.json)
+NEWS_SHARE_B = 0.3215
 
 # Effect grids (fractions; 0.0025 = 25 bp)
 GRID_A = np.array([0.0005, 0.001, 0.002, 0.0025, 0.003, 0.005, 0.0075, 0.01])
