@@ -1,0 +1,176 @@
+# incumbent_v1.yaml — Frozen incumbent strategy definition
+#
+# The incumbent is the legacy platform's pullback ranker: a mean-reversion
+# strategy that scores S&P 100 tickers on pullback depth, trend state,
+# relative strength, and volatility signals, then ranks them for entry.
+#
+# Source: docs/sprints/sprint_F_evaluation.md (Sprint F Pass 1 — Evaluation),
+# recovered from the local archive 2026-10-04. That document ports "the
+# incumbent pullback ranker onto the existing strategy-spec surface" and
+# inventories every scoring rule with line-number citations to:
+#   - src/ranking/ranker.py (scoring)
+#   - src/features/engine.py (feature computation)
+#   - src/features/enrichment.py (post-scan dispatch)
+#   - src/data_enrichment/enricher.py (enrichment orchestrator)
+#
+# Legacy repo SHA for code citations: 78c788ec8592254bd77f5bcf856918ff282835a8
+# Sprint F doc recovered from local archive (not in GitHub clone).
+#
+# NOTE: lazy_prices_v1 (Cohen-Malloy-Nguyen 2020) was a SEPARATE candidate
+# strategy that was SHELVED post-bootcamp (status: shelved in the 8b429217
+# variant). post_audit_ruleset_v1 is a filter layer on lazy_prices, not the
+# incumbent. The incumbent is the pullback ranker described here.
+
+spec_version: 1
+strategy_id: incumbent_v1
+display_name: Incumbent Pullback Ranker
+description: >
+  Mean-reversion pullback strategy on S&P 100. Scores each ticker 0-100 using
+  trend state, market/sector relative strength (60/40 blend), pullback depth
+  sweet spot, distance to SMA20, volume ratio, and IV rank signals, with
+  regime-based adjustments. Entries on high-ranked pullback setups;
+  mechanical ATR-based exits.
+
+universe:
+  tickers: sp100
+
+# --- Scoring bands (src/ranking/ranker.py:165-220) ---
+# Band matching is first-match-wins per metric. Final score clamped [0, 100].
+ranking:
+  bands:
+    - metric: trend_state
+      category:
+        strong_uptrend: 30
+        uptrend: 20
+        neutral: 5
+    - metric: relative_strength_state
+      category:
+        strong_outperformer: 25
+        outperformer: 15
+    - metric: _sector_rs_score
+      note: >
+        Live runtime field (not a registry-listed scoring metric). 60/40
+        market/sector RS blend: metrics with present values but no matching
+        band consume declared group weight with zero contribution; when
+        sector RS is unavailable, market RS receives full effective weight
+        (src/ranking/ranker.py:182-187).
+      blend:
+        market_weight: 0.6
+        sector_weight: 0.4
+    - metric: pullback_depth_pct
+      numeric:
+        - range: [-8, -3]
+          score: 25
+        - range: [-12, -8]
+          score: 10
+          note: order-sensitive, exclusive upper bound
+    - metric: dist_to_sma20_pct
+      numeric:
+        - range: [-5, -1]
+          score: 10
+    - metric: volume_ratio_20d
+      numeric:
+        - range: [null, 0.8]
+          score: 15
+          note: sentinel lower bound
+    - metric: iv_rank
+      numeric:
+        - range: [null, 25]
+          score: 3
+    - metric: iv_rank_put_call
+      conditions:
+        - when:
+            iv_rank_gt: 75
+            put_call_vol_ratio_gt: 1.2
+          score: -3
+  clamp: [0, 100]
+
+# --- Sector RS computation (src/ranking/ranker.py:133-147) ---
+# weighted_excess = 0.20 * excess_1m + 0.50 * excess_3m + 0.30 * excess_6m
+# Banded to 25 / 15 / 5 / 0.
+  sector_rs:
+    formula: weighted_excess = 0.20 * excess_1m + 0.50 * excess_3m + 0.30 * excess_6m
+    bands: [25, 15, 5, 0]
+
+# --- Regime adjustments (src/ranking/ranker.py:72-102) ---
+# Cumulative, then clamped to [-10, 10].
+  adjustments:
+    bands:
+      - conditions: {regime_label: calm_uptrend, market_breadth_label: healthy}
+        score: 5
+      - conditions: {regime_label: calm_uptrend, market_breadth_label: narrowing}
+        score: 2
+      - conditions: {regime_label: transitional}
+        score: -3
+      - conditions: {regime_label: calm_downtrend}
+        score: -5
+      - conditions: {regime_label: volatile_downtrend}
+        score: -10
+      - conditions: {spy_rsi_14_gt: 75}
+        score: -3
+      - conditions: {spy_rsi_14_lt: 30}
+        score: 3
+    clamp: [-10, 10]
+    note: volatile_uptrend is an explicit no-op (+0).
+
+# --- Feature engine (src/features/engine.py:204-288) ---
+# Always-on: market regime, options metrics, event proximity, sector profiles.
+# Per-ticker: technical features, earnings lookup + overlap classification,
+# regime/options/event/sector merges, setup classification.
+features:
+  engine: src/features/engine.py
+  always_on: [market_regime, options_metrics, event_proximity, sector_profiles]
+  per_ticker: [technicals, earnings_lookup, regime_merge, options_merge,
+    event_proximity_merge, sector_conditioning, setup_classification]
+
+# --- Post-scan dispatch (src/features/enrichment.py:22-82) ---
+# traffic_light and event_risk helpers; quarantine categories for event risk.
+post_scan:
+  helpers: [traffic_light, event_risk]
+  event_risk_categories_emitted: [fomc, nfp, cpi, earnings_imminent, earnings_elevated]
+
+# --- Enrichment (src/data_enrichment/enricher.py:53-176) ---
+# macro, insider, news wired; fundamental_summary and earnings_signals
+# always-on but not in the KNOWN_ENRICHERS registry (documented drift).
+enrichment:
+  wired: [macro, insider, news]
+  always_on_undocumented: [fundamental_summary, earnings_signals]
+
+# --- Exit (mechanical; ATR-based bracket math from T7.3) ---
+# The deterministic pct/atr_based bracket math is portable. LLM-in-the-loop
+# bracket pricing is NOT part of the frozen definition.
+exit:
+  kind: mechanical
+  stop:
+    method: atr_based
+    atr_period: 14
+    multiplier: 3.0
+    floor_pct: 0.05
+    cap_pct: 0.12
+  target:
+    method: atr_based
+    atr_period: 14
+    multiplier: 6.0
+    floor_pct: 0.10
+    cap_pct: 0.25
+
+# --- S&P 100 assumptions flagged (SCOPE D-012) ---
+# Every threshold above was tuned against S&P 100 mega-cap liquidity.
+# Carrying to S&P 500 requires re-examination, never silent adoption.
+sp100_assumptions:
+  - pullback_depth_pct sweet spot [-8, -3]
+  - volume_ratio_20d threshold 0.8
+  - sector RS blend weights (0.20/0.50/0.30)
+  - regime adjustment magnitudes
+
+frozen:
+  sha256: 524dd858d95a08453167e46e976836601fe3f281b8d94f763cee843277e24b82
+  date: "2026-10-04"
+  unresolved_at_freeze:
+    - "T3 (partially resolved 2026-10-04): ranking_at_entry is all zeros (dead field), but rec_priority_score carries live ranker output (183/287 trades, 60-100 range, mean 84). Regime_at_entry is binary GREEN/None, not the detailed Sprint F labels."
+    - "T3: 171/287 pullback exits are 'reconciled_stale', not clean mechanical exits."
+    - "S&P 100 thresholds flagged per SCOPE D-012; require re-examination for S&P 500."
+  ceo_decisions_2026_10_04:
+    - "Q1: incumbent identity (Sprint F pullback ranker) CONFIRMED."
+    - "Q2: dig deeper DONE — rec_priority_score is the live score field."
+    - "Q5: corpus manifest hash (43c2e3ed...) SUFFICIENT for Q3 eligibility." 
