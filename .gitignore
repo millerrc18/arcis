@@ -19,3 +19,4 @@ uv.lock.tmp
 *.sqlite3*
 data/
 .coverage
+.claude-review-seen

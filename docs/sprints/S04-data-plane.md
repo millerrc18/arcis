@@ -1,0 +1,162 @@
+# S04 — Data Plane Audit
+
+| | |
+|---|---|
+| **Branch** | `feat/s04-data-plane` |
+| **Repository** | `millerrc18/arcis` (public). Market data stays under the data root; only aggregate statistics are committed. |
+| **Depends on** | S01 merged (recorder, universe snapshots). S03 merged (bars panel exists under data root). `prereg-v1` tagged. |
+| **Ledger row** | None. This sprint produces audit reports and known-answer tests, not a package. |
+| **Invariants** | I-7 data outside the repo and sync folders · I-12 no blind exception handling · I-16 nothing private and no market data in a public repo |
+| **Runs** | After `prereg-v1` (SCOPE §5 Step 3); Steps 4–5 depend on it |
+| **Tasks** | 7 |
+
+## Why this sprint exists
+
+Steps 4 (ranker) and 5 (simulator, harness) both stand on the data plane. The S03 bars panel exists, but its quality characteristics are unaudited:
+
+- **Coverage:** S03 pulled current S&P 500 constituents from 2016. How many have full history? Which are late starters? Are there gaps?
+- **Delisted symbols:** The panel has only current constituents. Names that left the index (acquired, bankrupt, demoted) are absent. How much history is missing, and what bias does that introduce?
+- **Adjustments:** We request `adjustment=all`. Do splits and dividends appear correctly? Are there unadjusted spikes?
+- **Corporate actions:** How do mergers, spinoffs, and ticker changes manifest in the Alpaca data?
+- **Availability:** When was each bar available? A bar timestamped 2016-01-04 was not available on 2016-01-04 for a backtest — but for the forward test (which is what matters post-tag), we need to know the data was available at `t_d`.
+- **Survivorship:** The S03 report states the survivorship bias qualitatively. This sprint quantifies it: what fraction of the 2016 S&P 500 is still in the index? What was the volatility of leavers vs stayers?
+
+Without this audit, Step 4 builds a ranker on data whose limitations are unknown, and Step 5's simulator inherits them silently.
+
+## Hard scope
+
+**In:** coverage audit of the S03 bars panel; delisted-symbol inventory; adjustment verification on known splits/dividends; corporate-action documentation; availability timestamp analysis; forward membership snapshot verification; known-answer tests for data calculations; quantified survivorship report.
+
+**Out:** implementing the ranker (Step 4); implementing the simulator (Step 5); any statistic conditional on the incumbent's qualification or score; loading `config/incumbent_v1.yaml`; changing any preregistered threshold.
+
+If a task appears to need anything from **Out**, stop and write it up in the sprint report.
+
+## Ground rules
+
+1. **Audit, don't fix (yet).** This sprint documents the data's characteristics. If a defect is found that blocks Step 4, record it as a blocker with a proposed fix; don't silently repair the panel.
+2. **No signal-conditional statistics.** Same as S03: nothing conditional on incumbent qualification, ranker score, or text score.
+3. **Point-in-time discipline.** For any historical analysis, use only data that was available at the time. The forward test (post-tag) is the primary consumer; pre-tag history is exploratory only.
+4. **Only aggregates leave the data root.** Same as S03 (I-7, I-16).
+
+## Artifacts this sprint produces
+
+| Path | What it is |
+|---|---|
+| `docs/research/data-plane-audit.md` | The audit report: coverage, adjustments, corporate actions, availability, survivorship |
+| `tests/test_data_plane.py` | Known-answer tests for data calculations |
+| `tools/audit_data_plane.py` | Reproducible audit script (aggregate statistics only) |
+
+---
+
+## Tasks
+
+### T1 — Coverage audit
+
+For each symbol in the S03 bars panel:
+- First and last bar dates
+- Total rows vs expected trading days in range
+- Gap list (missing dates that are trading days for SPY)
+- Late starters (first bar after 2016-01-04)
+
+Output: aggregate coverage statistics. Do not commit per-symbol data.
+
+### T2 — Delisted symbol inventory
+
+Using a historical S&P 500 membership source:
+- How many 2016 constituents are no longer in the index?
+- For leavers: reason (acquired, bankrupt, demoted), last date in index
+- What fraction of 2016-2026 stock-days are missing from the current-constituent panel?
+
+This quantifies the survivorship bias S03 stated qualitatively.
+
+### T3 — Adjustment verification
+
+Select known splits and dividends (e.g., AAPL 4:1 2020-08-31, TSLA 5:1 2020-08-31, NVDA 4:1 2021-07-20):
+- Do the adjusted closes show no artificial jump?
+- Are dividend adjustments applied? (Alpaca `adjustment=all` should include them)
+- Any unadjusted spikes indicating missed corporate actions?
+
+### T4 — Corporate action documentation
+
+Document how the following appear in Alpaca bars:
+- Stock splits (forward and reverse)
+- Cash dividends (special and regular)
+- Spinoffs (e.g., how does the parent's price series handle it?)
+- Ticker changes
+- Mergers/acquisitions (what happens to the acquired company's series?)
+
+### T5 — Availability and point-in-time
+
+- For the forward test: verify that bars are available at `t_d` (17:00 ET). What is Alpaca's typical latency for the daily bar?
+- For pre-tag history: document that historical bars were not available in real time (they're backfilled). This matters for interpreting any exploratory pre-tag analysis.
+- Forward membership snapshots: verify the S01 recorder's universe snapshots are being ingested correctly.
+
+### T6 — Known-answer tests
+
+Implement `tests/test_data_plane.py` with:
+- Split adjustment: verify AAPL's 2020-08-28 close × 4 ≈ 2020-08-31 open (adjusted)
+- Dividend: verify a known dividend is reflected in adjusted closes
+- Coverage: verify SPY has no gaps in 2016-2026
+- Late starter: verify a known late lister (e.g., GEV) has first bar after listing date
+
+### T7 — Survivorship report
+
+Quantify:
+- 2016 S&P 500 constituents still in index (2026-10-04): count and %
+- Volatility comparison: were leavers more volatile than stayers? (Use pre-exit data; do not condition on future returns)
+- Estimate the direction and rough magnitude of survivorship bias on dispersion measures
+
+---
+
+## Acceptance criteria
+
+1. `docs/research/data-plane-audit.md` exists with all seven sections.
+2. `tests/test_data_plane.py` passes with at least 4 known-answer tests.
+3. `tools/audit_data_plane.py` reproduces the aggregate statistics from the data root.
+4. No per-symbol data or market data committed (I-7, I-16).
+5. No statistic conditional on incumbent qualification or score.
+6. All scripts pass size checks (≤400 lines, ≤60-line functions).
+7. Sprint report written in this file.
+
+## After merge (Ryan)
+
+1. Review the survivorship quantification. If the bias is material, decide whether Step 4 needs a mitigation (e.g., point-in-time universe reconstruction).
+2. Proceed to Step 4 (S05: incumbent ranker).
+
+## Sprint report
+
+**Status:** Partial. T1, T3 (splits), T6 complete. T2, T4, T7 UNRESOLVED. T5 partial.
+**PR:** #6 (ACCEPT from Claude Code after 3 rework rounds)
+
+**T1 (Coverage):** ✅ 503 constituents (excl. SPY), 44 late starters (8.7%), 459 with full history (91.3%). Zero gaps. SPY validated to exist; not validated against exchange calendar (limitation noted).
+
+**T2 (Delisted inventory):** ❌ UNRESOLVED — no historical S&P 500 membership source available (D-013: no paid vendor). Proposed fix: obtain free membership change list, store under data root, re-run T2/T7.
+
+**T3 (Adjustments):** ✅ 4 splits verified (AAPL, TSLA, NVDA, AMZN). All correctly adjusted. Dividends deferred (no test).
+
+**T4 (Corporate actions):** ❌ UNRESOLVED — documented from Alpaca docs, not verified against data. Marked as UNRESOLVED per CLAUDE.md (never invent a result).
+
+**T5 (Availability):** ⚠️ Partial. Bar timestamps characterized: NY midnight (04:00 UTC EDT / 05:00 UTC EST DST split). Publication latency not measured (must verify before 12-month look). Forward snapshot ingestion deferred to Step 4.
+
+**T6 (Known-answer tests):** ✅ 20 tests, all passing. Tests import the actual pure-logic functions from `tools/audit_data_plane.py` — not copies of the logic. Pandas is lazily imported so the module loads in CI; pandas wiring tests use `pytest.importorskip`.
+
+**T7 (Survivorship):** ❌ UNRESOLVED — direction known (understates dispersion), magnitude unquantified (depends on T2).
+
+**Deviations from spec (declared):**
+- T2/T7 incomplete (no membership source) — marked UNRESOLVED with proposed fix
+- T4 unverified — marked UNRESOLVED
+- T3 dividend test deferred (was in spec as "known splits and dividends")
+- T6 AAPL check: spec said "verify AAPL's 2020-08-28 close × 4 ≈ 2020-08-31 open". Implemented as close-to-close log-jump check instead — tests the same property (no artificial jump) without depending on open prices, which are noisier around splits.
+- T6 dividend test: spec asked for dividend verification. Deferred — no known-answer dividend in the test set.
+- T6 SPY gap check: spec said "verify SPY has no gaps in 2016-2026" on real data. The real-data check lives in `tools/audit_data_plane.py` (not run in CI); the CI tests verify the gap-detection logic on synthetic data.
+- T6 GEV check: spec said "verify a known late lister (e.g., GEV) has first bar after listing date" on real panel data. The CI test verifies the `is_late_starter` logic using GEV's known listing date as a realistic example; the real-data late-starter list is produced by the audit script.
+- T5 forward snapshots deferred to Step 4 (SCOPE §5 lists under Step 3)
+
+**Blockers for Step 4:** T2/T7 UNRESOLVED. The survivorship bias magnitude is unquantified. Recommend obtaining membership source before Step 4, or document as limitation and proceed with caution.
+
+**Artifacts:**
+- `tools/audit_data_plane.py` (audit script, with data-root guard, SPY validation, fail-closed)
+- `tests/test_data_plane.py` (20 tests: pure-logic + guard + pandas wiring)
+- `docs/research/data-plane-audit.md` (full report with UNRESOLVED markers)
+- `docs/sprints/S04-data-plane.md` (this spec)
+- `.gitignore` adds `.claude-review-seen` (cron-job state file tracking seen Claude Code verdicts; not committed)
