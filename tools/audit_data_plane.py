@@ -4,7 +4,7 @@ Audits the S03 bars panel for coverage, adjustments, corporate actions,
 availability, and survivorship. Produces aggregate statistics only.
 
 Usage:
-    python tools/audit_data_plane.py --data-root /home/hatch/arcis-data
+    python tools/audit_data_plane.py --data-root <DATA_ROOT>
 
 Output: <data_root>/s04/audit_results.json (aggregate statistics only).
 """
@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -29,9 +31,30 @@ KNOWN_SPLITS = [
 ]
 
 
+def _guard_data_root(data_root: str) -> None:
+    """Refuse repo and cloud-sync paths (S01 invariant I-7).
+
+    Resolve first so relative paths cannot bypass the check.
+    Raises SystemExit(2) on violation.
+    """
+    resolved = Path(data_root).resolve()
+    repo = Path(__file__).resolve().parent.parent
+    if repo in resolved.parents or resolved == repo:
+        print("REFUSING: data root inside the repo", file=sys.stderr)
+        raise SystemExit(2)
+    for sync in ("Dropbox", "OneDrive", "Google Drive", "iCloud"):
+        if sync.lower() in str(resolved).lower():
+            print(f"REFUSING: data root looks like a sync folder ({sync})",
+                  file=sys.stderr)
+            raise SystemExit(2)
+
+
 def load_panel(data_root: str) -> pd.DataFrame:
     """Load all per-symbol bars into one DataFrame."""
     bars_dir = os.path.join(data_root, "raw", "bars")
+    if not os.path.isdir(bars_dir):
+        print(f"ERROR: bars directory not found: {bars_dir}", file=sys.stderr)
+        raise SystemExit(1)
     frames = []
     for fname in sorted(os.listdir(bars_dir)):
         if not fname.endswith(".parquet"):
@@ -40,20 +63,42 @@ def load_panel(data_root: str) -> pd.DataFrame:
         df = pd.read_parquet(os.path.join(bars_dir, fname))
         df["symbol"] = symbol
         frames.append(df)
+    if not frames:
+        print("ERROR: no parquet files found", file=sys.stderr)
+        raise SystemExit(1)
     panel = pd.concat(frames, ignore_index=True)
     panel["date"] = pd.to_datetime(panel["t"], utc=True)
     return panel.sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
+def _validate_spy(panel: pd.DataFrame) -> set[str]:
+    """Validate SPY exists and return its trading dates.
+
+    SPY is the reference calendar for coverage. If SPY is missing or
+    incomplete, the coverage audit cannot run.
+    """
+    spy = panel[panel["symbol"] == "SPY"]
+    if len(spy) == 0:
+        print("ERROR: SPY not in panel; cannot build reference calendar",
+              file=sys.stderr)
+        raise SystemExit(1)
+    # Basic completeness: SPY should span the full date range
+    spy_dates = set(spy["date"].dt.date.astype(str))
+    panel_min = panel["date"].min().date().isoformat()
+    if min(spy_dates) > panel_min:
+        print(f"WARNING: SPY starts {min(spy_dates)}, panel starts {panel_min}",
+              file=sys.stderr)
+    return spy_dates
+
+
 def audit_coverage(panel: pd.DataFrame) -> dict:
     """T1: per-symbol coverage statistics (aggregates only)."""
-    # SPY trading calendar as reference
-    spy_dates = set(
-        panel[panel["symbol"] == "SPY"]["date"].dt.date.astype(str)
-    )
+    spy_dates = _validate_spy(panel)
     stats = []
     late_starters = []
     for symbol, grp in panel.groupby("symbol"):
+        if symbol == "SPY":
+            continue  # SPY is the reference, not a constituent
         dates = set(grp["date"].dt.date.astype(str))
         first = min(dates)
         last = max(dates)
@@ -69,8 +114,10 @@ def audit_coverage(panel: pd.DataFrame) -> dict:
         if first > "2016-01-04":
             late_starters.append((symbol, first))
     df = pd.DataFrame(stats)
+    n_constituents = len(df)  # Excludes SPY
     return {
-        "n_symbols": int(len(df)),
+        "n_symbols": int(n_constituents),
+        "n_symbols_incl_spy": int(n_constituents + 1),
         "rows": {
             "mean": float(df["n_rows"].mean()),
             "min": int(df["n_rows"].min()),
@@ -85,6 +132,10 @@ def audit_coverage(panel: pd.DataFrame) -> dict:
             "count": len(late_starters),
             "list": sorted(late_starters),
         },
+        "full_history": {
+            "count": int(n_constituents - len(late_starters)),
+            "pct": float((n_constituents - len(late_starters)) / n_constituents * 100),
+        },
         "date_range": {
             "min": str(panel["date"].min().date()),
             "max": str(panel["date"].max().date()),
@@ -93,57 +144,73 @@ def audit_coverage(panel: pd.DataFrame) -> dict:
 
 
 def verify_adjustments(panel: pd.DataFrame) -> dict:
-    """T3: verify known splits show no artificial jumps."""
+    """T3: verify known splits show no artificial jumps.
+
+    Returns non-zero exit code if any symbol is missing.
+    """
     results = []
+    failed = False
     for symbol, split_date, ratio in KNOWN_SPLITS:
         grp = panel[panel["symbol"] == symbol].sort_values("date")
         if len(grp) < 2:
             results.append({"symbol": symbol, "status": "no data"})
+            print(f"ERROR: {symbol} has no data", file=sys.stderr)
+            failed = True
             continue
-        # Find the split date
+        grp = grp.copy()
         grp["d"] = grp["date"].dt.date.astype(str)
-        before = grp[grp["d"] < split_date].iloc[-1] if len(grp[grp["d"] < split_date]) else None
-        after = grp[grp["d"] >= split_date].iloc[0] if len(grp[grp["d"] >= split_date]) else None
-        if before is None or after is None:
+        before_rows = grp[grp["d"] < split_date]
+        after_rows = grp[grp["d"] >= split_date]
+        if len(before_rows) == 0 or len(after_rows) == 0:
             results.append({"symbol": symbol, "status": "split date not in range"})
+            print(f"ERROR: {symbol} split date {split_date} not in range",
+                  file=sys.stderr)
+            failed = True
             continue
-        # With adjustment=all, the pre-split close should be divided by ratio
-        # So before.c / ratio should ≈ after.o (no jump)
-        # Actually: adjusted close before = raw close before / ratio
-        # The ratio of closes across the split should be ~1.0 (no jump)
-        # We check: |log(after.c / before.c)| should be small (normal daily move)
-        # If unadjusted, it would be ~log(ratio) ≈ 1.39 for 4:1
+        before = before_rows.iloc[-1]
+        after = after_rows.iloc[0]
+        # With adjustment=all, pre-split closes are divided by ratio.
+        # |log(after.c / before.c)| should be a normal daily move (< 0.2).
+        # If unadjusted, it would be ~log(ratio) (1.39 for 4:1).
         log_jump = abs(float(np.log(after["c"] / before["c"])))
         results.append({
             "symbol": symbol,
             "split_date": split_date,
             "ratio": ratio,
             "log_jump": log_jump,
-            "adjusted": bool(log_jump < 0.2),  # < ~22% move = likely adjusted
+            "adjusted": bool(log_jump < 0.2),
         })
-    return {"splits": results}
+    return {"splits": results, "failed": failed}
 
 
 def audit_availability(panel: pd.DataFrame) -> dict:
-    """T5: data availability characteristics."""
-    # For the forward test, what matters is that bars are available at t_d.
-    # We document the panel's timestamp characteristics.
-    panel["hour"] = panel["date"].dt.hour
+    """T5: data availability characteristics.
+
+    Shows the full distribution of bar timestamp hours, not just the mode,
+    to reveal DST splits or mixed conventions.
+    """
+    hours = panel["date"].dt.hour
+    dist = hours.value_counts().sort_index().to_dict()
+    dist = {int(k): int(v) for k, v in dist.items()}
     return {
         "note": (
-            "Bars are timestamped at midnight UTC (00:00). For the forward test, "
-            "availability at t_d (17:00 ET) depends on Alpaca's publication latency, "
-            "not the bar timestamp."
+            "Bar timestamps reflect the market date. For the forward test, "
+            "availability at t_d (17:00 ET) depends on Alpaca's publication "
+            "latency, not the bar timestamp. Verify latency before the 12-month look."
         ),
-        "bar_timestamp_hour_utc": int(panel["hour"].mode()[0]),
+        "bar_timestamp_hour_utc_dist": dist,
+        "bar_timestamp_hour_utc_mode": int(hours.mode()[0]),
         "n_symbols": int(panel["symbol"].nunique()),
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="S04 data plane audit")
-    parser.add_argument("--data-root", default="/home/hatch/arcis-data")
+    parser.add_argument("--data-root", required=True,
+                        help="Path to data root (fail-closed: no default)")
     args = parser.parse_args()
+
+    _guard_data_root(args.data_root)
 
     out_dir = os.path.join(args.data_root, "s04")
     os.makedirs(out_dir, exist_ok=True)
@@ -152,10 +219,15 @@ def main() -> int:
     panel = load_panel(args.data_root)
     print(f"  {len(panel):,} rows", flush=True)
 
+    adjustments = verify_adjustments(panel)
+    if adjustments["failed"]:
+        print("ERROR: adjustment verification failed", file=sys.stderr)
+        return 1
+
     results: dict = {
         "generated_at": datetime.now(UTC).isoformat(),
         "coverage": audit_coverage(panel),
-        "adjustments": verify_adjustments(panel),
+        "adjustments": adjustments,
         "availability": audit_availability(panel),
     }
 
@@ -166,12 +238,14 @@ def main() -> int:
 
     # Print summary
     c = results["coverage"]
-    print(f"Symbols: {c['n_symbols']}, late starters: {c['late_starters']['count']}")
+    print(f"Constituents: {c['n_symbols']}, late starters: "
+          f"{c['late_starters']['count']}")
+    print(f"Full history: {c['full_history']['count']} "
+          f"({c['full_history']['pct']:.1f}%)")
     print(f"Symbols with gaps: {c['gaps']['symbols_with_gaps']}")
     for s in results["adjustments"]["splits"]:
-        lj = s.get("log_jump", "N/A")
-        adj = s.get("adjusted", "N/A")
-        print(f"  {s['symbol']}: log_jump={lj}, adjusted={adj}")
+        print(f"  {s['symbol']}: log_jump={s['log_jump']:.4f}, "
+              f"adjusted={s['adjusted']}")
     return 0
 
 

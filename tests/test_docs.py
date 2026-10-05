@@ -40,8 +40,10 @@ def test_sprint_and_research_files_moved():
         "docs/sprints/S01-news-recorder.md",
         "docs/sprints/S02-carry-forward-inventory.md",
         "docs/sprints/S03-pre-tag-power.md",
+        "docs/sprints/S04-data-plane.md",
         "docs/research/RESEARCH-QUESTIONS.md",
         "docs/research/research-log.md",
+        "docs/research/data-plane-audit.md",
         "docs/reference-architecture.md",
     ]:
         assert (REPO / new).is_file(), f"missing moved file: {new}"
@@ -49,8 +51,10 @@ def test_sprint_and_research_files_moved():
         "S01-news-recorder.md",
         "S02-carry-forward-inventory.md",
         "S03-pre-tag-power.md",
+        "S04-data-plane.md",
         "RESEARCH-QUESTIONS.md",
         "research-log.md",
+        "data-plane-audit.md",
         "reference-architecture.md",
     ]:
         assert not (REPO / old).exists(), f"leftover root copy: {old}"

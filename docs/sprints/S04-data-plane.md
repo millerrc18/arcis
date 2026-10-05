@@ -125,28 +125,34 @@ Quantify:
 
 ## Sprint report
 
-**Status:** Complete. All 7 tasks done. PR #6 opened.
+**Status:** Partial. T1, T3 (splits), T6 complete. T2, T4, T7 UNRESOLVED. T5 partial.
+**PR:** #6 (REJECT from Claude Code on first review; fixes in progress)
 
-**T1 (Coverage):** 504/504 symbols complete. 44 late starters (8.7%). Zero gaps. Panel spans 2016-01-04 to 2026-10-02.
+**T1 (Coverage):** ✅ 503 constituents (excl. SPY), 44 late starters (8.7%), 459 with full history (91.3%). Zero gaps. SPY validated to exist; not validated against exchange calendar (limitation noted).
 
-**T2 (Delisted inventory):** Incomplete — no historical S&P 500 membership source available. Panel contains only current constituents by construction. Bias direction documented (understates dispersion); magnitude unquantified.
+**T2 (Delisted inventory):** ❌ UNRESOLVED — no historical S&P 500 membership source available (D-013: no paid vendor). Proposed fix: obtain free membership change list, store under data root, re-run T2/T7.
 
-**T3 (Adjustments):** All 4 tested splits (AAPL 4:1, TSLA 5:1, NVDA 4:1, AMZN 20:1) correctly adjusted. No artificial jumps. Dividend verification deferred.
+**T3 (Adjustments):** ✅ 4 splits verified (AAPL, TSLA, NVDA, AMZN). All correctly adjusted. Dividends deferred (no test).
 
-**T4 (Corporate actions):** Documented split/dividend/spinoff/ticker/merger behavior in Alpaca bars.
+**T4 (Corporate actions):** ❌ UNRESOLVED — documented from Alpaca docs, not verified against data. Marked as UNRESOLVED per CLAUDE.md (never invent a result).
 
-**T5 (Availability):** Bars timestamped at midnight UTC. Forward-test availability at `t_d` depends on Alpaca publication latency (not measured). Pre-tag history is backfilled.
+**T5 (Availability):** ⚠️ Partial. Bar timestamps characterized: NY midnight (04:00 UTC EDT / 05:00 UTC EST DST split). Publication latency not measured (must verify before 12-month look). Forward snapshot ingestion deferred to Step 4.
 
-**T6 (Known-answer tests):** 5 tests, all passing. Covers split adjustments, SPY continuity, late starters, panel completeness.
+**T6 (Known-answer tests):** ✅ 5 synthetic-fixture tests, all passing, CI-safe. Verify audit logic, not real data.
 
-**T7 (Survivorship):** 91.3% have full history. Bias direction confirmed (understates dispersion). Magnitude unquantified without membership source.
+**T7 (Survivorship):** ❌ UNRESOLVED — direction known (understates dispersion), magnitude unquantified (depends on T2).
 
-**Deviations:** T2 incomplete (no membership source). T3 dividend test deferred. T5 latency not measured. All documented as limitations in the audit report.
+**Deviations from spec:**
+- T2/T7 incomplete (no membership source) — marked UNRESOLVED with proposed fix
+- T4 unverified — marked UNRESOLVED
+- T3 dividend test deferred (was in spec as "known splits and dividends")
+- T6 AAPL check uses close-to-close threshold, not close×4≈open (spec said "verify AAPL's 2020-08-28 close × 4 ≈ 2020-08-31 open")
+- T5 forward snapshots deferred to Step 4 (SCOPE §5 lists under Step 3)
 
-**Blockers for Step 4:** None. The data plane is sound for ranker development. The survivorship bias is a documented limitation, not a blocker.
+**Blockers for Step 4:** T2/T7 UNRESOLVED. The survivorship bias magnitude is unquantified. Recommend obtaining membership source before Step 4, or document as limitation and proceed with caution.
 
 **Artifacts:**
-- `tools/audit_data_plane.py` (audit script)
-- `tests/test_data_plane.py` (5 known-answer tests)
-- `docs/research/data-plane-audit.md` (full report)
+- `tools/audit_data_plane.py` (audit script, with data-root guard, SPY validation, fail-closed)
+- `tests/test_data_plane.py` (5 synthetic tests, CI-safe)
+- `docs/research/data-plane-audit.md` (full report with UNRESOLVED markers)
 - `docs/sprints/S04-data-plane.md` (this spec)
