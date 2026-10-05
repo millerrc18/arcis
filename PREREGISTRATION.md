@@ -27,7 +27,7 @@ Items marked **⟨CONFIRM⟩** must be settled before tagging. Items marked **�
 |---|---|
 | Universe | Point-in-time S&P 500, with the S&P 100 reported as a benchmark subset (SCOPE D-012). Forward membership comes from the recorder's daily universe snapshots |
 | Decision time `t_d` | 17:00 ET on trading day `t`. Everything used for a decision must be available before `t_d` |
-| Incumbent | `incumbent_v1` as ported in Step 2, frozen by hash ⟨STEP 2⟩. Any change creates a new trial |
+| Incumbent | `incumbent_v1` as ported in Step 2, frozen by hash `524dd858d95a08453167e46e976836601fe3f281b8d94f763cee843277e24b82` (verified by `tools/verify_incumbent_freeze.py` at `prereg-v1`). Any change creates a new trial |
 | Candidate-day | A (symbol, `t`) pair the incumbent qualifies at `t_d` |
 | Label | Net return from applying the incumbent's entry and exit rules to one stock-day under §1.1 and §1.2. The rules are mechanical, so every universe stock-day carries a label, whether or not the ranker qualified it |
 | Risk-free rate | 3-month Treasury bill (FRED `DTB3`), converted to a daily rate |
