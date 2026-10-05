@@ -96,14 +96,15 @@ This is the DST split. The timestamp reflects the market date in New York time.
 
 ## T6 — Known-answer tests ✅
 
-`tests/test_data_plane.py` (5 tests, all passing, CI-safe):
-1. Trading-day helper generates weekdays only
-2. Gap detection finds a single missing weekday (not hidden by weekend logic)
-3. Split-adjustment logic: adjusted shows small jump, unadjusted shows large jump
-4. Late-starter detection: GEV (2024) > cutoff, AAPL (2016) not
-5. Coverage ratios exclude SPY: 459/503 = 91.3% (not 460/504)
+`tests/test_data_plane.py` (20 tests, all passing):
+- 6 core logic tests: log-jump adjusted/unadjusted, gap detection (found + empty), late-starter, coverage ratio excl. SPY
+- 4 SPY coverage tests: full range, late start fails, early end fails, empty fails
+- 4 adjustment-failure tests: unadjusted, missing, all-ok, empty results fail closed
+- 2 guard tests: rejects repo paths, rejects sync folders
+- 2 SPY-missing-day tests: empty when complete, detects gap
+- 2 pandas wiring tests (importorskip, run locally): audit_coverage computes stats, fails on SPY missing day
 
-These are synthetic-fixture tests. They verify the audit *logic*, not the real data. Real-data verification is done by `tools/audit_data_plane.py` (requires `--data-root`, not run in CI).
+The pure-logic tests run in CI without pandas or market data. The pandas wiring tests use `pytest.importorskip` and run locally. Real-data verification is done by `tools/audit_data_plane.py` (requires `--data-root`, not run in CI).
 
 ## T7 — Survivorship report ❌ UNRESOLVED
 

@@ -23,6 +23,10 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # Known splits for adjustment verification (T3)
 KNOWN_SPLITS = [
@@ -33,7 +37,8 @@ KNOWN_SPLITS = [
     ("AMZN", "2022-06-06", 20),  # 20:1
 ]
 
-# Cutoff for "late starter": first bar after this date
+# Cutoff fallback for "late starter" when SPY's first date is unavailable
+# (e.g., in unit tests). In audit_coverage, the cutoff is SPY's first date.
 COVERAGE_CUTOFF = "2016-01-04"
 
 # Threshold for "adjusted": |log jump| below this means no artificial split jump
@@ -79,12 +84,26 @@ def spy_covers_panel(spy_dates: set[str], panel_min: str, panel_max: str) -> boo
     return min(spy_dates) <= panel_min and max(spy_dates) >= panel_max
 
 
+def spy_missing_days(spy_dates: set[str],
+                     constituent_dates: set[str]) -> list[str]:
+    """Sorted dates where constituents traded but SPY has no bar.
+
+    If non-empty, the SPY reference calendar is incomplete: those days
+    are invisible to per-symbol gap detection. Fail closed.
+    """
+    return sorted(constituent_dates - spy_dates)
+
+
 def adjustments_failed(results: list[dict]) -> bool:
     """True if any split check failed: missing data or unadjusted.
 
     Each result dict has either a 'status' key (error) or an 'adjusted'
     key (bool). Any error status or adjusted=False means failure.
+    An empty results list is also a failure (nothing was checked) —
+    fail closed if KNOWN_SPLITS is ever emptied.
     """
+    if not results:
+        return True
     for r in results:
         if "status" in r:
             return True
@@ -115,7 +134,7 @@ def _guard_data_root(data_root: str) -> None:
             raise SystemExit(2)
 
 
-def load_panel(data_root: str):
+def load_panel(data_root: str) -> pd.DataFrame:
     """Load all per-symbol bars into one DataFrame."""
     import pandas as pd
 
@@ -139,7 +158,7 @@ def load_panel(data_root: str):
     return panel.sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
-def _validate_spy(panel) -> set[str]:
+def _validate_spy(panel: pd.DataFrame) -> set[str]:
     """Validate SPY exists and covers the panel's full date range.
 
     SPY is the reference calendar for coverage. If SPY is missing, or if
@@ -163,30 +182,67 @@ def _validate_spy(panel) -> set[str]:
     return spy_dates
 
 
-def audit_coverage(panel) -> dict:
-    """T1: per-symbol coverage statistics (aggregates only)."""
+def _collect_constituent_dates(panel: pd.DataFrame) -> dict[str, set[str]]:
+    """Map each constituent symbol to its set of bar dates (excl. SPY)."""
+    groups = {}
+    for symbol, grp in panel.groupby("symbol"):
+        if symbol == "SPY":
+            continue
+        groups[symbol] = set(grp["date"].dt.date.astype(str))
+    return groups
+
+
+def _check_spy_completeness(spy_dates: set[str],
+                            groups: dict[str, set[str]]) -> None:
+    """Exit 1 if any constituent traded on a day SPY has no bar."""
+    all_dates: set[str] = set()
+    for dates in groups.values():
+        all_dates |= dates
+    missing = spy_missing_days(spy_dates, all_dates)
+    if missing:
+        print(f"ERROR: {len(missing)} days have constituent bars but no SPY "
+              f"bar (e.g. {missing[:5]}); SPY calendar incomplete",
+              file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _symbol_stats(symbol: str, dates: set[str], n_rows: int,
+                  spy_dates: set[str], cutoff: str) -> tuple[dict, bool]:
+    """Per-symbol stats dict and late-starter flag."""
+    first = min(dates)
+    expected = {d for d in spy_dates if d >= first}
+    gaps = find_gaps(expected, dates)
+    return ({
+        "n_rows": n_rows,
+        "n_gaps": len(gaps),
+        "first": first,
+        "last": max(dates),
+    }, is_late_starter(first, cutoff))
+
+
+def audit_coverage(panel: pd.DataFrame) -> dict[str, Any]:
+    """T1: per-symbol coverage statistics (aggregates only).
+
+    The late-starter cutoff is SPY's first date (not hardcoded): a
+    constituent starting after SPY started is a late starter.
+    Fails closed if any constituent traded on a day SPY has no bar —
+    those days would be invisible to gap detection.
+    """
     import pandas as pd
 
     spy_dates = _validate_spy(panel)
+    cutoff = min(spy_dates)  # SPY's first date, not a hardcoded constant
+    groups = _collect_constituent_dates(panel)
+    _check_spy_completeness(spy_dates, groups)
+
     stats = []
     late_starters = []
-    for symbol, grp in panel.groupby("symbol"):
-        if symbol == "SPY":
-            continue  # SPY is the reference, not a constituent
-        dates = set(grp["date"].dt.date.astype(str))
-        first = min(dates)
-        last = max(dates)
-        # Gaps: SPY trading days missing for this symbol (after its first bar)
-        expected = {d for d in spy_dates if d >= first}
-        gaps = find_gaps(expected, dates)
-        stats.append({
-            "n_rows": len(grp),
-            "n_gaps": len(gaps),
-            "first": first,
-            "last": last,
-        })
-        if is_late_starter(first):
-            late_starters.append((symbol, first))
+    for symbol, dates in groups.items():
+        n_rows = int((panel["symbol"] == symbol).sum())
+        stat, late = _symbol_stats(symbol, dates, n_rows, spy_dates, cutoff)
+        stats.append(stat)
+        if late:
+            late_starters.append((symbol, stat["first"]))
     df = pd.DataFrame(stats)
     n_constituents = len(df)  # Excludes SPY
     return {
@@ -218,7 +274,7 @@ def audit_coverage(panel) -> dict:
     }
 
 
-def verify_adjustments(panel) -> dict:
+def verify_adjustments(panel: pd.DataFrame) -> dict[str, Any]:
     """T3: verify known splits show no artificial jumps.
 
     Sets failed=True if any symbol is missing OR if any split appears
@@ -261,7 +317,7 @@ def verify_adjustments(panel) -> dict:
     return {"splits": results, "failed": adjustments_failed(results)}
 
 
-def audit_availability(panel) -> dict:
+def audit_availability(panel: pd.DataFrame) -> dict[str, Any]:
     """T5: data availability characteristics.
 
     Shows the full distribution of bar timestamp hours, not just the mode,

@@ -26,6 +26,8 @@ import os
 import sys
 from datetime import date, timedelta
 
+import pytest
+
 # Import the audit module's pure functions. The module lives in tools/;
 # add the repo root to sys.path so `tools.audit_data_plane` resolves.
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,6 +44,7 @@ from tools.audit_data_plane import (  # noqa: E402
     is_adjusted,
     is_late_starter,
     spy_covers_panel,
+    spy_missing_days,
 )
 
 
@@ -164,7 +167,6 @@ def test_adjustments_failed_all_ok():
 
 def test_guard_data_root_rejects_repo(tmp_path):
     """_guard_data_root refuses paths inside the repo."""
-    import pytest
 
     # tmp_path is outside the repo, should pass
     _guard_data_root(str(tmp_path))
@@ -177,10 +179,80 @@ def test_guard_data_root_rejects_repo(tmp_path):
 
 def test_guard_data_root_rejects_sync_folder(tmp_path):
     """_guard_data_root refuses cloud-sync paths."""
-    import pytest
 
     fake_dropbox = tmp_path / "Dropbox" / "data"
     fake_dropbox.mkdir(parents=True)
     with pytest.raises(SystemExit) as exc:
         _guard_data_root(str(fake_dropbox))
     assert exc.value.code == 2
+
+
+def test_spy_missing_days_empty_when_complete():
+    """No missing days when SPY covers all constituent dates."""
+    spy = {"2024-01-02", "2024-01-03", "2024-01-04"}
+    constituents = {"2024-01-02", "2024-01-03"}
+    assert spy_missing_days(spy, constituents) == []
+
+
+def test_spy_missing_days_detects_gap():
+    """Days with constituent bars but no SPY bar are flagged."""
+    spy = {"2024-01-02", "2024-01-04"}
+    constituents = {"2024-01-02", "2024-01-03", "2024-01-04"}
+    assert spy_missing_days(spy, constituents) == ["2024-01-03"]
+
+
+def test_adjustments_failed_empty_results():
+    """Empty results list fails closed (nothing was checked)."""
+    assert adjustments_failed([])
+
+
+def test_audit_coverage_wiring_with_pandas():
+    """audit_coverage calls _validate_spy and computes stats (pandas fixture).
+
+    Uses importorskip so CI (no pandas) skips; runs locally with pandas.
+    Verifies the wiring: SPY validated, late starters detected, no gaps.
+    """
+    pd = pytest.importorskip("pandas")
+    from tools.audit_data_plane import audit_coverage
+
+    # Minimal panel: SPY + 2 constituents, 3 trading days
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"], utc=True)
+    rows = []
+    for sym in ["SPY", "AAA", "BBB"]:
+        for d in dates:
+            rows.append({"t": d, "o": 100.0, "h": 101.0, "l": 99.0,
+                         "c": 100.5, "v": 1000, "symbol": sym})
+    # BBB starts late (only last 2 days)
+    rows = [r for r in rows
+            if not (r["symbol"] == "BBB" and r["t"] == dates[0])]
+    panel = pd.DataFrame(rows)
+    panel["date"] = pd.to_datetime(panel["t"], utc=True)
+
+    result = audit_coverage(panel)
+    assert result["n_symbols"] == 2  # AAA, BBB (not SPY)
+    assert result["late_starters"]["count"] == 1
+    assert result["late_starters"]["list"][0][0] == "BBB"
+    assert result["gaps"]["symbols_with_gaps"] == 0
+
+
+def test_audit_coverage_fails_on_spy_missing_day():
+    """audit_coverage exits 1 when a constituent traded but SPY didn't."""
+    pd = pytest.importorskip("pandas")
+    from tools.audit_data_plane import audit_coverage
+
+    dates_spy = pd.to_datetime(["2024-01-02", "2024-01-04"], utc=True)
+    dates_aaa = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"],
+                               utc=True)
+    rows = []
+    for d in dates_spy:
+        rows.append({"t": d, "o": 100.0, "h": 101.0, "l": 99.0,
+                     "c": 100.5, "v": 1000, "symbol": "SPY"})
+    for d in dates_aaa:
+        rows.append({"t": d, "o": 50.0, "h": 51.0, "l": 49.0,
+                     "c": 50.5, "v": 500, "symbol": "AAA"})
+    panel = pd.DataFrame(rows)
+    panel["date"] = pd.to_datetime(panel["t"], utc=True)
+
+    with pytest.raises(SystemExit) as exc:
+        audit_coverage(panel)
+    assert exc.value.code == 1

@@ -126,7 +126,7 @@ Quantify:
 ## Sprint report
 
 **Status:** Partial. T1, T3 (splits), T6 complete. T2, T4, T7 UNRESOLVED. T5 partial.
-**PR:** #6 (REJECT from Claude Code on first review; fixes in progress)
+**PR:** #6 (ACCEPT from Claude Code after 3 rework rounds)
 
 **T1 (Coverage):** ✅ 503 constituents (excl. SPY), 44 late starters (8.7%), 459 with full history (91.3%). Zero gaps. SPY validated to exist; not validated against exchange calendar (limitation noted).
 
@@ -138,7 +138,7 @@ Quantify:
 
 **T5 (Availability):** ⚠️ Partial. Bar timestamps characterized: NY midnight (04:00 UTC EDT / 05:00 UTC EST DST split). Publication latency not measured (must verify before 12-month look). Forward snapshot ingestion deferred to Step 4.
 
-**T6 (Known-answer tests):** ✅ 6 tests, all passing, CI-safe. Tests import the actual pure-logic functions from `tools/audit_data_plane.py` (`compute_log_jump`, `is_adjusted`, `find_gaps`, `is_late_starter`) — not copies of the logic. Pandas is lazily imported so the module loads in CI.
+**T6 (Known-answer tests):** ✅ 20 tests, all passing. Tests import the actual pure-logic functions from `tools/audit_data_plane.py` — not copies of the logic. Pandas is lazily imported so the module loads in CI; pandas wiring tests use `pytest.importorskip`.
 
 **T7 (Survivorship):** ❌ UNRESOLVED — direction known (understates dispersion), magnitude unquantified (depends on T2).
 
@@ -156,6 +156,7 @@ Quantify:
 
 **Artifacts:**
 - `tools/audit_data_plane.py` (audit script, with data-root guard, SPY validation, fail-closed)
-- `tests/test_data_plane.py` (5 synthetic tests, CI-safe)
+- `tests/test_data_plane.py` (20 tests: pure-logic + guard + pandas wiring)
 - `docs/research/data-plane-audit.md` (full report with UNRESOLVED markers)
 - `docs/sprints/S04-data-plane.md` (this spec)
+- `.gitignore` adds `.claude-review-seen` (cron-job state file tracking seen Claude Code verdicts; not committed)
