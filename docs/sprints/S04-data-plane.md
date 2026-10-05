@@ -149,6 +149,7 @@ Quantify:
 - T6 AAPL check: spec said "verify AAPL's 2020-08-28 close × 4 ≈ 2020-08-31 open". Implemented as close-to-close log-jump check instead — tests the same property (no artificial jump) without depending on open prices, which are noisier around splits.
 - T6 dividend test: spec asked for dividend verification. Deferred — no known-answer dividend in the test set.
 - T6 SPY gap check: spec said "verify SPY has no gaps in 2016-2026" on real data. The real-data check lives in `tools/audit_data_plane.py` (not run in CI); the CI tests verify the gap-detection logic on synthetic data.
+- T6 GEV check: spec said "verify a known late lister (e.g., GEV) has first bar after listing date" on real panel data. The CI test verifies the `is_late_starter` logic using GEV's known listing date as a realistic example; the real-data late-starter list is produced by the audit script.
 - T5 forward snapshots deferred to Step 4 (SCOPE §5 lists under Step 3)
 
 **Blockers for Step 4:** T2/T7 UNRESOLVED. The survivorship bias magnitude is unquantified. Recommend obtaining membership source before Step 4, or document as limitation and proceed with caution.

@@ -68,6 +68,31 @@ def is_late_starter(first_date: str, cutoff: str = COVERAGE_CUTOFF) -> bool:
     return first_date > cutoff
 
 
+def spy_covers_panel(spy_dates: set[str], panel_min: str, panel_max: str) -> bool:
+    """True if SPY's date range covers the panel's full range.
+
+    If SPY starts after panel_min or ends before panel_max, coverage
+    gaps would be invisible — fail closed.
+    """
+    if not spy_dates:
+        return False
+    return min(spy_dates) <= panel_min and max(spy_dates) >= panel_max
+
+
+def adjustments_failed(results: list[dict]) -> bool:
+    """True if any split check failed: missing data or unadjusted.
+
+    Each result dict has either a 'status' key (error) or an 'adjusted'
+    key (bool). Any error status or adjusted=False means failure.
+    """
+    for r in results:
+        if "status" in r:
+            return True
+        if not r.get("adjusted", False):
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # DataFrame-based functions (pandas imported lazily).
 # ---------------------------------------------------------------------------
@@ -115,11 +140,11 @@ def load_panel(data_root: str):
 
 
 def _validate_spy(panel) -> set[str]:
-    """Validate SPY exists and covers the panel range.
+    """Validate SPY exists and covers the panel's full date range.
 
     SPY is the reference calendar for coverage. If SPY is missing, or if
-    SPY starts after the panel's first date (hiding missing days), exit
-    non-zero — coverage numbers would be wrong.
+    SPY's range doesn't cover the panel's range (start or end), exit
+    non-zero — coverage gaps would be invisible.
     """
     spy = panel[panel["symbol"] == "SPY"]
     if len(spy) == 0:
@@ -128,9 +153,11 @@ def _validate_spy(panel) -> set[str]:
         raise SystemExit(1)
     spy_dates = set(spy["date"].dt.date.astype(str))
     panel_min = panel["date"].min().date().isoformat()
-    if min(spy_dates) > panel_min:
-        # Fail closed: days before SPY starts would be invisible in coverage.
-        print(f"ERROR: SPY starts {min(spy_dates)}, panel starts {panel_min}; "
+    panel_max = panel["date"].max().date().isoformat()
+    if not spy_covers_panel(spy_dates, panel_min, panel_max):
+        # Fail closed: days outside SPY's range would be invisible in coverage.
+        print(f"ERROR: SPY range [{min(spy_dates)}, {max(spy_dates)}] does not "
+              f"cover panel range [{panel_min}, {panel_max}]; "
               f"coverage would hide missing days", file=sys.stderr)
         raise SystemExit(1)
     return spy_dates
@@ -196,15 +223,15 @@ def verify_adjustments(panel) -> dict:
 
     Sets failed=True if any symbol is missing OR if any split appears
     unadjusted (adjusted=False). main() exits non-zero on failed.
+    The failed determination uses adjustments_failed() so the logic
+    is unit-testable.
     """
     results = []
-    failed = False
     for symbol, split_date, ratio in KNOWN_SPLITS:
         grp = panel[panel["symbol"] == symbol].sort_values("date")
         if len(grp) < 2:
             results.append({"symbol": symbol, "status": "no data"})
             print(f"ERROR: {symbol} has no data", file=sys.stderr)
-            failed = True
             continue
         grp = grp.copy()
         grp["d"] = grp["date"].dt.date.astype(str)
@@ -215,7 +242,6 @@ def verify_adjustments(panel) -> dict:
                             "status": "split date not in range"})
             print(f"ERROR: {symbol} split date {split_date} not in range",
                   file=sys.stderr)
-            failed = True
             continue
         before = before_rows.iloc[-1]
         after = after_rows.iloc[0]
@@ -225,7 +251,6 @@ def verify_adjustments(panel) -> dict:
             # Fail closed: an unadjusted split is a data defect, not a warning.
             print(f"ERROR: {symbol} split on {split_date} appears unadjusted "
                   f"(log_jump={log_jump:.3f})", file=sys.stderr)
-            failed = True
         results.append({
             "symbol": symbol,
             "split_date": split_date,
@@ -233,7 +258,7 @@ def verify_adjustments(panel) -> dict:
             "log_jump": log_jump,
             "adjusted": adjusted,
         })
-    return {"splits": results, "failed": failed}
+    return {"splits": results, "failed": adjustments_failed(results)}
 
 
 def audit_availability(panel) -> dict:

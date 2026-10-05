@@ -15,6 +15,11 @@ Deviations from the S04 spec's T6 (declared):
 - The spec asked for "verify SPY has no gaps in 2016-2026" on real data.
   The real-data check lives in tools/audit_data_plane.py (not run in CI).
   Here we test the gap-detection logic on synthetic data.
+- The spec asked for "verify a known late lister (e.g., GEV) has first bar
+  after listing date" on real panel data. Here we test the is_late_starter
+  logic using GEV's known listing date (2024-04-02) as a realistic example,
+  not by reading the panel. The real-data late-starter list is produced by
+  tools/audit_data_plane.py.
 """
 
 import os
@@ -30,10 +35,13 @@ if _REPO not in sys.path:
 from tools.audit_data_plane import (  # noqa: E402
     ADJUSTMENT_THRESHOLD,
     COVERAGE_CUTOFF,
+    _guard_data_root,
+    adjustments_failed,
     compute_log_jump,
     find_gaps,
     is_adjusted,
     is_late_starter,
+    spy_covers_panel,
 )
 
 
@@ -102,3 +110,77 @@ def test_coverage_ratio_excludes_spy():
     assert full_history == 459
     ratio = full_history / n_constituents
     assert 0.91 < ratio < 0.92
+
+
+def test_spy_covers_panel_full_range():
+    """SPY covering the full panel range passes."""
+    spy_dates = {"2016-01-04", "2020-06-01", "2026-10-02"}
+    assert spy_covers_panel(spy_dates, "2016-01-04", "2026-10-02")
+
+
+def test_spy_covers_panel_late_start_fails():
+    """SPY starting after panel_min fails closed."""
+    spy_dates = {"2016-01-05", "2026-10-02"}
+    assert not spy_covers_panel(spy_dates, "2016-01-04", "2026-10-02")
+
+
+def test_spy_covers_panel_early_end_fails():
+    """SPY ending before panel_max fails closed (hides trailing gaps)."""
+    spy_dates = {"2016-01-04", "2026-10-01"}
+    assert not spy_covers_panel(spy_dates, "2016-01-04", "2026-10-02")
+
+
+def test_spy_covers_panel_empty_fails():
+    """Empty SPY date set fails closed."""
+    assert not spy_covers_panel(set(), "2016-01-04", "2026-10-02")
+
+
+def test_adjustments_failed_on_unadjusted():
+    """Any adjusted=False result means failure."""
+    results = [
+        {"symbol": "AAPL", "adjusted": True, "log_jump": 0.03},
+        {"symbol": "TSLA", "adjusted": False, "log_jump": 1.39},
+    ]
+    assert adjustments_failed(results)
+
+
+def test_adjustments_failed_on_missing():
+    """Any status-error result means failure."""
+    results = [
+        {"symbol": "AAPL", "adjusted": True, "log_jump": 0.03},
+        {"symbol": "FAKE", "status": "no data"},
+    ]
+    assert adjustments_failed(results)
+
+
+def test_adjustments_failed_all_ok():
+    """All adjusted=True with no errors means no failure."""
+    results = [
+        {"symbol": "AAPL", "adjusted": True, "log_jump": 0.03},
+        {"symbol": "NVDA", "adjusted": True, "log_jump": 0.01},
+    ]
+    assert not adjustments_failed(results)
+
+
+def test_guard_data_root_rejects_repo(tmp_path):
+    """_guard_data_root refuses paths inside the repo."""
+    import pytest
+
+    # tmp_path is outside the repo, should pass
+    _guard_data_root(str(tmp_path))
+
+    # The repo itself should be refused
+    with pytest.raises(SystemExit) as exc:
+        _guard_data_root(_REPO)
+    assert exc.value.code == 2
+
+
+def test_guard_data_root_rejects_sync_folder(tmp_path):
+    """_guard_data_root refuses cloud-sync paths."""
+    import pytest
+
+    fake_dropbox = tmp_path / "Dropbox" / "data"
+    fake_dropbox.mkdir(parents=True)
+    with pytest.raises(SystemExit) as exc:
+        _guard_data_root(str(fake_dropbox))
+    assert exc.value.code == 2
