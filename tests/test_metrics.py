@@ -6,12 +6,21 @@ from arcis.research import metrics
 
 
 class TestSharpe:
-    def test_zero_returns(self):
-        assert metrics.sharpe_ratio([0.0, 0.0, 0.0]) == 0.0
+    def test_zero_returns_raises(self):
+        import pytest
+        with pytest.raises(ValueError, match="zero variance"):
+            metrics.sharpe_ratio([0.0, 0.0, 0.0])
 
-    def test_constant_positive(self):
-        # Zero variance -> 0 (avoid div by zero)
-        assert metrics.sharpe_ratio([0.01, 0.01, 0.01]) == 0.0
+    def test_constant_positive_raises(self):
+        # Zero variance -> raise (fail-closed, not 0.0)
+        import pytest
+        with pytest.raises(ValueError, match="zero variance"):
+            metrics.sharpe_ratio([0.01, 0.01, 0.01])
+
+    def test_single_return_raises(self):
+        import pytest
+        with pytest.raises(ValueError, match="at least 2 returns"):
+            metrics.sharpe_ratio([0.01])
 
     def test_known_value(self):
         # Returns: +1%, -0.5%, +1%, -0.5% (4 periods)

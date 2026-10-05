@@ -158,16 +158,24 @@ Known-answer-tested calculations:
 
 **T7 (Point-in-time membership):** ✅ `src/arcis/strategy/membership.py` loads S01 snapshots by date.
 
-**Packages:** `src/arcis/strategy/` (ranker), `src/arcis/research/` (costs, metrics). Ledger rows flipped to Active=yes in SCOPE.md §3.
+**Packages:** `src/arcis/strategy/` (ranker), `src/arcis/research/` (costs, metrics). Ledger rows activated via PR #8 (merged to main before this PR, per SCOPE §6.2).
 
-**UNRESOLVED:**
-- `score_sector_rs` band thresholds not specified in YAML. Returns 0 until determined.
-- `score_pullback_depth` exclusive upper bound interpretation (documented in code).
-- `score_dist_to_sma20` bound inclusivity differs from pullback_depth (documented in code).
+**UNRESOLVED (need CEO decision):**
+- `score_sector_rs` band thresholds not in YAML. Raises `UnresolvedError`.
+- Pullback depth `[-8,-3]` upper bound: YAML silent on -3.0 inclusivity. Exact -3.0 raises `UnresolvedError`.
+- `trend_state` / `relative_strength_state` classification rules: not in YAML.
+- Historical SEC rates before 2025-05-14: not verified; raise `UnresolvedFeeError`.
+- Historical FINRA TAF rates for 2002-2003, 2012-2023: not verified; raise.
+- `lookback=60` for pullback high; 1m/3m/6m day counts: not in YAML.
 
-**Deviations:** None. All tasks completed as specified.
+**Deviations:**
+- Package layout: spec said `src/arcis/ranker/`, `src/arcis/costs/`, `src/arcis/metrics/` with "Ledger row: None". Used existing `strategy`/`research` rows (PR #8) instead.
+- Fail-closed: unknown rates/labels raise instead of silent defaults.
+- CAT fee: zero per R06 (no invented schedule).
+- FINRA TAF caps: not applied (unverified).
+- 21-session median smoothing: not implemented (deferred).
 
-**Tests:** 64 new tests (test_ranker.py, test_costs.py, test_metrics.py). 196 total, all passing.
+**Tests:** 214 total, all passing (includes T7 membership test, fail-closed tests, composed ranker tests).
 
 **Artifacts:**
 - `src/arcis/strategy/` — scoring, features, membership

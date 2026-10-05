@@ -5,9 +5,27 @@ No legacy code was read or ported.
 
 Scoring: each metric maps to a score via first-match-wins bands.
 Final score is clamped to [0, 100].
+
+Fail-closed: unknown category labels raise ValueError. Degenerate
+inputs raise ValueError. Unresolved spec items raise UnresolvedError.
 """
 
 from __future__ import annotations
+
+
+class UnresolvedError(Exception):
+    """Raised when the YAML spec does not define the required behavior.
+
+    The caller cannot proceed without a CEO decision on the unresolved item.
+    """
+
+
+# Closed label sets from incumbent_v1.yaml. Unknown labels raise.
+TREND_STATES = {"strong_uptrend", "uptrend", "neutral"}
+RS_STATES = {"strong_outperformer", "outperformer"}
+REGIME_LABELS = {"calm_uptrend", "transitional", "calm_downtrend",
+                 "volatile_downtrend", "volatile_uptrend"}
+BREADTH_LABELS = {"healthy", "narrowing"}
 
 
 def score_trend_state(trend_state: str) -> int:
@@ -17,14 +35,18 @@ def score_trend_state(trend_state: str) -> int:
       strong_uptrend -> 30
       uptrend        -> 20
       neutral        -> 5
-      (other)        -> 0
+
+    Raises ValueError for unknown labels (fail-closed).
     """
+    if trend_state not in TREND_STATES:
+        raise ValueError(f"unknown trend_state: {trend_state!r} "
+                         f"(expected one of {sorted(TREND_STATES)})")
     bands = {
         "strong_uptrend": 30,
         "uptrend": 20,
         "neutral": 5,
     }
-    return bands.get(trend_state, 0)
+    return bands[trend_state]
 
 
 def score_relative_strength_state(rs_state: str) -> int:
@@ -33,27 +55,34 @@ def score_relative_strength_state(rs_state: str) -> int:
     Bands:
       strong_outperformer -> 25
       outperformer        -> 15
-      (other)             -> 0
+
+    Raises ValueError for unknown labels (fail-closed).
     """
+    if rs_state not in RS_STATES:
+        raise ValueError(f"unknown rs_state: {rs_state!r} "
+                         f"(expected one of {sorted(RS_STATES)})")
     bands = {
         "strong_outperformer": 25,
         "outperformer": 15,
     }
-    return bands.get(rs_state, 0)
+    return bands[rs_state]
 
 
 def score_pullback_depth(pullback_depth_pct: float) -> int:
     """Score pullback depth (negative % from recent high).
 
-    Bands (order-sensitive, first match wins, exclusive upper bound):
-      [-8, -3)   -> 25
-      [-12, -8)  -> 10
-      (other)    -> 0
+    Bands (order-sensitive, first match wins):
+      [-8, -3)   -> 25  (upper bound exclusive per YAML note)
+      [-12, -8)  -> 10  (upper bound exclusive per YAML note)
 
-    UNRESOLVED: The YAML says "exclusive upper bound" for [-12, -8].
-    Interpreted as: -8.0 matches [-8, -3), not [-12, -8). I.e., the
-    upper bound of each range is exclusive, lower inclusive.
+    UNRESOLVED: The YAML specifies "exclusive upper bound" for [-12,-8]
+    but is silent on [-8,-3]. For the exact boundary value -3.0, raises
+    UnresolvedError instead of picking a side. Needs CEO decision.
     """
+    if pullback_depth_pct == -3.0:
+        raise UnresolvedError(
+            "pullback_depth_pct == -3.0: YAML is silent on whether [-8,-3] "
+            "includes -3.0; needs CEO decision")
     if -8 <= pullback_depth_pct < -3:
         return 25
     if -12 <= pullback_depth_pct < -8:
@@ -124,11 +153,12 @@ def score_sector_rs(weighted_excess: float) -> int:
     Formula: weighted_excess = 0.20 * excess_1m + 0.50 * excess_3m
                               + 0.30 * excess_6m
 
-    UNRESOLVED: Band thresholds not specified. This function is a
-    placeholder returning 0 until thresholds are determined.
+    Raises UnresolvedError: the thresholds require a CEO decision.
+    Do not call this in production until resolved.
     """
-    # TODO: Determine band thresholds from legacy behavior or CEO decision.
-    return 0
+    raise UnresolvedError(
+        "score_sector_rs band thresholds not in incumbent_v1.yaml; "
+        "need CEO decision before ranking on sector RS")
 
 
 def blend_market_sector_rs(market_rs_score: int,
@@ -157,7 +187,17 @@ def apply_regime_adjustments(base_score: float,
       volatile_uptrend                 -> +0 (explicit no-op)
       SPY RSI14 > 75                   -> -3
       SPY RSI14 < 30                   -> +3
+
+    Raises ValueError for unknown regime or breadth labels (fail-closed).
     """
+    if regime_label not in REGIME_LABELS:
+        raise ValueError(f"unknown regime_label: {regime_label!r} "
+                         f"(expected one of {sorted(REGIME_LABELS)})")
+    if (market_breadth_label is not None
+            and market_breadth_label not in BREADTH_LABELS):
+        raise ValueError(f"unknown breadth: {market_breadth_label!r} "
+                         f"(expected one of {sorted(BREADTH_LABELS)})")
+
     adjustment = 0.0
 
     if regime_label == "calm_uptrend":
@@ -165,6 +205,7 @@ def apply_regime_adjustments(base_score: float,
             adjustment += 5
         elif market_breadth_label == "narrowing":
             adjustment += 2
+        # breadth None -> +0 (no adjustment without breadth info)
     elif regime_label == "transitional":
         adjustment += -3
     elif regime_label == "calm_downtrend":
@@ -187,3 +228,45 @@ def apply_regime_adjustments(base_score: float,
 def clamp_score(score: float) -> float:
     """Clamp final score to [0, 100]."""
     return max(0.0, min(100.0, score))
+
+
+def score_incumbent(
+    trend_state: str,
+    rs_state: str,
+    pullback_depth: float,
+    dist_sma20: float,
+    volume_ratio: float,
+    iv_rank: float,
+    put_call_ratio: float,
+    regime_label: str,
+    market_breadth: str | None = None,
+    spy_rsi: float | None = None,
+) -> float:
+    """Compose the full incumbent score from all bands.
+
+    Sums: trend + RS + pullback + SMA distance + volume + IV rank
+          + put/call interaction, then applies regime adjustments,
+          then clamps to [0, 100].
+
+    This is the "ranker reproduces incumbent_v1 on fixtures" entry point
+    for SCOPE §5 Step 4.
+
+    Note: sector RS is excluded (score_sector_rs raises UnresolvedError).
+    The 60/40 blend applies when sector thresholds are resolved.
+
+    Raises:
+      ValueError: on unknown labels or degenerate inputs (fail-closed).
+      UnresolvedError: on pullback_depth == -3.0 (boundary ambiguous).
+    """
+    total = 0.0
+    total += score_trend_state(trend_state)
+    total += score_relative_strength_state(rs_state)
+    total += score_pullback_depth(pullback_depth)
+    total += score_dist_to_sma20(dist_sma20)
+    total += score_volume_ratio(volume_ratio)
+    total += score_iv_rank(iv_rank)
+    total += score_iv_put_call(iv_rank, put_call_ratio)
+
+    total = apply_regime_adjustments(total, regime_label, market_breadth,
+                                     spy_rsi)
+    return clamp_score(total)

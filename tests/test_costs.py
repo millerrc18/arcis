@@ -2,11 +2,17 @@
 
 Tests dated fees, spread proxies, and execution costs against
 hand-computed values from docs/research/research-log.md.
+
+Fail-closed: unknown fee rates raise UnresolvedFeeError.
+Tick floor is price-aware. Spread estimators raise on bad input.
 """
 
 from datetime import date
 
+import pytest
+
 from arcis.research import costs as r06
+from arcis.research.costs import UnresolvedFeeError
 
 
 class TestDatedFees:
@@ -21,18 +27,25 @@ class TestDatedFees:
         assert r06.sec_fee(50_000.0, date(2025, 8, 1)) == 0.0
         assert r06.sec_fee(50_000.0, date(2026, 4, 3)) == 0.0
 
+    def test_sec_fee_unresolved_before_2025(self):
+        # Fail-closed: unknown historical rates raise, not $0
+        with pytest.raises(UnresolvedFeeError, match="not verified"):
+            r06.sec_fee(50_000.0, date(2024, 6, 3))
+        with pytest.raises(UnresolvedFeeError, match="not verified"):
+            r06.sec_fee(50_000.0, date(2020, 1, 2))
+
     def test_finra_taf_2026(self):
-        # 500 shares @ $0.000195 = $0.0975 (under $9.79 cap)
+        # 500 shares @ $0.000195 = $0.0975 (no cap; caps unverified)
         fee = r06.finra_taf(500.0, date(2026, 6, 1))
         assert abs(fee - 0.0975) < 0.001
 
-    def test_finra_taf_cap(self):
-        # 100,000 shares @ $0.000195 = $19.50 -> capped at $9.79
+    def test_finra_taf_no_cap(self):
+        # No invented cap: 100,000 shares @ $0.000195 = $19.50
         fee = r06.finra_taf(100_000.0, date(2026, 6, 1))
-        assert abs(fee - 9.79) < 0.01
+        assert abs(fee - 19.50) < 0.01
 
     def test_finra_taf_before_inception(self):
-        # Before 2002-10-01: zero
+        # Before 2002-10-01: zero (pre-TAF)
         assert r06.finra_taf(500.0, date(2000, 1, 1)) == 0.0
 
     def test_finra_taf_2004_2011(self):
@@ -40,9 +53,14 @@ class TestDatedFees:
         fee = r06.finra_taf(1000.0, date(2008, 6, 1))
         assert abs(fee - 0.075) < 0.001
 
-    def test_cat_fee(self):
-        # $0.000003 per share, both sides
-        assert abs(r06.cat_fee(500.0) - 0.0015) < 0.0001
+    def test_finra_taf_unresolved_gap(self):
+        # 2012-2023: no verified rate; fail-closed
+        with pytest.raises(UnresolvedFeeError, match="not verified"):
+            r06.finra_taf(1000.0, date(2016, 6, 1))
+
+    def test_cat_fee_zero_per_r06(self):
+        # R06: zero until verified CAT schedule; no invented $0.000003
+        assert r06.cat_fee(500.0) == 0.0
 
     def test_commission_modern(self):
         assert r06.commission(100, "modern") == 0.0
@@ -53,11 +71,26 @@ class TestDatedFees:
 
 
 class TestSpreadProxies:
+    def test_tick_floor_price_aware(self):
+        # $100 stock: 1bp floor; $10 stock: 10bp floor
+        assert abs(r06.tick_floor_fraction(100.0) - 0.0001) < 1e-9
+        assert abs(r06.tick_floor_fraction(10.0) - 0.001) < 1e-9
+        with pytest.raises(ValueError, match="positive"):
+            r06.tick_floor_fraction(0.0)
+
     def test_corwin_schultz_zero_spread(self):
-        # Flat prices -> zero spread
+        # Flat prices -> zero spread (high == low is valid, not degenerate)
         highs = [100.0, 100.0]
         lows = [100.0, 100.0]
         assert r06.corwin_schultz_spread(highs, lows) == 0.0
+
+    def test_corwin_schultz_raises_on_bad_input(self):
+        with pytest.raises(ValueError, match="need 2 days"):
+            r06.corwin_schultz_spread([100.0], [100.0])
+        with pytest.raises(ValueError, match="positive"):
+            r06.corwin_schultz_spread([0.0, 100.0], [0.0, 99.0])
+        with pytest.raises(ValueError, match="high must be"):
+            r06.corwin_schultz_spread([98.0, 99.0], [100.0, 101.0])
 
     def test_corwin_schultz_positive(self):
         # Wide high-low range -> positive spread estimate
@@ -67,20 +100,28 @@ class TestSpreadProxies:
         assert spread > 0, f"spread={spread}"
         assert spread < 0.5, f"spread unreasonably large: {spread}"
 
-    def test_spread_proxy_central(self):
-        highs = [102.0, 103.0]
-        lows = [98.0, 99.0]
-        closes = [100.0, 101.0, 102.0]
-        spread = r06.spread_proxy_central(highs, lows, closes)
-        # At least tick floor (0.01%)
-        assert spread >= 0.0001
+    def test_abdi_ranaldo_raises_on_bad_input(self):
+        with pytest.raises(ValueError, match="need 2 days"):
+            r06.abdi_ranaldo_spread([100.0], [99.0], [100.0])
+        with pytest.raises(ValueError, match="positive"):
+            r06.abdi_ranaldo_spread([10.0, 10.0], [0.0, 10.0],
+                                    [10.0, 10.0])
+
+    def test_spread_proxy_central_price_aware(self):
+        # Zero-range bars on a $10 stock: floor is 10bp, not 1bp
+        highs = [10.0, 10.0]
+        lows = [10.0, 10.0]
+        closes = [10.0, 10.0]
+        spread = r06.spread_proxy_central(highs, lows, closes, price=10.0)
+        assert abs(spread - 0.001) < 1e-9  # 0.01 / 10
 
     def test_spread_proxy_conservative_gte_central(self):
         highs = [102.0, 103.0]
         lows = [98.0, 99.0]
-        closes = [100.0, 101.0, 102.0]
-        central = r06.spread_proxy_central(highs, lows, closes)
-        conservative = r06.spread_proxy_conservative(highs, lows, closes)
+        closes = [100.0, 101.0]
+        central = r06.spread_proxy_central(highs, lows, closes, price=100.0)
+        conservative = r06.spread_proxy_conservative(highs, lows, closes,
+                                                     price=100.0)
         assert conservative >= central
 
 

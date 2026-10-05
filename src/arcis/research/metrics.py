@@ -13,14 +13,15 @@ def sharpe_ratio(returns: list[float], periods_per_year: int = 252) -> float:
     """Annualized Sharpe ratio (risk-free = 0).
 
     Uses sample standard deviation (ddof=1).
+    Raises ValueError on degenerate input (fail-closed).
     """
     if len(returns) < 2:
-        return 0.0
+        raise ValueError("need at least 2 returns for Sharpe")
     n = len(returns)
     mean = sum(returns) / n
     var = sum((r - mean) ** 2 for r in returns) / (n - 1)
     if var <= 0:
-        return 0.0
+        raise ValueError("zero variance: Sharpe undefined")
     return mean / math.sqrt(var) * math.sqrt(periods_per_year)
 
 

@@ -63,12 +63,16 @@ def atr_14(highs: list[float], lows: list[float],
 
 
 def volume_ratio(volumes: list[float], period: int = 20) -> float:
-    """Current volume divided by `period`-day average volume."""
+    """Current volume divided by `period`-day average volume.
+
+    Raises ValueError if the average is zero (degenerate data;
+    fail-closed instead of returning 0.0 which would score +15).
+    """
     if len(volumes) < period:
         raise ValueError(f"need {period} volumes, got {len(volumes)}")
     avg = sum(volumes[-period:]) / period
     if avg == 0:
-        return 0.0
+        raise ValueError("zero average volume: degenerate data")
     return volumes[-1] / avg
 
 
@@ -77,23 +81,31 @@ def pullback_depth_pct(closes: list[float], lookback: int = 60) -> float:
 
     Negative value indicates a pullback. E.g., -5.0 means 5% below
     the recent high.
+
+    Raises ValueError if recent high is zero (degenerate data).
+
+    UNRESOLVED: lookback=60 is not in the YAML. Needs CEO decision
+    or legacy verification.
     """
     if len(closes) < 2:
         raise ValueError("need at least 2 closes")
     window = closes[-lookback:] if len(closes) >= lookback else closes
     recent_high = max(window)
     if recent_high == 0:
-        return 0.0
+        raise ValueError("zero recent high: degenerate data")
     return (closes[-1] - recent_high) / recent_high * 100.0
 
 
 def dist_to_sma20_pct(closes: list[float]) -> float:
-    """Distance to 20-day SMA as a percentage. Negative = below SMA."""
+    """Distance to 20-day SMA as a percentage. Negative = below SMA.
+
+    Raises ValueError if SMA is zero (degenerate data).
+    """
     if len(closes) < 20:
         raise ValueError(f"need 20 closes, got {len(closes)}")
     sma20 = sma(closes, 20)
     if sma20 == 0:
-        return 0.0
+        raise ValueError("zero SMA20: degenerate data")
     return (closes[-1] - sma20) / sma20 * 100.0
 
 

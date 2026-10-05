@@ -20,7 +20,7 @@ def load_membership(data_root: str, as_of: str) -> set[str]:
     if not os.path.isfile(path):
         raise FileNotFoundError(f"no universe snapshot for {as_of}: {path}")
     symbols = set()
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for i, line in enumerate(f):
             if i == 0:
                 continue  # header
