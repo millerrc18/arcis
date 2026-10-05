@@ -54,8 +54,8 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 |---|---|---|---|---|
 | Forward news recorder | `recorder` | 1 | yes | Capture-only polling of Alpaca news for the capture universe (current S&P 500 constituents, a superset of the S&P 100; D-011); append-only; first-seen timestamp per article version; full article text stored by default under the data root (D-018), with fingerprint mode (metadata and hashes only) kept as the fallback if Alpaca refuses in writing; a daily universe snapshot, which is now the only point-in-time membership record |
 | Point-in-time data plane | `data` | 3 | no | Alpaca daily bars (2016 onward) and corporate actions; forward membership from the recorder's daily universe snapshots; earnings dates where timing is known. No paid history vendor (D-013), so any pre-tag backtest is exploratory and survivorship-biased |
-| Incumbent ranker | `strategy` | 4 | no | Pure functions implementing the frozen `incumbent_v1`; shared with the live lane |
-| Research core | `research` | 4–5 | no | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
+| Incumbent ranker | `strategy` | 4 | yes | Pure functions implementing the frozen `incumbent_v1`; shared with the live lane |
+| Research core | `research` | 4–5 | yes | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
 | Text scoring for Q2/Q3 | `textscore` | after 5 | no | ProsusAI/finbert (ONNX INT8) plus one pinned general instruction model (candidate: Qwen3-14B Q5), schema-constrained, chosen on blinded human labels without looking at returns. Research only; no training code |
 
 ### 3.2 CORE — live lane (paper-only from Step P; real money only after Q1 authorizes it)
