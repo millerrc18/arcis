@@ -62,19 +62,19 @@ class TestScoringBands:
     def test_dist_to_sma20(self):
         assert scoring.score_dist_to_sma20(-3.0) == 10
         assert scoring.score_dist_to_sma20(-5.0) == 10
-        assert scoring.score_dist_to_sma20(-1.0) == 10
+        assert scoring.score_dist_to_sma20(-1.001) == 10
         assert scoring.score_dist_to_sma20(-6.0) == 0
         assert scoring.score_dist_to_sma20(0.0) == 0
 
     def test_volume_ratio(self):
         assert scoring.score_volume_ratio(0.5) == 15
-        assert scoring.score_volume_ratio(0.8) == 15
+        assert scoring.score_volume_ratio(0.799) == 15
         assert scoring.score_volume_ratio(0.81) == 0
         assert scoring.score_volume_ratio(1.5) == 0
 
     def test_iv_rank(self):
         assert scoring.score_iv_rank(20.0) == 3
-        assert scoring.score_iv_rank(25.0) == 3
+        assert scoring.score_iv_rank(24.9) == 3
         assert scoring.score_iv_rank(25.1) == 0
         assert scoring.score_iv_rank(80.0) == 0
 
@@ -84,10 +84,22 @@ class TestScoringBands:
         assert scoring.score_iv_put_call(70.0, 1.5) == 0
         assert scoring.score_iv_put_call(50.0, 0.8) == 0
 
-    def test_sector_rs_raises_unresolved(self):
-        # Thresholds not in YAML; fail-closed until CEO decides
-        with pytest.raises(UnresolvedError, match="band thresholds"):
-            scoring.score_sector_rs(0.5)
+    def test_sector_rs_set_a_bands(self):
+        # D-026: absolute thresholds +5 / 0 / -5 (percentage points)
+        assert scoring.score_sector_rs(37.76) == 25
+        assert scoring.score_sector_rs(5.0) == 25
+        assert scoring.score_sector_rs(4.999) == 15
+        assert scoring.score_sector_rs(2.6) == 15
+        assert scoring.score_sector_rs(0.0) == 15
+        assert scoring.score_sector_rs(-0.001) == 5
+        assert scoring.score_sector_rs(-3.98) == 5
+        assert scoring.score_sector_rs(-5.0) == 5
+        assert scoring.score_sector_rs(-5.001) == 0
+        assert scoring.score_sector_rs(-30.33) == 0
+
+    def test_sector_rs_nan_fail_closed(self):
+        with pytest.raises(ValueError, match="NaN"):
+            scoring.score_sector_rs(float("nan"))
 
     def test_blend_market_sector(self):
         # 60/40 blend
@@ -101,38 +113,94 @@ class TestScoringBands:
         assert scoring.clamp_score(75.5) == 75.5
 
     def test_score_incumbent_composed(self):
-        # Full ranker: sums bands, applies regime, clamps.
-        # trend(30) + rs(25) + pullback(-5->25) + sma(-2->20)
-        #   + vol(0.8->15) + iv(40->10) + iv_pc(0) = 125
-        # calm_uptrend/healthy +5 -> 130 -> clamped to 100
-        score = scoring.score_incumbent(
-            trend_state="strong_uptrend",
-            rs_state="strong_outperformer",
-            pullback_depth=-5.0,
-            dist_sma20=-2.0,
-            volume_ratio=0.8,
-            iv_rank=40.0,
-            put_call_ratio=0.8,
-            regime_label="calm_uptrend",
-            market_breadth="healthy",
-        )
-        assert score == 100.0
-
-    def test_score_incumbent_bearish(self):
-        # trend(5) + rs(15) + pullback(-15->0) + sma(-8->0)
-        #   + vol(2.0->0) + iv(90->0) + iv_pc(80,1.5->-3) = 17
-        # volatile_downtrend -10 -> 7
+        # Full ranker with sector RS present: hand arithmetic, no clamp.
+        # trend(neutral->5) + rs blend: market outperformer(15),
+        #   sector +6.0->25 => 0.6*15 + 0.4*25 = 19.0
+        # pullback(-5->25) + sma(-2->10) + vol(0.5->15) + iv(20->3)
+        #   + iv_pc(0) = 77 -> transitional -3 -> 74.0
         score = scoring.score_incumbent(
             trend_state="neutral",
             rs_state="outperformer",
+            sector_weighted_excess=6.0,
+            pullback_depth=-5.0,
+            dist_sma20=-2.0,
+            volume_ratio=0.5,
+            iv_rank=20.0,
+            put_call_ratio=1.5,
+            regime_label="transitional",
+            market_breadth=None,
+            spy_rsi=None,
+        )
+        assert score == 74.0
+
+    def test_score_incumbent_sector_unavailable(self):
+        # Same inputs, sector RS unavailable -> market RS at full weight.
+        # rs component 15 (not 19): raw 73 -> transitional -3 -> 70.0
+        score = scoring.score_incumbent(
+            trend_state="neutral",
+            rs_state="outperformer",
+            sector_weighted_excess=None,
+            pullback_depth=-5.0,
+            dist_sma20=-2.0,
+            volume_ratio=0.5,
+            iv_rank=20.0,
+            put_call_ratio=1.5,
+            regime_label="transitional",
+            market_breadth=None,
+            spy_rsi=None,
+        )
+        assert score == 70.0
+
+    def test_score_incumbent_fixture_incumbent_v1(self):
+        # Fixture reproducing incumbent_v1 end to end (SCOPE §5 Step 4
+        # done-means): every scoring band exercised with fixed inputs.
+        # trend(uptrend->20) + rs blend: market outperformer(15),
+        #   sector +2.0->15 => 0.6*15 + 0.4*15 = 15.0
+        # pullback(-5.5->25) + sma(-3->10) + vol(0.4->15) + iv(80->0)
+        #   + iv_pc(80, 1.5 -> -3) = 82
+        # calm_uptrend/healthy +5, spy_rsi 50 (no rsi adjustment) -> 87.0
+        score = scoring.score_incumbent(
+            trend_state="uptrend",
+            rs_state="outperformer",
+            sector_weighted_excess=2.0,
+            pullback_depth=-5.5,
+            dist_sma20=-3.0,
+            volume_ratio=0.4,
+            iv_rank=80.0,
+            put_call_ratio=1.5,
+            regime_label="calm_uptrend",
+            market_breadth="healthy",
+            spy_rsi=50.0,
+        )
+        assert score == 87.0
+
+    def test_score_incumbent_bearish(self):
+        # trend(5) + rs(15, sector unavailable) + pullback(-15->0)
+        #   + sma(-8->0) + vol(2.0->0) + iv(90->0)
+        #   + iv_pc(90,1.5->-3) = 17 -> volatile_downtrend -10 -> 7
+        score = scoring.score_incumbent(
+            trend_state="neutral",
+            rs_state="outperformer",
+            sector_weighted_excess=None,
             pullback_depth=-15.0,
             dist_sma20=-8.0,
             volume_ratio=2.0,
             iv_rank=80.0,
             put_call_ratio=1.5,
             regime_label="volatile_downtrend",
+            market_breadth=None,
+            spy_rsi=None,
         )
         assert score == 7.0
+
+    def test_boundary_values_raise_unresolved(self):
+        # Ambiguous YAML boundaries fail closed, consistently.
+        with pytest.raises(UnresolvedError, match="-1.0"):
+            scoring.score_dist_to_sma20(-1.0)
+        with pytest.raises(UnresolvedError, match="0.8"):
+            scoring.score_volume_ratio(0.8)
+        with pytest.raises(UnresolvedError, match="== 25"):
+            scoring.score_iv_rank(25.0)
 
 
 class TestRegimeAdjustments:
@@ -190,7 +258,10 @@ class TestFeatures:
 
     def test_pullback_depth_degenerate_raises(self):
         with pytest.raises(ValueError, match="zero recent high"):
-            features.pullback_depth_pct([0.0] * 30)
+            features.pullback_depth_pct([0.0] * 60)
+        # Shorter than the lookback: fail-closed, no truncated window
+        with pytest.raises(ValueError, match="need 60 closes"):
+            features.pullback_depth_pct([100.0, 95.0])
 
     def test_dist_to_sma20_degenerate_raises(self):
         with pytest.raises(ValueError, match="zero SMA20"):
@@ -218,6 +289,22 @@ class TestFeatures:
         rsi = features.rsi_14(closes)
         assert 49.0 < rsi < 51.0, f"RSI={rsi}"
 
+    def test_rsi_14_41bar_known_answer(self):
+        # 41 closes (seeded pseudo-random walk). Expected value computed
+        # with an independent textbook scalar-loop Wilder implementation
+        # (not _wilder_smooth): 64.0515615476533. Guards the recursion
+        # beyond the 15-bar minimum.
+        closes = [100.0, 100.557707, 98.65775, 97.757867, 96.65071,
+                  97.596595, 98.303393, 99.872112, 98.219867, 97.907554,
+                  96.026743, 94.901295, 94.922716, 93.02886, 91.824211,
+                  92.423748, 92.603514, 91.485277, 91.842339, 93.080061,
+                  91.106056, 92.329333, 93.121891, 92.482893, 91.104811,
+                  92.933663, 92.280041, 90.651025, 89.03789, 90.427868,
+                  90.842772, 92.071285, 92.990212, 93.135124, 95.027588,
+                  94.541725, 94.749888, 96.067506, 96.541585, 97.988413,
+                  98.297821]
+        assert abs(features.rsi_14(closes) - 64.0515615476533) < 1e-9
+
     def test_atr_14_constant_range(self):
         # Constant $2 range -> ATR = 2.0
         n = 15
@@ -231,7 +318,8 @@ class TestFeatures:
         assert abs(features.volume_ratio(volumes, 20) - 2000/1050) < 0.001
 
     def test_pullback_depth(self):
-        closes = [100.0, 105.0, 110.0, 104.5]  # 5% pullback from 110
+        # 60 closes, high 110.0, last 104.5 -> 5% pullback
+        closes = [100.0] * 58 + [110.0, 104.5]
         depth = features.pullback_depth_pct(closes, lookback=60)
         assert abs(depth - (-5.0)) < 0.01
 
@@ -280,6 +368,19 @@ class TestMembership:
         assert not membership.is_member("NVDA", root, "2024-01-02")
 
     def test_missing_snapshot_raises(self, tmp_path):
+        from arcis.recorder.errors import UniverseError
         from arcis.strategy import membership
-        with pytest.raises(FileNotFoundError, match="no universe snapshot"):
+        with pytest.raises(UniverseError, match="not found"):
+            membership.load_membership(str(tmp_path), "2024-01-02")
+
+    def test_duplicate_symbols_rejected(self, tmp_path):
+        # The S01 reader rejects duplicates; membership must not silently
+        # dedupe them either.
+        from arcis.recorder.errors import UniverseError
+        from arcis.strategy import membership
+        universe_dir = tmp_path / "universe"
+        universe_dir.mkdir(exist_ok=True)
+        (universe_dir / "2024-01-02.csv").write_text(
+            "symbol\nAAPL\nMSFT\nAAPL\n", encoding="utf-8")
+        with pytest.raises(UniverseError, match="duplicate"):
             membership.load_membership(str(tmp_path), "2024-01-02")

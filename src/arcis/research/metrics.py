@@ -29,9 +29,11 @@ def max_drawdown(equity: list[float]) -> float:
     """Maximum drawdown as a positive fraction (e.g., 0.15 = 15%).
 
     Equity is a cumulative wealth series starting at 1.0 (or any base).
+    Raises ValueError on fewer than 2 points (fail-closed: a single
+    observation has no measurable drawdown).
     """
     if len(equity) < 2:
-        return 0.0
+        raise ValueError("need at least 2 equity points for drawdown")
     peak = equity[0]
     max_dd = 0.0
     for value in equity[1:]:
@@ -43,15 +45,20 @@ def max_drawdown(equity: list[float]) -> float:
 
 
 def hit_rate(returns: list[float]) -> float:
-    """Fraction of returns > 0."""
+    """Fraction of returns > 0. Raises ValueError on empty input."""
     if not returns:
-        return 0.0
+        raise ValueError("hit_rate: empty return series")
     wins = sum(1 for r in returns if r > 0)
     return wins / len(returns)
 
 
 def profit_factor(returns: list[float]) -> float:
-    """Sum of wins / abs(sum of losses). Inf if no losses."""
+    """Sum of wins / abs(sum of losses). Inf if no losses.
+
+    Raises ValueError on empty input.
+    """
+    if not returns:
+        raise ValueError("profit_factor: empty return series")
     gross_win = sum(r for r in returns if r > 0)
     gross_loss = abs(sum(r for r in returns if r < 0))
     if gross_loss == 0:
@@ -60,7 +67,12 @@ def profit_factor(returns: list[float]) -> float:
 
 
 def avg_win_avg_loss(returns: list[float]) -> tuple[float, float]:
-    """(average win, average loss as positive value)."""
+    """(average win, average loss as positive value).
+
+    Raises ValueError on empty input.
+    """
+    if not returns:
+        raise ValueError("avg_win_avg_loss: empty return series")
     wins = [r for r in returns if r > 0]
     losses = [r for r in returns if r < 0]
     avg_win = sum(wins) / len(wins) if wins else 0.0

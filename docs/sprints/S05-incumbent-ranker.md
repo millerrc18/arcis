@@ -142,11 +142,11 @@ Known-answer-tested calculations:
 
 ## Sprint report
 
-**Status:** Complete. All 7 tasks done. PR #7 opened.
+**Status:** Code-complete; PR #7 opened. Fixture test reproduces `incumbent_v1` scoring end to end (SCOPE §5 Step 4 done-means for the ranker). Production use remains blocked on the UNRESOLVED items below — all fail closed rather than silently corrupting results.
 
 **T1 (Scoring bands):** ✅ All bands from `incumbent_v1.yaml` implemented in `src/arcis/strategy/scoring.py`. First-match-wins, clamped [0, 100].
 
-**T2 (Sector RS blend):** ✅ 60/40 blend implemented. `score_sector_rs` returns 0 (UNRESOLVED — band thresholds not in YAML).
+**T2 (Sector RS blend):** ✅ 60/40 blend implemented. `score_sector_rs` implements Set A absolute thresholds (D-026, 2026-10-05): ≥+5pp → 25, 0–+5 → 15, −5–0 → 5, <−5 → 0.
 
 **T3 (Regime adjustments):** ✅ Cumulative adjustments, clamped [-10, 10]. Volatile uptrend explicit no-op.
 
@@ -161,21 +161,23 @@ Known-answer-tested calculations:
 **Packages:** `src/arcis/strategy/` (ranker), `src/arcis/research/` (costs, metrics). Ledger rows activated via PR #8 (merged to main before this PR, per SCOPE §6.2).
 
 **UNRESOLVED (need CEO decision):**
-- `score_sector_rs` band thresholds not in YAML. Raises `UnresolvedError`.
+- ~~`score_sector_rs` band thresholds not in YAML. Raises `UnresolvedError`.~~ RESOLVED 2026-10-05 by D-026 (Set A absolute thresholds).
 - Pullback depth `[-8,-3]` upper bound: YAML silent on -3.0 inclusivity. Exact -3.0 raises `UnresolvedError`.
-- `trend_state` / `relative_strength_state` classification rules: not in YAML.
+- `dist_to_sma20` [-5,-1], `volume_ratio` [null,0.8], `iv_rank` [null,25] upper bounds: YAML has no bound notes. Exact -1.0 / 0.8 / 25 raise `UnresolvedError` (consistent with -3.0).
+- `trend_state` / `relative_strength_state` classification rules and full label vocabulary: not in YAML. The code scores only the YAML's point-bearing labels; unknown labels raise.
 - Historical SEC rates before 2025-05-14: not verified; raise `UnresolvedFeeError`.
-- Historical FINRA TAF rates for 2002-2003, 2012-2023: not verified; raise.
+- Historical FINRA TAF rates for 2002-2003, 2012-2023, and caps outside 2026: not verified; raise.
 - `lookback=60` for pullback high; 1m/3m/6m day counts: not in YAML.
 
 **Deviations:**
 - Package layout: spec said `src/arcis/ranker/`, `src/arcis/costs/`, `src/arcis/metrics/` with "Ledger row: None". Used existing `strategy`/`research` rows (PR #8) instead.
-- Fail-closed: unknown rates/labels raise instead of silent defaults.
+- Fail-closed: unknown rates/labels/ambiguous boundaries raise instead of silent defaults.
 - CAT fee: zero per R06 (no invented schedule).
-- FINRA TAF caps: not applied (unverified).
+- FINRA TAF: 2026 cap $9.79 applied per R06; caps for other periods unverified (raise).
 - 21-session median smoothing: not implemented (deferred).
+- `score_incumbent` takes an explicit `sector_weighted_excess` (None = sector RS unavailable → market RS at full weight, per the YAML fallback). `market_breadth`/`spy_rsi` are required arguments; None means unknown → no adjustment for that component.
 
-**Tests:** 214 total, all passing (includes T7 membership test, fail-closed tests, composed ranker tests).
+**Tests:** 227 total, all passing, 0 skipped (includes T7 membership test, fail-closed tests, composed ranker tests, fixture reproduction test, Wilder 41-bar and CS/AR known-answer tests).
 
 **Artifacts:**
 - `src/arcis/strategy/` — scoring, features, membership

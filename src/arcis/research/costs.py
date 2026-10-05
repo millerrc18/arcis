@@ -29,12 +29,18 @@ SEC_FEE_ZERO_START = date(2025, 5, 14)
 SEC_FEE_ZERO_END = date(2026, 4, 4)
 
 # FINRA TAF: (effective_date, end_date, rate per share)
-# Verified rates only; caps are UNRESOLVED (not in R06 or verified notices).
-# Do not invent caps. Gaps raise UnresolvedFeeError.
+# Verified rates only. Caps: $9.79 verified for 2026 (R06:
+# "maximum USD 9.79 per trade in 2026"). Caps for other periods are
+# UNVERIFIED and raise. Do not invent caps.
 FINRA_TAF_RATES: list[tuple[date, date, float]] = [
     (date(2004, 1, 1), date(2011, 12, 31), 0.000075),   # 2004-2011
     (date(2024, 1, 1), date(2025, 12, 31), 0.000166),   # 2024-2025
     (date(2026, 1, 1), date(9999, 12, 31), 0.000195),   # 2026+
+]
+# FINRA TAF caps: (effective_date, end_date, cap in dollars per trade)
+# Verified: $9.79 in 2026 (R06). Other periods: UNVERIFIED (raise).
+FINRA_TAF_CAPS: list[tuple[date, date, float]] = [
+    (date(2026, 1, 1), date(9999, 12, 31), 9.79),
 ]
 FINRA_TAF_INCEPTION = date(2002, 10, 1)
 
@@ -79,7 +85,7 @@ def sec_fee(sale_notional: float, as_of: date) -> float:
 
 
 def finra_taf_rate(as_of: date) -> float:
-    """FINRA TAF rate per share on `as_of` (no cap; caps unverified).
+    """FINRA TAF rate per share on `as_of` (cap applied separately).
 
     Raises UnresolvedFeeError for dates with no verified rate.
     Zero before FINRA TAF inception (2002-10-01) per R06.
@@ -94,9 +100,28 @@ def finra_taf_rate(as_of: date) -> float:
         f"FINRA TAF rate not verified for {as_of}")
 
 
+def finra_taf_cap(as_of: date) -> float:
+    """FINRA TAF cap in dollars per trade on `as_of`.
+
+    Verified: $9.79 in 2026 (R06). Raises UnresolvedFeeError for periods
+    whose cap is not verified (e.g. 2024-2025, 2004-2011).
+    """
+    for start, end, cap in FINRA_TAF_CAPS:
+        if start <= as_of <= end:
+            return cap
+    raise UnresolvedFeeError(
+        f"FINRA TAF cap not verified for {as_of}")
+
+
 def finra_taf(shares_sold: float, as_of: date) -> float:
-    """FINRA TAF in dollars: shares * rate (no cap applied; caps unverified)."""
-    return shares_sold * finra_taf_rate(as_of)
+    """FINRA TAF in dollars: min(shares * rate, dated cap) per R06.
+
+    Zero before TAF inception (2002-10-01); no cap lookup needed there.
+    """
+    rate = finra_taf_rate(as_of)  # 0.0 pre-inception; raises if unverified
+    if rate == 0.0:
+        return 0.0
+    return min(shares_sold * rate, finra_taf_cap(as_of))
 
 
 def cat_fee(shares: float) -> float:
@@ -258,7 +283,13 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
     """Total trade cost in dollars and basis points.
 
     Returns dict with dollar amounts per component and total bp.
+
+    Raises ValueError on non-positive notional (fail-closed: a cost in
+    basis points is undefined without a notional base).
     """
+    if notional <= 0:
+        raise ValueError(f"total_trade_cost: notional must be positive, "
+                         f"got {notional}")
     comm = commission(shares, commission_model)
     cat = cat_fee(shares)
 
@@ -278,7 +309,7 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
         raise ValueError(f"unknown exit_type: {exit_type}")
 
     total_dollars = comm + cat + sec + taf + exec_cost
-    total_bp = (total_dollars / notional * 10_000) if notional > 0 else 0.0
+    total_bp = total_dollars / notional * 10_000
 
     return {
         "commission": comm,

@@ -2,6 +2,8 @@
 
 import math
 
+import pytest
+
 from arcis.research import metrics
 
 
@@ -86,3 +88,21 @@ class TestAvgWinLoss:
         avg_win, avg_loss = metrics.avg_win_avg_loss([0.02, 0.04])
         assert abs(avg_win - 0.03) < 0.001
         assert avg_loss == 0.0
+
+
+class TestDegenerateRaises:
+    def test_max_drawdown_single_point_raises(self):
+        with pytest.raises(ValueError, match="at least 2 equity points"):
+            metrics.max_drawdown([1.0])
+
+    def test_hit_rate_empty_raises(self):
+        with pytest.raises(ValueError, match="empty return series"):
+            metrics.hit_rate([])
+
+    def test_profit_factor_empty_raises(self):
+        with pytest.raises(ValueError, match="empty return series"):
+            metrics.profit_factor([])
+
+    def test_avg_win_avg_loss_empty_raises(self):
+        with pytest.raises(ValueError, match="empty return series"):
+            metrics.avg_win_avg_loss([])

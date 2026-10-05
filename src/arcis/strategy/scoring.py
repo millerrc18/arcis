@@ -20,7 +20,10 @@ class UnresolvedError(Exception):
     """
 
 
-# Closed label sets from incumbent_v1.yaml. Unknown labels raise.
+# Scoring labels from incumbent_v1.yaml. The YAML lists only the labels that
+# score points; the full label vocabulary (e.g. "downtrend") is UNRESOLVED
+# alongside the trend/RS classifiers. Unknown labels raise (fail-closed)
+# rather than silently scoring 0.
 TREND_STATES = {"strong_uptrend", "uptrend", "neutral"}
 RS_STATES = {"strong_outperformer", "outperformer"}
 REGIME_LABELS = {"calm_uptrend", "transitional", "calm_downtrend",
@@ -98,10 +101,13 @@ def score_dist_to_sma20(dist_pct: float) -> int:
       (other)  -> 0
 
     UNRESOLVED: YAML shows range [-5, -1] without explicit bound notes.
-    Interpreted as inclusive on both ends (differs from pullback_depth
-    which specifies exclusive upper). If -1.0 should be exclusive,
-    this needs correction.
+    For the exact boundary value -1.0, raises UnresolvedError instead of
+    picking a side (consistent with pullback_depth -3.0). Needs CEO decision.
     """
+    if dist_pct == -1.0:
+        raise UnresolvedError(
+            "dist_to_sma20_pct == -1.0: YAML range [-5,-1] has no bound note; "
+            "needs CEO decision")
     if -5 <= dist_pct <= -1:
         return 10
     return 0
@@ -113,7 +119,15 @@ def score_volume_ratio(volume_ratio_20d: float) -> int:
     Bands:
       (-inf, 0.8] -> 15  (sentinel lower bound: no lower limit)
       (other)     -> 0
+
+    UNRESOLVED: YAML shows [null, 0.8] without explicit bound notes. For the
+    exact boundary value 0.8, raises UnresolvedError instead of picking a
+    side. Needs CEO decision.
     """
+    if volume_ratio_20d == 0.8:
+        raise UnresolvedError(
+            "volume_ratio_20d == 0.8: YAML range [null, 0.8] has no bound "
+            "note; needs CEO decision")
     if volume_ratio_20d <= 0.8:
         return 15
     return 0
@@ -125,7 +139,15 @@ def score_iv_rank(iv_rank: float) -> int:
     Bands:
       (-inf, 25] -> 3  (sentinel lower bound)
       (other)    -> 0
+
+    UNRESOLVED: YAML shows [null, 25] without explicit bound notes. For the
+    exact boundary value 25, raises UnresolvedError instead of picking a
+    side. Needs CEO decision.
     """
+    if iv_rank == 25:
+        raise UnresolvedError(
+            "iv_rank == 25: YAML range [null, 25] has no bound note; "
+            "needs CEO decision")
     if iv_rank <= 25:
         return 3
     return 0
@@ -143,22 +165,40 @@ def score_iv_put_call(iv_rank: float, put_call_vol_ratio: float) -> int:
     return 0
 
 
+# Set A absolute thresholds (D-026, CEO decision 2026-10-05), in percentage
+# points of weighted_excess vs SPY. Calibrated on the 2016-2024 empirical
+# distribution (P10 -7.39 / P25 -3.98 / P50 -0.58 / P75 +2.60 / P90 +5.91,
+# n=1,123 sector-months; validation in arcis-data/sector_rs/): +5pp sits at
+# ~P88 and -5pp at ~P19, so the bands split tail/middle sensibly. Rank-based
+# banding was considered and rejected: it discards magnitude, so "25 points"
+# would mean something different every month. incumbent_v1.yaml pins only
+# the band values [25, 15, 5, 0], never the mapping rule, so this is an
+# implementation decision under the CEO-judgment mandate, not a prereg change.
+_SECTOR_RS_BANDS = ((5.0, 25), (0.0, 15), (-5.0, 5))
+
+
 def score_sector_rs(weighted_excess: float) -> int:
     """Score sector relative strength from weighted excess return.
 
-    Bands: [25, 15, 5, 0] — thresholds UNRESOLVED.
-    The YAML gives the formula and band values but not the cutoffs
-    that map weighted_excess to bands.
+    Set A bands (D-026):
+      weighted_excess >= +5  -> 25
+      0 <= weighted_excess < +5 -> 15
+      -5 <= weighted_excess < 0 -> 5
+      weighted_excess < -5 -> 0
 
     Formula: weighted_excess = 0.20 * excess_1m + 0.50 * excess_3m
-                              + 0.30 * excess_6m
+                              + 0.30 * excess_6m  (percentage points vs SPY)
 
-    Raises UnresolvedError: the thresholds require a CEO decision.
-    Do not call this in production until resolved.
+    Raises:
+      ValueError: on NaN input (fail-closed; unavailable sector RS is
+        represented as None at the blend step, never as NaN here).
     """
-    raise UnresolvedError(
-        "score_sector_rs band thresholds not in incumbent_v1.yaml; "
-        "need CEO decision before ranking on sector RS")
+    if weighted_excess != weighted_excess:  # NaN check without math import
+        raise ValueError("score_sector_rs: weighted_excess is NaN")
+    for cutoff, points in _SECTOR_RS_BANDS:
+        if weighted_excess >= cutoff:
+            return points
+    return 0
 
 
 def blend_market_sector_rs(market_rs_score: int,
@@ -233,34 +273,45 @@ def clamp_score(score: float) -> float:
 def score_incumbent(
     trend_state: str,
     rs_state: str,
+    sector_weighted_excess: float | None,
     pullback_depth: float,
     dist_sma20: float,
     volume_ratio: float,
     iv_rank: float,
     put_call_ratio: float,
     regime_label: str,
-    market_breadth: str | None = None,
-    spy_rsi: float | None = None,
+    market_breadth: str | None,
+    spy_rsi: float | None,
 ) -> float:
     """Compose the full incumbent score from all bands.
 
-    Sums: trend + RS + pullback + SMA distance + volume + IV rank
-          + put/call interaction, then applies regime adjustments,
-          then clamps to [0, 100].
+    Sums: trend + RS (60/40 market/sector blend) + pullback + SMA distance
+          + volume + IV rank + put/call interaction, then applies regime
+          adjustments, then clamps to [0, 100].
 
     This is the "ranker reproduces incumbent_v1 on fixtures" entry point
     for SCOPE §5 Step 4.
 
-    Note: sector RS is excluded (score_sector_rs raises UnresolvedError).
-    The 60/40 blend applies when sector thresholds are resolved.
+    sector_weighted_excess: the sector's weighted excess return vs SPY in
+      percentage points (scored with Set A bands, D-026). When None, sector
+      RS is unavailable and market RS receives full effective weight, per
+      the YAML fallback (config/incumbent_v1.yaml `_sector_rs_score` note).
+
+    market_breadth and spy_rsi are required arguments (no defaults) so the
+    caller must pass them explicitly; None means unknown, which yields no
+    adjustment for that component per the YAML conditions.
 
     Raises:
       ValueError: on unknown labels or degenerate inputs (fail-closed).
-      UnresolvedError: on pullback_depth == -3.0 (boundary ambiguous).
+      UnresolvedError: on ambiguous band boundaries (pullback_depth == -3.0,
+        dist_sma20 == -1.0, volume_ratio == 0.8, iv_rank == 25).
     """
     total = 0.0
     total += score_trend_state(trend_state)
-    total += score_relative_strength_state(rs_state)
+    market_rs = score_relative_strength_state(rs_state)
+    sector_rs = (score_sector_rs(sector_weighted_excess)
+                 if sector_weighted_excess is not None else None)
+    total += blend_market_sector_rs(market_rs, sector_rs)
     total += score_pullback_depth(pullback_depth)
     total += score_dist_to_sma20(dist_sma20)
     total += score_volume_ratio(volume_ratio)

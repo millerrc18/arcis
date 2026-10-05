@@ -82,14 +82,17 @@ def pullback_depth_pct(closes: list[float], lookback: int = 60) -> float:
     Negative value indicates a pullback. E.g., -5.0 means 5% below
     the recent high.
 
-    Raises ValueError if recent high is zero (degenerate data).
+    Raises ValueError if recent high is zero (degenerate data), or if
+    fewer than `lookback` closes are available (fail-closed: measuring
+    the pullback over a truncated window would silently understate it).
 
     UNRESOLVED: lookback=60 is not in the YAML. Needs CEO decision
     or legacy verification.
     """
-    if len(closes) < 2:
-        raise ValueError("need at least 2 closes")
-    window = closes[-lookback:] if len(closes) >= lookback else closes
+    if len(closes) < lookback:
+        raise ValueError(f"need {lookback} closes for pullback lookback, "
+                         f"got {len(closes)}")
+    window = closes[-lookback:]
     recent_high = max(window)
     if recent_high == 0:
         raise ValueError("zero recent high: degenerate data")

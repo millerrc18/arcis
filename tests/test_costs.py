@@ -34,24 +34,27 @@ class TestDatedFees:
         with pytest.raises(UnresolvedFeeError, match="not verified"):
             r06.sec_fee(50_000.0, date(2020, 1, 2))
 
-    def test_finra_taf_2026(self):
-        # 500 shares @ $0.000195 = $0.0975 (no cap; caps unverified)
+    def test_finra_taf_2026_cap(self):
+        # R06: maximum $9.79 per trade in 2026.
+        # 100,000 shares @ $0.000195 = $19.50 -> capped at $9.79
+        fee = r06.finra_taf(100_000.0, date(2026, 6, 1))
+        assert abs(fee - 9.79) < 0.01
+
+    def test_finra_taf_cap_below_threshold(self):
+        # 500 shares @ $0.000195 = $0.0975 < $9.79 cap: uncapped
         fee = r06.finra_taf(500.0, date(2026, 6, 1))
         assert abs(fee - 0.0975) < 0.001
-
-    def test_finra_taf_no_cap(self):
-        # No invented cap: 100,000 shares @ $0.000195 = $19.50
-        fee = r06.finra_taf(100_000.0, date(2026, 6, 1))
-        assert abs(fee - 19.50) < 0.01
 
     def test_finra_taf_before_inception(self):
         # Before 2002-10-01: zero (pre-TAF)
         assert r06.finra_taf(500.0, date(2000, 1, 1)) == 0.0
 
-    def test_finra_taf_2004_2011(self):
-        # $0.000075 per share
-        fee = r06.finra_taf(1000.0, date(2008, 6, 1))
-        assert abs(fee - 0.075) < 0.001
+    def test_finra_taf_2004_2011_cap_unverified(self):
+        # Rate is verified ($0.000075) but the cap is not -> fail-closed
+        with pytest.raises(UnresolvedFeeError, match="cap not verified"):
+            r06.finra_taf(1000.0, date(2008, 6, 1))
+        # The rate alone is still available
+        assert abs(r06.finra_taf_rate(date(2008, 6, 1)) - 0.000075) < 1e-9
 
     def test_finra_taf_unresolved_gap(self):
         # 2012-2023: no verified rate; fail-closed
@@ -99,6 +102,23 @@ class TestSpreadProxies:
         spread = r06.corwin_schultz_spread(highs, lows)
         assert spread > 0, f"spread={spread}"
         assert spread < 0.5, f"spread unreasonably large: {spread}"
+
+    def test_corwin_schultz_known_answer(self):
+        # Hand-computed from the published Corwin-Schultz (2012) formula:
+        # beta = ln(102/100)^2 + ln(103/99)^2, gamma = ln(103/99)^2,
+        # alpha = (sqrt(2b)-sqrt(b))/(3-2√2) - sqrt(gamma/(3-2√2)),
+        # spread = 2(e^a-1)/(1+e^a) = 0.011284774415546862
+        spread = r06.corwin_schultz_spread([102.0, 103.0], [100.0, 99.0])
+        assert abs(spread - 0.011284774415546862) < 1e-12
+
+    def test_abdi_ranaldo_known_answer(self):
+        # Hand-computed from Abdi & Ranaldo (2017):
+        # S = 2*sqrt((ln C0 - eta0)(ln C0 - eta1)) = 0.030545899055541358
+        # eta0 = (ln105+ln95)/2, eta1 = (ln106+ln96)/2, C0 = 102
+        spread = r06.abdi_ranaldo_spread(
+            [105.0, 106.0], [95.0, 96.0], [102.0, 101.0])
+        assert spread > 0
+        assert abs(spread - 0.030545899055541358) < 1e-12
 
     def test_abdi_ranaldo_raises_on_bad_input(self):
         with pytest.raises(ValueError, match="need 2 days"):
@@ -175,3 +195,10 @@ class TestTotalCost:
         assert result["sec_fee"] == 0.0
         assert result["finra_taf"] == 0.0
         assert result["execution"] == 0.0  # passive: no added cost
+
+    def test_total_trade_cost_degenerate_raises(self):
+        # Basis points are undefined without a positive notional
+        with pytest.raises(ValueError, match="notional must be positive"):
+            r06.total_trade_cost(
+                notional=0.0, shares=100, is_sell=True,
+                as_of=date(2026, 6, 1), spread=0.001)
