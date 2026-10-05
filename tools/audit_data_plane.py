@@ -7,19 +7,22 @@ Usage:
     python tools/audit_data_plane.py --data-root <DATA_ROOT>
 
 Output: <data_root>/s04/audit_results.json (aggregate statistics only).
+
+The pure-logic functions (compute_log_jump, is_adjusted, find_gaps,
+is_late_starter) have no pandas dependency and are imported by
+tests/test_data_plane.py. Pandas is imported lazily inside the
+DataFrame-based functions so the module imports cleanly in CI.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-
-import numpy as np
-import pandas as pd
 
 # Known splits for adjustment verification (T3)
 KNOWN_SPLITS = [
@@ -30,6 +33,44 @@ KNOWN_SPLITS = [
     ("AMZN", "2022-06-06", 20),  # 20:1
 ]
 
+# Cutoff for "late starter": first bar after this date
+COVERAGE_CUTOFF = "2016-01-04"
+
+# Threshold for "adjusted": |log jump| below this means no artificial split jump
+ADJUSTMENT_THRESHOLD = 0.2
+
+
+# ---------------------------------------------------------------------------
+# Pure-logic functions (no pandas). Tested directly by tests/test_data_plane.py.
+# ---------------------------------------------------------------------------
+
+def compute_log_jump(before_close: float, after_close: float) -> float:
+    """Absolute log price jump across a corporate-action date.
+
+    An unadjusted 4:1 split shows |log| ≈ 1.39; an adjusted one shows a
+    normal daily move (< 0.2).
+    """
+    return abs(math.log(after_close / before_close))
+
+
+def is_adjusted(log_jump: float, threshold: float = ADJUSTMENT_THRESHOLD) -> bool:
+    """True if the log jump is small enough to indicate adjustment."""
+    return log_jump < threshold
+
+
+def find_gaps(expected_dates: set[str], actual_dates: set[str]) -> list[str]:
+    """Sorted list of expected dates missing from actual dates."""
+    return sorted(expected_dates - actual_dates)
+
+
+def is_late_starter(first_date: str, cutoff: str = COVERAGE_CUTOFF) -> bool:
+    """True if the symbol's first bar is after the coverage cutoff."""
+    return first_date > cutoff
+
+
+# ---------------------------------------------------------------------------
+# DataFrame-based functions (pandas imported lazily).
+# ---------------------------------------------------------------------------
 
 def _guard_data_root(data_root: str) -> None:
     """Refuse repo and cloud-sync paths (S01 invariant I-7).
@@ -49,8 +90,10 @@ def _guard_data_root(data_root: str) -> None:
             raise SystemExit(2)
 
 
-def load_panel(data_root: str) -> pd.DataFrame:
+def load_panel(data_root: str):
     """Load all per-symbol bars into one DataFrame."""
+    import pandas as pd
+
     bars_dir = os.path.join(data_root, "raw", "bars")
     if not os.path.isdir(bars_dir):
         print(f"ERROR: bars directory not found: {bars_dir}", file=sys.stderr)
@@ -71,28 +114,32 @@ def load_panel(data_root: str) -> pd.DataFrame:
     return panel.sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
-def _validate_spy(panel: pd.DataFrame) -> set[str]:
-    """Validate SPY exists and return its trading dates.
+def _validate_spy(panel) -> set[str]:
+    """Validate SPY exists and covers the panel range.
 
-    SPY is the reference calendar for coverage. If SPY is missing or
-    incomplete, the coverage audit cannot run.
+    SPY is the reference calendar for coverage. If SPY is missing, or if
+    SPY starts after the panel's first date (hiding missing days), exit
+    non-zero — coverage numbers would be wrong.
     """
     spy = panel[panel["symbol"] == "SPY"]
     if len(spy) == 0:
         print("ERROR: SPY not in panel; cannot build reference calendar",
               file=sys.stderr)
         raise SystemExit(1)
-    # Basic completeness: SPY should span the full date range
     spy_dates = set(spy["date"].dt.date.astype(str))
     panel_min = panel["date"].min().date().isoformat()
     if min(spy_dates) > panel_min:
-        print(f"WARNING: SPY starts {min(spy_dates)}, panel starts {panel_min}",
-              file=sys.stderr)
+        # Fail closed: days before SPY starts would be invisible in coverage.
+        print(f"ERROR: SPY starts {min(spy_dates)}, panel starts {panel_min}; "
+              f"coverage would hide missing days", file=sys.stderr)
+        raise SystemExit(1)
     return spy_dates
 
 
-def audit_coverage(panel: pd.DataFrame) -> dict:
+def audit_coverage(panel) -> dict:
     """T1: per-symbol coverage statistics (aggregates only)."""
+    import pandas as pd
+
     spy_dates = _validate_spy(panel)
     stats = []
     late_starters = []
@@ -104,14 +151,14 @@ def audit_coverage(panel: pd.DataFrame) -> dict:
         last = max(dates)
         # Gaps: SPY trading days missing for this symbol (after its first bar)
         expected = {d for d in spy_dates if d >= first}
-        gaps = sorted(expected - dates)
+        gaps = find_gaps(expected, dates)
         stats.append({
             "n_rows": len(grp),
             "n_gaps": len(gaps),
             "first": first,
             "last": last,
         })
-        if first > "2016-01-04":
+        if is_late_starter(first):
             late_starters.append((symbol, first))
     df = pd.DataFrame(stats)
     n_constituents = len(df)  # Excludes SPY
@@ -134,7 +181,8 @@ def audit_coverage(panel: pd.DataFrame) -> dict:
         },
         "full_history": {
             "count": int(n_constituents - len(late_starters)),
-            "pct": float((n_constituents - len(late_starters)) / n_constituents * 100),
+            "pct": float((n_constituents - len(late_starters))
+                         / n_constituents * 100),
         },
         "date_range": {
             "min": str(panel["date"].min().date()),
@@ -143,10 +191,11 @@ def audit_coverage(panel: pd.DataFrame) -> dict:
     }
 
 
-def verify_adjustments(panel: pd.DataFrame) -> dict:
+def verify_adjustments(panel) -> dict:
     """T3: verify known splits show no artificial jumps.
 
-    Returns non-zero exit code if any symbol is missing.
+    Sets failed=True if any symbol is missing OR if any split appears
+    unadjusted (adjusted=False). main() exits non-zero on failed.
     """
     results = []
     failed = False
@@ -162,28 +211,32 @@ def verify_adjustments(panel: pd.DataFrame) -> dict:
         before_rows = grp[grp["d"] < split_date]
         after_rows = grp[grp["d"] >= split_date]
         if len(before_rows) == 0 or len(after_rows) == 0:
-            results.append({"symbol": symbol, "status": "split date not in range"})
+            results.append({"symbol": symbol,
+                            "status": "split date not in range"})
             print(f"ERROR: {symbol} split date {split_date} not in range",
                   file=sys.stderr)
             failed = True
             continue
         before = before_rows.iloc[-1]
         after = after_rows.iloc[0]
-        # With adjustment=all, pre-split closes are divided by ratio.
-        # |log(after.c / before.c)| should be a normal daily move (< 0.2).
-        # If unadjusted, it would be ~log(ratio) (1.39 for 4:1).
-        log_jump = abs(float(np.log(after["c"] / before["c"])))
+        log_jump = compute_log_jump(float(before["c"]), float(after["c"]))
+        adjusted = is_adjusted(log_jump)
+        if not adjusted:
+            # Fail closed: an unadjusted split is a data defect, not a warning.
+            print(f"ERROR: {symbol} split on {split_date} appears unadjusted "
+                  f"(log_jump={log_jump:.3f})", file=sys.stderr)
+            failed = True
         results.append({
             "symbol": symbol,
             "split_date": split_date,
             "ratio": ratio,
             "log_jump": log_jump,
-            "adjusted": bool(log_jump < 0.2),
+            "adjusted": adjusted,
         })
     return {"splits": results, "failed": failed}
 
 
-def audit_availability(panel: pd.DataFrame) -> dict:
+def audit_availability(panel) -> dict:
     """T5: data availability characteristics.
 
     Shows the full distribution of bar timestamp hours, not just the mode,
@@ -196,7 +249,8 @@ def audit_availability(panel: pd.DataFrame) -> dict:
         "note": (
             "Bar timestamps reflect the market date. For the forward test, "
             "availability at t_d (17:00 ET) depends on Alpaca's publication "
-            "latency, not the bar timestamp. Verify latency before the 12-month look."
+            "latency, not the bar timestamp. Verify latency before the "
+            "12-month look."
         ),
         "bar_timestamp_hour_utc_dist": dist,
         "bar_timestamp_hour_utc_mode": int(hours.mode()[0]),

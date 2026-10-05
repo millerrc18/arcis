@@ -138,15 +138,17 @@ Quantify:
 
 **T5 (Availability):** ⚠️ Partial. Bar timestamps characterized: NY midnight (04:00 UTC EDT / 05:00 UTC EST DST split). Publication latency not measured (must verify before 12-month look). Forward snapshot ingestion deferred to Step 4.
 
-**T6 (Known-answer tests):** ✅ 5 synthetic-fixture tests, all passing, CI-safe. Verify audit logic, not real data.
+**T6 (Known-answer tests):** ✅ 6 tests, all passing, CI-safe. Tests import the actual pure-logic functions from `tools/audit_data_plane.py` (`compute_log_jump`, `is_adjusted`, `find_gaps`, `is_late_starter`) — not copies of the logic. Pandas is lazily imported so the module loads in CI.
 
 **T7 (Survivorship):** ❌ UNRESOLVED — direction known (understates dispersion), magnitude unquantified (depends on T2).
 
-**Deviations from spec:**
+**Deviations from spec (declared):**
 - T2/T7 incomplete (no membership source) — marked UNRESOLVED with proposed fix
 - T4 unverified — marked UNRESOLVED
 - T3 dividend test deferred (was in spec as "known splits and dividends")
-- T6 AAPL check uses close-to-close threshold, not close×4≈open (spec said "verify AAPL's 2020-08-28 close × 4 ≈ 2020-08-31 open")
+- T6 AAPL check: spec said "verify AAPL's 2020-08-28 close × 4 ≈ 2020-08-31 open". Implemented as close-to-close log-jump check instead — tests the same property (no artificial jump) without depending on open prices, which are noisier around splits.
+- T6 dividend test: spec asked for dividend verification. Deferred — no known-answer dividend in the test set.
+- T6 SPY gap check: spec said "verify SPY has no gaps in 2016-2026" on real data. The real-data check lives in `tools/audit_data_plane.py` (not run in CI); the CI tests verify the gap-detection logic on synthetic data.
 - T5 forward snapshots deferred to Step 4 (SCOPE §5 lists under Step 3)
 
 **Blockers for Step 4:** T2/T7 UNRESOLVED. The survivorship bias magnitude is unquantified. Recommend obtaining membership source before Step 4, or document as limitation and proceed with caution.

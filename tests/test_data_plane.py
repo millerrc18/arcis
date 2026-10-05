@@ -1,10 +1,40 @@
 """S04 T6: Known-answer tests for data plane audit functions.
 
-These tests use synthetic fixtures and run in CI without market data.
-Real-data verification is done by tools/audit_data_plane.py (not in CI).
+These tests import the actual pure-logic functions from
+tools/audit_data_plane.py and verify them on synthetic fixtures.
+They run in CI without pandas or market data (the audit module's
+pandas import is lazy, so the module imports cleanly).
+
+Deviations from the S04 spec's T6 (declared):
+- The spec asked for "AAPL's 2020-08-28 close x 4 ~= 2020-08-31 open".
+  Implemented as a close-to-close log-jump check instead: it tests the
+  same property (no artificial jump) without depending on open prices,
+  which are noisier around splits.
+- The spec asked for a dividend verification test. Deferred: no
+  known-answer dividend in the test set. Documented in the audit report.
+- The spec asked for "verify SPY has no gaps in 2016-2026" on real data.
+  The real-data check lives in tools/audit_data_plane.py (not run in CI).
+  Here we test the gap-detection logic on synthetic data.
 """
 
+import os
+import sys
 from datetime import date, timedelta
+
+# Import the audit module's pure functions. The module lives in tools/;
+# add the repo root to sys.path so `tools.audit_data_plane` resolves.
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
+
+from tools.audit_data_plane import (  # noqa: E402
+    ADJUSTMENT_THRESHOLD,
+    COVERAGE_CUTOFF,
+    compute_log_jump,
+    find_gaps,
+    is_adjusted,
+    is_late_starter,
+)
 
 
 def _trading_days(start: date, end: date) -> list[date]:
@@ -18,78 +48,57 @@ def _trading_days(start: date, end: date) -> list[date]:
     return days
 
 
-def test_trading_day_generation():
-    """Verify the test helper generates weekdays only."""
-    days = _trading_days(date(2024, 1, 1), date(2024, 1, 7))
-    # Jan 1 2024 is Monday, Jan 7 is Sunday
-    assert len(days) == 5
-    assert all(d.weekday() < 5 for d in days)
-    assert days[0] == date(2024, 1, 1)
-    assert days[-1] == date(2024, 1, 5)
+def test_compute_log_jump_adjusted():
+    """An adjusted 4:1 split shows a small log jump."""
+    # Pre-split close $400 -> post-split $102 (~2% daily move, 4:1 split)
+    # Adjusted series: before=100, after=102
+    lj = compute_log_jump(100.0, 102.0)
+    assert lj < ADJUSTMENT_THRESHOLD
+    assert is_adjusted(lj)
 
 
-def test_gap_detection_finds_missing_weekday():
-    """A single missing weekday is detected (not hidden by weekend gaps)."""
-    # Full week: Mon-Fri
+def test_compute_log_jump_unadjusted():
+    """An unadjusted 4:1 split shows |log| ~= 1.39."""
+    # Unadjusted: before=400, after=102
+    lj = compute_log_jump(400.0, 102.0)
+    assert lj > 1.0
+    assert not is_adjusted(lj)
+
+
+def test_find_gaps_detects_missing_weekday():
+    """A single missing weekday is detected via set difference."""
     full = _trading_days(date(2024, 1, 1), date(2024, 1, 5))
     assert len(full) == 5
-
+    expected = {d.isoformat() for d in full}
     # Drop Wednesday
-    partial = [d for d in full if d != date(2024, 1, 3)]
-    assert len(partial) == 4
-
-    # The gap between Tue and Thu is 2 days (not 1)
-    # A proper gap detector compares against expected trading days,
-    # not just max calendar gap
-    expected = set(full)
-    actual = set(partial)
-    missing = expected - actual
-    assert missing == {date(2024, 1, 3)}
+    actual = {d.isoformat() for d in full if d != date(2024, 1, 3)}
+    gaps = find_gaps(expected, actual)
+    assert gaps == ["2024-01-03"]
 
 
-def test_split_adjustment_logic():
-    """Verify the split-adjustment check logic on synthetic data."""
-    # Simulate: pre-split close 400, post-split close 102 (4:1 split, ~2% move)
-    # If unadjusted, post would be ~400 (no, wait...)
-    # Actually: 4:1 split, pre-split close $400. Post-split, price is $100.
-    # Adjusted: pre-split close becomes $100 in the adjusted series.
-    # So adjusted close_before=100, close_after=102 → log jump = log(1.02) ≈ 0.02
-    # Unadjusted: close_before=400, close_after=102 → log jump = log(0.255) ≈ -1.37
-    import math
-
-    # Adjusted case
-    log_jump_adj = abs(math.log(102 / 100))
-    assert log_jump_adj < 0.2, "Adjusted split should show small jump"
-
-    # Unadjusted case
-    log_jump_unadj = abs(math.log(102 / 400))
-    assert log_jump_unadj > 1.0, "Unadjusted split should show large jump"
+def test_find_gaps_empty_when_complete():
+    """No gaps when actual matches expected."""
+    full = _trading_days(date(2024, 1, 1), date(2024, 1, 5))
+    expected = {d.isoformat() for d in full}
+    assert find_gaps(expected, expected) == []
 
 
-def test_late_starter_detection():
-    """Verify late-starter logic: first bar after 2016-01-04."""
-    from datetime import date
-
-    cutoff = date(2016, 1, 4)
+def test_is_late_starter():
+    """First bar after the cutoff counts as a late starter."""
+    assert COVERAGE_CUTOFF == "2016-01-04"
     # GEV listed 2024
-    gev_first = date(2024, 4, 2)
-    assert gev_first > cutoff
-
+    assert is_late_starter("2024-04-02")
     # AAPL has full history
-    aapl_first = date(2016, 1, 4)
-    assert not (aapl_first > cutoff)
+    assert not is_late_starter("2016-01-04")
+    # FTV started mid-2016
+    assert is_late_starter("2016-07-05")
 
 
-def test_coverage_stats_exclude_spy():
-    """Coverage ratios exclude SPY (504 = 503 constituents + SPY)."""
-    total_symbols = 504
-    n_constituents = total_symbols - 1  # Exclude SPY
-    assert n_constituents == 503
-
-    # Example: 44 late starters out of 503 constituents (not 504)
+def test_coverage_ratio_excludes_spy():
+    """459/503 constituents (not 460/504): SPY is the reference, not a member."""
+    n_constituents = 503
     late_starters = 44
     full_history = n_constituents - late_starters
     assert full_history == 459
-    # 459/503 = 91.25%, not 460/504 = 91.27%
     ratio = full_history / n_constituents
     assert 0.91 < ratio < 0.92
