@@ -23,7 +23,7 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 | S01 T2–T10 · recorder built | — | 2026-10-02 | done | — |
 | Step 1 · recorder, 7 clean days | S01 merged | late Oct 2026 | forecast | — |
 | Step 2 · S02 report, `incumbent_v1` frozen | — | late Oct 2026 | forecast | — |
-| Step 2m · S03 power figures | S01 merged, S02 T4 | early Nov 2026 | forecast | If 25 bp is undetectable at 24 months, a decision before the tag (S03) |
+| Step 2m · S03 power figures | S01 merged, S02 T4 | 2026-10-04 | done | 24-mo §2.1 MDE 18.3 bp at 5% planning rate (< 25 bp); §3.2 MDE 2.0 bp — prereg-v1 clear (S03) |
 | **Step 2t · `prereg-v1`; the Q1 clock starts** | Steps 2 and 2m | **mid-Nov 2026** | forecast | — |
 | Step 3 · data plane | `prereg-v1` | Q1 2027 | forecast | — |
 | Step 4 · ranker, cost model, metrics | Step 3 | Q2 2027 | forecast | — |
@@ -53,6 +53,7 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 | docs/research/2026-09-27-rq-12-quoted-values-verification.md | Saved report: verification of quoted paper values (RQ-12) | When citing RQ-12 |
 | docs/research/RESEARCH-QUESTIONS.md | What is still open and what would answer it | When picking up a research thread |
 | docs/research/old-platform-inventory.md | What the old platform did, what is worth carrying forward, and what is unresolved (S02) | When porting specs or freezing the incumbent |
+| docs/research/power-measurement.md | Measured power for the preregistered tests: MDEs, second moments, and biases (S03) | When citing §2.1/§3.2 power figures |
 | docs/research/trial-ledger.csv | Every configuration the old platform evaluated against returns (S02 T5) | When auditing trial counts or Deflated Sharpe |
 | config/incumbent_v1.yaml | The frozen incumbent strategy definition (currently UNRESOLVED, S02 T2) | Before any backtest or forward test |
 | docs/sprints/ | What the current unit of work is | When doing the work |

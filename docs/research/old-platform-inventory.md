@@ -304,7 +304,7 @@ are not in the GitHub clone (gitignored); they live in the local archive.
 ## Carrying forward
 
 1. **The incumbent definition** (`config/incumbent_v1.yaml`, frozen
-   `3d548d19…`): the pullback ranker from Sprint F, with T3 discrepancies
+   `524dd858…`): the pullback ranker from Sprint F, with T3 discrepancies
    explicitly recorded. This is the baseline every future trial is measured
    against.
 2. **The rigor harness** (T7.1, T7.2, T7.7): walk-forward R1–R8 + CPCV +

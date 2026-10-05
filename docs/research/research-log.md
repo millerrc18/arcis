@@ -60,6 +60,8 @@ This section is the authoritative project snapshot. Historical entries below pre
 - PREREGISTRATION.md v0.7 (2026-09-30) starts the Q2/Q3 clock at the `prereg-v1` tag and drops R07's 6-month interim look, because `textscore` is built after Step 5 and no look is evaluated before its implementation is frozen (PREREGISTRATION.md §0 rule 4). R07's 12-month interim look and 24-month efficacy look stand.
 - SCOPE D-020 (2026-09-24) supersedes R05 rule 3 as the primary fill for an entry whose open is at or below the buy limit: the specification fills at the open plus the adverse buffer, and R05's fill-at-limit and no-fill rules become reported sensitivities.
 - PREREGISTRATION.md v0.6 §3.1 supersedes R10's continuous `direction` and `materiality` schema with 5-point scales, so repeatability is judged by label agreement rather than a numeric-drift tolerance.
+- S03 (2026-10-04) supersedes R07's 100-name power table: measured 24-month MDEs are 18.3 bp (§2.1, 5% forward planning rate per D-025) and 2.0 bp (§3.2), via date-block bootstrap on the actual 504-symbol panel with 15-session label proxy. Figures in PREREGISTRATION.md §2.1/§3.2 and `docs/research/power-measurement.md`. (Revised 2026-10-04 after Claude Code review: corrected horizon, planning rate, news-share methodology, and clean-room guard.)
+- SCOPE D-025 (2026-10-04) supersedes D-024's provision that S02 T3's legacy candidate counts supply the §2.1 planning qualification rate. The rate is now a forward design parameter (5% of S&P 500 stock-days) set by CEO decision; the legacy archive contains only closed trades, not daily qualification records.
 
 ### Research Index
 
