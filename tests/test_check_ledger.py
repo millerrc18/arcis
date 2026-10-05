@@ -62,4 +62,5 @@ def test_parses_both_tables():
     rows = check_ledger.find_ledger_rows(REPO / "SCOPE.md")
     assert rows["recorder"] == "yes"
     assert rows["sizing"] == "no"
-    assert rows["strategy"] == "no"
+    assert rows["strategy"] == "yes"
+    assert rows["research"] == "yes"
