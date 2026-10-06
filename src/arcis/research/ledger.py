@@ -71,7 +71,8 @@ def _counterfactual(panel: Panel, cand: Candidate) -> float | None:
     return (nxt_bar.open - sig_bar.close) / sig_bar.close * 100.0
 
 
-def _excursions(panel: Panel, result: TradeResult) -> tuple[float, float]:
+def _excursions(panel: Panel, result: TradeResult
+                ) -> tuple[float | None, float | None]:
     """MAE/MFE (%) from the fill, measured over post-entry sessions.
 
     (entry_session, exit_session]: the entry-day bar is excluded because
@@ -79,7 +80,11 @@ def _excursions(panel: Panel, result: TradeResult) -> tuple[float, float]:
     """
     entry, exit_fill = result.entry, result.exit
     if entry is None or exit_fill is None:
-        return 0.0, 0.0
+        return None, None
+    # Entry-day stop-out: the stop fill is the realized adverse excursion.
+    if exit_fill.session == entry.session and exit_fill.kind == "stop":
+        mae = (exit_fill.price - entry.price) / entry.price * 100
+        return mae, 0.0
     symbol = result.spec.symbol
     session = entry.session
     maes, mfes = [], []
@@ -184,8 +189,20 @@ def build_ledger(panel: Panel, candidates: list[Candidate], buffer: float | None
         if buffer is None or spread_frac is None:
             # R05-10 predeclared buffer: trailing window ends at the signal
             # date (t), not the entry session (t+1), to avoid look-ahead.
-            sp = trailing_median_spread(panel, cand.symbol,
-                                        cand.signal_date)
+            # A declared halt in the window makes the candidate unevaluable
+            # (fail-closed: no invented buffer).
+            try:
+                sp = trailing_median_spread(panel, cand.symbol,
+                                            cand.signal_date)
+            except PanelError as exc:
+                rows.append({
+                    "symbol": cand.symbol,
+                    "signal_date": cand.signal_date.isoformat(),
+                    "filled": False,
+                    "unfilled_reason": "insufficient_data",
+                    "detail": str(exc),
+                })
+                continue
             bf = estimate_buffer(sp, cand.limit, cost_model)
         else:
             sp, bf = spread_frac, buffer
@@ -237,7 +254,7 @@ def ledger_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for r in rets:
         cum *= 1.0 + r
         equity.append(cum)
-    avg_win, avg_loss = m.avg_win_avg_loss(rets) if rets else (0.0, 0.0)
+    avg_win, avg_loss = (m.avg_win_avg_loss(rets) if rets else (None, None))
     # Fold-level series can be tiny; metrics that need length return None
     # (not silent 0.0) so empty folds don't look like real results.
     from collections.abc import Callable

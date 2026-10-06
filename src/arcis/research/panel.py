@@ -139,6 +139,11 @@ class Panel:
     def symbols(self) -> list[str]:
         return sorted(self._bars)
 
+    @property
+    def halts(self) -> dict[str, frozenset[date]]:
+        """Declared halts by symbol."""
+        return self._halts
+
     def bars_for(self, symbol: str) -> dict[date, Bar]:
         if symbol not in self._bars:
             raise PanelError(f"unknown symbol: {symbol}")

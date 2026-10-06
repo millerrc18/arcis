@@ -333,8 +333,8 @@ class TestRunEvaluation:
         assert rec["n_candidates"] == 2
         trial = reg.trials()[0]
         assert len(trial["code_sha256"]) == 64
-        # data_sha256 is panel_hash:candidate_hash (129 chars)
-        assert len(trial["data_sha256"]) == 129
+        # data_sha256 is panel:halts:candidates (64*3 + 2 colons)
+        assert len(trial["data_sha256"]) == 194
         assert trial["result_summary"]["n_folds"] == 2
 
     def test_run_evaluation_requires_registry(self, tmp_path):

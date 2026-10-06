@@ -103,11 +103,22 @@ class TrialRegistry:
         return h.hexdigest()
 
     def data_hash_of_candidates(self, candidates: list[Any]) -> str:
-        """SHA-256 over the candidate list (signals, levels, shares)."""
+        """SHA-256 over the candidate list (all fields that change results)."""
         h = hashlib.sha256()
         for c in candidates:
             h.update(f"{c.symbol}|{c.signal_date}|{c.limit}|{c.stop}|"
-                     f"{c.target}|{c.shares}\n".encode())
+                     f"{c.target}|{c.shares}|"
+                     f"{sorted(c.earnings_dates)}|{sorted(c.blackouts)}|"
+                     f"{sorted(c.events.items())}|{sorted(c.splits.items())}|"
+                     f"{sorted(c.exdiv_dates)}\n".encode())
+        return h.hexdigest()
+
+    def data_hash_of_halts(self, panel: Any) -> str:
+        """SHA-256 over declared halts (symbol, date)."""
+        h = hashlib.sha256()
+        for symbol in sorted(panel.halts):
+            for d in sorted(panel.halts[symbol]):
+                h.update(f"{symbol}|{d}\n".encode())
         return h.hexdigest()
 
     def trials(self) -> list[dict[str, Any]]:

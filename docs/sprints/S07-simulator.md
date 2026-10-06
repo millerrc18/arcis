@@ -149,7 +149,8 @@ Trial registry (PREREG §0 rules 3, 5):
 - T+1 charge-date correction: the sprint originally prescribed T+1 for
   all history, but PREREG §1.2 says "≈ settlement" and settlement was
   T+3/T+2 before 2024-05-28. Implemented the historical regimes as
-  D-030 (developer-proposed 2026-10-06, pending CEO sign-off).
+  D-030 (proposed). The code implements the proposed decision; if the
+  CEO does not sign off, it reverts to the sprint's T+1 prescription.
 
 ## Acceptance
 
@@ -198,9 +199,9 @@ Trial registry (PREREG §0 rules 3, 5):
   (timestamp, code hash, data hash per PREREG §0 rules 3/5) +
   `logged_run` (complete/failed breach evidence).
 - `research/boundaries.py`: pure-Python Lan-DeMets O'Brien-Fleming
-  one-sided 2.5% (spending α(t) = 2−2Φ(z_{1−α/2}/√t), gsDesign sfLDOF)
-  via grid recursion + dated archival. Verified: 2-look [2.963,
-  1.969], 3-look [3.710, 2.511, 1.989].
+  one-sided 2.5% via 96-point Gauss-Legendre quadrature (spending
+  α(t) = 2−2Φ(z_{1−α/2}/√t), gsDesign sfLDOF) with dated archival.
+  Verified: 2-look [2.9626, 1.9686], 3-look [3.7103, 2.5114, 1.9931].
 - Tests: - Tests: 308 passing, 0 skipped with research extras (306 passed,
   2 skipped in default CI without research extras).
 - D-029 (entry limit rule) still pending CEO decision; the simulator

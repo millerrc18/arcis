@@ -176,11 +176,21 @@ class _LiveLevels:
     shares: int
 
     def apply_split(self, ratio: float) -> None:
-        """R05-20: cancel/reissue at the ratio-adjusted quantity and price."""
+        """R05-20: cancel/reissue at the ratio-adjusted quantity and price.
+
+        Fractional shares fail closed: a split that does not divide the
+        share count evenly raises instead of inventing cash-in-lieu.
+        """
+        new_shares = self.shares * ratio
+        if abs(new_shares - round(new_shares)) > 1e-9:
+            raise PanelError(
+                f"split ratio {ratio} on {self.shares} shares would create "
+                f"fractional shares ({new_shares}); cash-in-lieu is not "
+                "modelled")
         self.limit /= ratio
         self.stop /= ratio
         self.target /= ratio
-        self.shares = max(1, round(self.shares * ratio))
+        self.shares = max(1, int(round(new_shares)))
 
 
 def _try_entry(panel: Panel, spec: BracketSpec, lv: _LiveLevels,
