@@ -89,8 +89,8 @@ operator notation, not just the YAML ranges.
   21 of 42 rows directly against their cited URLs (all 9 TAF rows; 12 SEC
   rows spanning 2000–2026); the rest are machine-checked against the
   research report.
-- **Test count.** 241 tests, all passing locally; 2 conditional tests skip where the
-  research-extras pandas dependency.
+- **Test count.** 241 tests, all passing locally; 2 conditional tests skip
+  where the research-extras pandas is absent.
 
 ## Acceptance
 
@@ -98,6 +98,11 @@ operator notation, not just the YAML ranges.
   fee or raises; no silent zeros, no invented caps.
 - 2027+ behavior: raise with a clear message until the 2027 schedules are
   verified (a new dated decision, not silent carry-forward).
+- Open item for Step P: the 2026-12-31 SEC window end is a modeling choice,
+  not a verified fact — the last row directly re-checked was dated
+  2026-10-06, and the FY2026 $20.60 rate ends 60 days after FY2027
+  appropriation enactment (unknown date). The paper lane must re-verify
+  the SEC rate before trading December 2026 charge dates.
 - Frozen `config/incumbent_v1.yaml` untouched (hash verified in checks).
 
 ## Results (2026-10-06)
@@ -111,7 +116,8 @@ operator notation, not just the YAML ranges.
   fail-closed for both fees.
 - Date conventions: SEC = charge date (≈ settlement); TAF = trade date.
   `total_trade_cost` takes `as_of` (trade date) and requires `charge_date`
-  for sells; buys ignore it.
+  for sells — a missing or pre-trade charge date is a caller `ValueError`;
+  buys ignore it.
 - `UnresolvedFeeError` moved to `fee_schedules.py` (re-exported import in
   tests updated); `costs.py` delegates to the new module.
 - Tests: 241 total, all passing locally (2 conditional tests skip without the research-extras

@@ -1550,7 +1550,7 @@ The R06 dated fee snapshots were replaced with fully reconstructed historical sc
 
 ### Corrections to earlier R06 assumptions
 
-- Neither R06 nor the old code ever treated the TAF as $0 in 2012–2023, or had a $0 2003 period — the old code raised `UnresolvedFeeError` for those dates (unverified). What R06 actually got wrong is its statement that "2004-2011 was USD 0.000075" (research-log.md:856): the reconstructed table shows the real changes were 2011-07-01 ($0.000090/share, $4.50 cap) and 2012-03-01 ($0.000095/share, $4.75 cap), i.e. calendar-year boundaries were the wrong model — effective dates are what matter.
+- Neither R06 nor the old code ever treated the TAF as $0 in 2012–2023, or had a $0 2003 period — the old code raised `UnresolvedFeeError` for those dates (unverified). What R06 actually got wrong is its statement that "2004-2011 was USD 0.000075" (research-log.md:860): the reconstructed table shows the real changes were 2011-07-01 ($0.000090/share, $4.50 cap) and 2012-03-01 ($0.000095/share, $4.75 cap), i.e. calendar-year boundaries were the wrong model — effective dates are what matter.
 - The 2002 TAF was $0.00005/share capped at $5 (the announced $0.0001/$10 from October 2002 was superseded retroactively — Federal Register Doc. 02-29314), then $0.0001/$10 from 2003-09-01 (NTM 03-43), then $0.000075/$3.75 from 2004-11-01 (NTM 04-84).
 - 9 TAF periods, not the ~10 previously expected.
 - The pre-2000 SEC rate history was not reconstructed; the schedule starts at 2000-01-01 (the backtest panel start) and raises before it.

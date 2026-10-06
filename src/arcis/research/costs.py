@@ -14,7 +14,6 @@ import math
 from datetime import date
 
 from arcis.research.fee_schedules import (
-    UnresolvedFeeError,
     sec_section31_rate,
     taf_cap,
     taf_rate,
@@ -23,7 +22,7 @@ from arcis.research.fee_schedules import (
 # --- Dated fee schedules ---
 #
 # Full verified schedules live in arcis.research.fee_schedules
-# (33 SEC Section 31 periods, 1934–2026; 8 FINRA TAF periods, 2002–2026),
+# (33 SEC Section 31 periods, 2000–2026; 9 FINRA TAF periods, 2002–2026),
 # reconstructed 2026-10-06 from SEC/FINRA primary sources.
 # Research notes: ~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/
 #
@@ -241,6 +240,27 @@ def execution_stop_exit(spread: float, gap_shortfall: float = 0.0,
     return 0.5 * spread + buffer + gap_shortfall
 
 
+def _sec_fee_for_sale(notional: float, as_of: date,
+                      charge_date: date | None) -> float:
+    """SEC Section 31 fee for a sale; validates the charge date.
+
+    `charge_date` (≈ settlement, T+1 or later) is required: Section 31 is
+    assessed on the charge date, and defaulting it to the trade date bills
+    the wrong rate around every rate change. A charge date before the
+    trade date is a caller error.
+    """
+    if charge_date is None:
+        raise ValueError(
+            "total_trade_cost: charge_date is required for sells "
+            "(SEC Section 31 is assessed on the charge/settlement date, "
+            "not the trade date)")
+    if charge_date < as_of:
+        raise ValueError(
+            f"total_trade_cost: charge_date {charge_date} precedes the "
+            f"trade date {as_of} (settlement is T+1 or later)")
+    return sec_fee(notional, charge_date)
+
+
 def total_trade_cost(notional: float, shares: int, is_sell: bool,
                      as_of: date, spread: float,
                      exit_type: str = "marketable",
@@ -259,8 +279,8 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
     every rate change. The simulator must derive it from its session
     calendar (T+1). Ignored for buys.
 
-    Raises ValueError on non-positive notional or unknown exit_type.
-    Raises UnresolvedFeeError when is_sell and charge_date is None.
+    Raises ValueError on non-positive notional, unknown exit_type, or a
+    missing/pre-trade charge_date for sells.
     """
     if notional <= 0:
         raise ValueError(
@@ -268,14 +288,7 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
     comm = commission(shares, commission_model)
     cat = cat_fee(shares)
 
-    sec = 0.0
-    if is_sell:
-        if charge_date is None:
-            raise UnresolvedFeeError(
-                "total_trade_cost: charge_date is required for sells "
-                "(SEC Section 31 is assessed on the charge/settlement date, "
-                "not the trade date)")
-        sec = sec_fee(notional, charge_date)
+    sec = _sec_fee_for_sale(notional, as_of, charge_date) if is_sell else 0.0
     taf = finra_taf(shares, as_of) if is_sell else 0.0
 
     if exit_type == "marketable":

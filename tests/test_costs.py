@@ -251,10 +251,16 @@ class TestTotalCost:
         # Fail-closed: no silent trade-date default for the SEC lookup.
         # A 2026-12-31 sale settles 2027-01-04 (past the verified window);
         # defaulting would bill $20.60/M instead of raising.
-        with pytest.raises(UnresolvedFeeError, match="charge_date is required"):
+        with pytest.raises(ValueError, match="charge_date is required"):
             r06.total_trade_cost(
                 notional=10_000.0, shares=100, is_sell=True,
                 as_of=date(2026, 12, 31), spread=0.001, exit_type="passive")
+        # A charge date before the trade date is a caller error.
+        with pytest.raises(ValueError, match="precedes the trade date"):
+            r06.total_trade_cost(
+                notional=10_000.0, shares=100, is_sell=True,
+                as_of=date(2026, 4, 6), spread=0.001, exit_type="passive",
+                charge_date=date(2026, 4, 3))
         # Buys need no charge date.
         result = r06.total_trade_cost(
             notional=10_000.0, shares=100, is_sell=False,
