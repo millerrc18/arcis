@@ -43,6 +43,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 | Execution simulation | Strict trade-through and interval bounds are primary; unresolved same-bar outcomes must be reported as ambiguity, with stop-first as a lower-bound sensitivity. | `[INFERENCE]` | R05 |
 | Transaction costs | Current planning priors are 2-6 bp central and 6-15 bp conservative, excluding realized gaps; replace with live calibration. | `[PRIOR]` | R06 |
 | Live brokerage | No live deployment until Trading API reconciliation, partial-fill protection, account type, and corporate-action behavior are confirmed with Alpaca. | `[UNVERIFIED]` | R11 |
+| Sector RS banding | Absolute Set A thresholds on weighted_excess vs SPY (pp): ≥ +5 → 25, 0 to +5 → 15, −5 to 0 → 5, < −5 → 0. Rank-based banding was rejected (it discards magnitude, so the score's meaning would drift month to month). | `[INFERENCE]` SCOPE D-026 (2026-10-05) | S05 sector-momentum validation (`arcis-data/sector_rs/`) |
 
 ### Supersession Map
 
