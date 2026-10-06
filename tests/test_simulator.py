@@ -540,3 +540,19 @@ class TestCorporateActions:
         rows = build_ledger(panel, [cand], buffer=0.1, spread_frac=0.001)
         # Stop fill below entry -> negative MAE, not 0.0.
         assert rows[0]["mae_pct"] < 0
+
+    def test_entry_session_split_pnl(self):
+        # 2:1 split on the entry session: fill at post-split price ($50)
+        # with post-split shares (200). Flat trade should book ~0%, not +100%.
+        panel = make_panel([(100, 101, 99, 100), (50, 51, 49, 50),
+                            (50, 51, 49, 50)] + [(50, 51, 49, 50)] * 20)
+        cal = panel.calendar
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=90.0,
+                           target=110.0, shares=100,
+                           splits={cal[1]: 2.0})
+        res = simulate_trade(panel, spec, BUF, SPREAD)
+        assert res.entry is not None
+        # Entry at ~$50 (post-split), 200 shares. Time exit at ~$50.
+        # P&L should be near zero (flat), not +100%.
+        assert abs(res.return_pct) < 2.0

@@ -331,18 +331,19 @@ def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
 
 
 def _settle(panel: Panel, spec: BracketSpec, lv: _LiveLevels, entry: Fill,
-            exit_fill: Fill, spread_frac: float, cost_model_name: str,
-            commission_model: str
+            exit_fill: Fill, entry_shares: int, spread_frac: float,
+            cost_model_name: str, commission_model: str
             ) -> tuple[dict[str, float], dict[str, float], float, float,
                        float]:
     """Costs, P&L, and return for a completed trade."""
     if cost_model_name not in TOD_MULT:
         raise PanelError(f"unknown cost model: {cost_model_name}")
-    # Entry notional uses pre-split shares (spec.shares); the entry Fill
-    # keeps its original price. Exit uses post-split shares (lv.shares).
-    entry_notional = entry.price * spec.shares
+    # Entry notional uses the shares at fill time (post-entry-split,
+    # pre-holding-split); the entry Fill keeps its original price.
+    # Exit uses post-all-split shares (lv.shares).
+    entry_notional = entry.price * entry_shares
     exit_notional = exit_fill.price * lv.shares
-    entry_cost = _cost_leg(entry_notional, spec.shares, False,
+    entry_cost = _cost_leg(entry_notional, entry_shares, False,
                            entry.session, panel, commission_model)
     exit_cost = _cost_leg(exit_notional, lv.shares, True,
                           exit_fill.session, panel, commission_model)
@@ -382,10 +383,12 @@ def simulate_trade(panel: Panel, spec: BracketSpec, buffer: float,
     entry, reason, corp, split_adj = _try_entry(panel, spec, lv, buffer)
     if entry is None:
         return _empty_result(spec, reason, corp, split_adj)
+    # Shares at fill time: _try_entry applies entry-session splits to lv.
+    entry_shares = lv.shares
     entry, exit_fill, ambiguous, corp, late, exdiv, split_adj, held = \
         _holding_period(panel, spec, entry, lv, buffer, corp, split_adj)
     entry_cost, exit_cost, addon, pnl, ret = _settle(
-        panel, spec, lv, entry, exit_fill, spread_frac,
+        panel, spec, lv, entry, exit_fill, entry_shares, spread_frac,
         cost_model_name, commission_model)
     return TradeResult(spec, entry, exit_fill, None, ambiguous, corp, late,
                        exdiv, split_adj, held, entry_cost, exit_cost,
