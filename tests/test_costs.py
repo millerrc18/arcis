@@ -28,16 +28,19 @@ class TestDatedFees:
         assert r06.sec_fee(50_000.0, date(2026, 4, 3)) == 0.0
 
     def test_sec_fee_historical_rates_verified(self):
-        # Full 33-period schedule now verified (S05-fee-tables).
+        # Full 33-period schedule now verified (S06-fee-tables).
         # 2024-06-03: $27.80/M -> $50,000 * 27.80 / 1e6 = $1.39
         assert abs(r06.sec_fee(50_000.0, date(2024, 6, 3)) - 1.39) < 0.01
         # 2020-01-02: $20.70/M -> $50,000 * 20.70 / 1e6 = $1.035
         assert abs(r06.sec_fee(50_000.0, date(2020, 1, 2)) - 1.035) < 0.01
         # 2008-06-01: $5.60/M -> $50,000 * 5.60 / 1e6 = $0.28
         assert abs(r06.sec_fee(50_000.0, date(2008, 6, 1)) - 0.28) < 0.01
-        # Before the Exchange Act: fail-closed, not $0
+        # Schedule starts at the panel start (2000-01-01); the 1934-1999
+        # rate history was not reconstructed -> fail-closed before it.
+        assert abs(r06.sec_fee(50_000.0, date(2000, 6, 1))
+                   - 50_000.0 * 33.33 / 1e6) < 0.01
         with pytest.raises(UnresolvedFeeError, match="not verified"):
-            r06.sec_fee(50_000.0, date(1930, 1, 1))
+            r06.sec_fee(50_000.0, date(1999, 12, 31))
 
     def test_sec_fee_boundary_dates(self):
         # $0 through charge date 2026-04-03; $20.60 from 2026-04-04.
@@ -215,7 +218,7 @@ class TestTotalCost:
             notional=10_000.0, shares=100, is_sell=True,
             as_of=date(2026, 6, 1), spread=0.001,
             exit_type="marketable", commission_model="modern",
-            cost_model="central",
+            cost_model="central", charge_date=date(2026, 6, 2),
         )
         assert result["commission"] == 0.0
         # SEC: $10,000 * 20.60 / 1e6 = $0.206
@@ -244,19 +247,43 @@ class TestTotalCost:
                 notional=0.0, shares=100, is_sell=True,
                 as_of=date(2026, 6, 1), spread=0.001)
 
+    def test_charge_date_required_for_sells(self):
+        # Fail-closed: no silent trade-date default for the SEC lookup.
+        # A 2026-12-31 sale settles 2027-01-04 (past the verified window);
+        # defaulting would bill $20.60/M instead of raising.
+        with pytest.raises(UnresolvedFeeError, match="charge_date is required"):
+            r06.total_trade_cost(
+                notional=10_000.0, shares=100, is_sell=True,
+                as_of=date(2026, 12, 31), spread=0.001, exit_type="passive")
+        # Buys need no charge date.
+        result = r06.total_trade_cost(
+            notional=10_000.0, shares=100, is_sell=False,
+            as_of=date(2026, 12, 31), spread=0.001, exit_type="passive")
+        assert result["sec_fee"] == 0.0
+
     def test_charge_date_vs_trade_date(self):
         # Trade date 2026-04-03 (Fri); T+1 settlement = 2026-04-06 (Mon).
-        # SEC $0 through charge date 2026-04-03, $20.60 from 2026-04-04.
-        # Default (no charge_date): as_of doubles as the charge date.
-        default = r06.total_trade_cost(
-            notional=10_000.0, shares=100, is_sell=True,
-            as_of=date(2026, 4, 3), spread=0.001, exit_type="passive")
-        assert default["sec_fee"] == 0.0
-        # Exact: pass the settlement date -> $10,000 * 20.60 / 1e6.
-        exact = r06.total_trade_cost(
+        # SEC $0 through charge date 2026-04-03, $20.60 from 2026-04-04:
+        # the trade-date default would bill $0 for a sale that settles
+        # at $20.60/M — hence the required charge_date.
+        result = r06.total_trade_cost(
             notional=10_000.0, shares=100, is_sell=True,
             as_of=date(2026, 4, 3), spread=0.001, exit_type="passive",
             charge_date=date(2026, 4, 6))
-        assert abs(exact["sec_fee"] - 0.206) < 0.01
+        assert abs(result["sec_fee"] - 0.206) < 0.01  # 10k * 20.60 / 1e6
         # TAF always uses the trade date, unaffected by charge_date.
-        assert abs(exact["finra_taf"] - 0.0195) < 0.001
+        assert abs(result["finra_taf"] - 0.0195) < 0.001
+
+    def test_taf_2002_2004_periods(self):
+        # 2002-10-01: $0.00005/share, $5 cap (SR-NASD-2002-147,
+        # retroactively effective; the $0.0001/$10 was superseded).
+        assert abs(r06.finra_taf_rate(date(2002, 11, 1)) - 0.00005) < 1e-9
+        assert abs(r06.finra_taf(1000.0, date(2003, 1, 15)) - 0.05) < 1e-9
+        assert abs(r06.finra_taf(100_000.0, date(2003, 6, 1)) - 5.00) < 1e-9
+        # 2003-09-01: $0.0001/share, $10 cap (NTM 03-43).
+        assert abs(r06.finra_taf_rate(date(2003, 8, 31)) - 0.00005) < 1e-9
+        assert abs(r06.finra_taf_rate(date(2003, 9, 1)) - 0.0001) < 1e-9
+        assert abs(r06.finra_taf(100_000.0, date(2003, 10, 1)) - 10.00) < 1e-9
+        # 2004-11-01: $0.000075/share, $3.75 cap (NTM 04-84).
+        assert abs(r06.finra_taf_rate(date(2004, 10, 31)) - 0.0001) < 1e-9
+        assert abs(r06.finra_taf_rate(date(2004, 11, 1)) - 0.000075) < 1e-9

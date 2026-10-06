@@ -1,17 +1,24 @@
-# S05-fee-tables — Complete historical SEC/TAF fee schedules + deferred S05 items
+# S06-fee-tables — Complete historical SEC/TAF fee schedules + deferred S05 items
 
-Branch: `feat/s05-fee-tables`. Follow-up to S05 (PR #7, merged at `2f0b986`).
+Branch: `feat/s05-fee-tables` (opened as S05; renamed S06 per review — see Deviations). Follow-up to S05 (PR #7, merged at `2f0b986`).
+
+Status: complete 2026-10-06; PR #10 open, awaiting Claude Code re-review after corrections.
 
 ## Goal
 
 Replace the cost model's dated fee snapshots with complete, primary-source-verified
 historical schedules for SEC Section 31 fees and FINRA TAF, and close out the
-deferred S05 items that don't belong in S06. The paper lane must not cross
-2027-01-01 on the current snapshots (cost functions intentionally raise past
-2026-12-31); this sprint removes that cliff for all historical dates.
+deferred S05 items. The paper lane must not cross 2027-01-01 on the current
+snapshots (cost functions intentionally raise past 2026-12-31); this sprint
+removes that cliff for all historical dates.
 
 ## CEO decisions feeding this sprint (2026-10-05)
 
+- **D-026:** Absolute Set A sector-RS bands on weighted_excess vs SPY (pp):
+  ≥ +5 → 25, 0 to +5 → 15, −5 to 0 → 5, < −5 → 0. This is not a change to a
+  preregistered value (the frozen YAML pins only score values [25,15,5,0],
+  never the mapping rule); recorded as a PREREGISTRATION.md §5 dated
+  amendment, with no trial-ledger row (final).
 - **D-027:** Pin pullback lookback = 60 sessions; sector-RS windows = 21/63/126
   sessions. The frozen YAML never specified these; this resolves ambiguity,
   not a prereg change.
@@ -43,13 +50,14 @@ operator notation, not just the YAML ranges.
    every entry against primary sources (SEC fee advisories, FINRA notices).
 2. Encode the full Section 31 schedule (33 rate periods) with exact
    effective dates + source citations. Boundary-date known-answer tests.
-3. Encode the full TAF schedule (8 rate/cap periods) with exact effective
-   dates + source citations, including the Q4-2026 $0 holiday
-   (2026-10-01–2026-12-31). Boundary-date known-answer tests.
+3. Encode the full TAF schedule (9 rate/cap periods) with exact effective
+   dates + source citations, including the 2002–2003 corrections and the
+   Q4-2026 $0 holiday (2026-10-01–2026-12-31). Boundary-date known-answer
+   tests.
 4. Restructure `research/costs.py`: move tables to a new
    `research/fee_schedules.py` data module (400-line file limit).
    Make the SEC-charge-date vs TAF-trade-date distinction explicit in the
-   API (`as_of` = trade date, optional `charge_date`).
+   API (`as_of` = trade date; `charge_date` required for sells).
 4b. Add formal SCOPE.md decision-table entries for D-027 and D-028, and
     record both in PREREGISTRATION.md §5 as dated post-tag amendments
     (underspecification resolutions, not prereg changes).
@@ -62,6 +70,28 @@ operator notation, not just the YAML ranges.
 9. Push once, open PR, independent quality review, Claude Code review.
 10. Merge only on explicit CEO approval.
 
+## Deviations
+
+- **Renamed S05 → S06.** This work was opened as a follow-up to S05 but is
+  its own sprint; the branch (`feat/s05-fee-tables`) and PR (#10) keep the
+  original name. Next sprint takes S07.
+- **Claude Code REJECT (2026-10-05), corrected before merge.** Five
+  corrections landed on top of the PR after review: (1) the 2002–2003 TAF
+  rows — the $0.0001/$10 announcement was superseded retroactively, so the
+  assessed 2002 rate was $0.00005/$5, with $0.0001/$10 only from 2003-09-01;
+  (2) `total_trade_cost` now requires `charge_date` for sells instead of
+  defaulting it to the trade date; (3) the pre-2000 SEC history was not
+  reconstructed — the schedule starts at 2000-01-01 and raises before it;
+  (4) the 2021 SEC citation now points at the FY2021 advisory; (5) the
+  research-log and CHANGELOG corrections were restated accurately (the old
+  code raised for 2012–2023, it never assumed $0; R06's actual error was the
+  "2004-2011 was $0.000075" calendar-year claim). The re-audit covered
+  21 of 42 rows directly against their cited URLs (all 9 TAF rows; 12 SEC
+  rows spanning 2000–2026); the rest are machine-checked against the
+  research report.
+- **Test count.** 241 tests, all passing locally; 2 conditional tests skip where the
+  research-extras pandas dependency.
+
 ## Acceptance
 
 - Every historical date the backtest/simulator can touch returns a verified
@@ -72,21 +102,25 @@ operator notation, not just the YAML ranges.
 
 ## Results (2026-10-06)
 
-- Research: 33 SEC periods + 8 TAF periods reconstructed from primary
-  sources; notes at `~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/`
-  (outside the repo). Key corrections: TAF was not $0 in 2012–2023
-  ($0.000119/share, $5.95 cap); no $0 TAF period in 2003; Q4-2026 $0 holiday
-  confirmed (FR Doc. 2026-19392); 2027+ fail-closed for both fees.
+- Research: 33 SEC periods (2000-01-01–2026-12-31) + 9 TAF periods
+  (2002-10-01–2026-12-31) reconstructed from primary sources; notes at
+  `~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/`
+  (outside the repo). Corrections to R06: calendar-year TAF boundaries
+  replaced with effective-date periods; the 2002–2003 TAF rows fixed
+  (retroactive $0.00005/$5); pre-2000 SEC history out of scope; 2027+
+  fail-closed for both fees.
 - Date conventions: SEC = charge date (≈ settlement); TAF = trade date.
-  `total_trade_cost` takes `as_of` (trade date) + optional `charge_date`.
+  `total_trade_cost` takes `as_of` (trade date) and requires `charge_date`
+  for sells; buys ignore it.
 - `UnresolvedFeeError` moved to `fee_schedules.py` (re-exported import in
   tests updated); `costs.py` delegates to the new module.
-- Tests: 239 passing (was 235); new boundary-date, holiday, historical-rate,
-  and charge-date tests.
+- Tests: 241 total, all passing locally (2 conditional tests skip without the research-extras
+  pandas); new boundary-date, holiday, historical-rate, and charge-date
+  tests.
 
 ## Out of scope
 
-- Step 5 simulator / walk-forward harness (S06).
+- Step 5 simulator / walk-forward harness (S07).
 - Step P paper lane + the 3-account execution experiment design.
 - Trend/RS classifier definitions (deferred).
 - CAT fee schedule (still zero per R06 until a verified schedule exists).

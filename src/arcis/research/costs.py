@@ -14,6 +14,7 @@ import math
 from datetime import date
 
 from arcis.research.fee_schedules import (
+    UnresolvedFeeError,
     sec_section31_rate,
     taf_cap,
     taf_rate,
@@ -28,8 +29,8 @@ from arcis.research.fee_schedules import (
 #
 # Date conventions: SEC Section 31 is looked up by CHARGE date (≈ settlement
 # date); FINRA TAF by TRADE date. total_trade_cost takes the trade date as
-# `as_of` and an optional `charge_date` (defaults to `as_of`: a documented
-# 1-day approximation; pass the settlement date for exactness).
+# `as_of` and requires `charge_date` for sells (no silent default: the
+# simulator derives the settlement date from its session calendar).
 
 # CAT fee per executed equivalent share (both sides)
 # R06: "Set zero until a verified Alpaca or executing-broker CAT
@@ -253,22 +254,28 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
 
     Date conventions: `as_of` is the trade date (drives the FINRA TAF
     lookup). `charge_date` is the SEC Section 31 charge date (≈ settlement
-    date); when None it defaults to `as_of`, a documented 1-day
-    approximation — pass the settlement date for exactness around
-    Section 31 rate changes.
+    date) and is REQUIRED for sells — Section 31 is assessed on the charge
+    date, and defaulting it to the trade date bills the wrong rate around
+    every rate change. The simulator must derive it from its session
+    calendar (T+1). Ignored for buys.
 
-    Raises ValueError on non-positive notional (fail-closed: a cost in
-    basis points is undefined without a notional base).
+    Raises ValueError on non-positive notional or unknown exit_type.
+    Raises UnresolvedFeeError when is_sell and charge_date is None.
     """
     if notional <= 0:
-        raise ValueError(f"total_trade_cost: notional must be positive, "
-                         f"got {notional}")
+        raise ValueError(
+            f"total_trade_cost: notional must be positive, got {notional}")
     comm = commission(shares, commission_model)
     cat = cat_fee(shares)
 
-    sec = sec_fee(notional,
-                  charge_date if charge_date is not None else as_of
-                  ) if is_sell else 0.0
+    sec = 0.0
+    if is_sell:
+        if charge_date is None:
+            raise UnresolvedFeeError(
+                "total_trade_cost: charge_date is required for sells "
+                "(SEC Section 31 is assessed on the charge/settlement date, "
+                "not the trade date)")
+        sec = sec_fee(notional, charge_date)
     taf = finra_taf(shares, as_of) if is_sell else 0.0
 
     if exit_type == "marketable":
@@ -277,8 +284,7 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
         exec_cost = execution_stop_exit(spread, gap_shortfall,
                                         cost_model) * notional
     elif exit_type == "passive":
-        # Passive: strict trade-through, no separate execution cost added
-        # (adverse selection is in the realized path, not double-counted)
+        # Passive: strict trade-through (adverse selection lives in the path).
         exec_cost = 0.0
     else:
         raise ValueError(f"unknown exit_type: {exit_type}")
