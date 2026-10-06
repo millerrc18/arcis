@@ -44,6 +44,9 @@ This section is the authoritative project snapshot. Historical entries below pre
 | Transaction costs | Current planning priors are 2-6 bp central and 6-15 bp conservative, excluding realized gaps; replace with live calibration. | `[PRIOR]` | R06 |
 | Live brokerage | No live deployment until Trading API reconciliation, partial-fill protection, account type, and corporate-action behavior are confirmed with Alpaca. | `[UNVERIFIED]` | R11 |
 | Sector RS banding | Absolute Set A thresholds on weighted_excess vs SPY (pp): ≥ +5 → 25, 0 to +5 → 15, −5 to 0 → 5, < −5 → 0. Rank-based banding was rejected (it discards magnitude, so the score's meaning would drift month to month). | `[INFERENCE]` SCOPE D-026 (2026-10-05) | S05 sector-momentum validation (`arcis-data/sector_rs/`) |
+| Ranker lookbacks | Pullback lookback 60 sessions; sector-RS momentum windows 21/63/126 sessions. | `[INFERENCE]` SCOPE D-027 (2026-10-05) | CEO decision 2026-10-05 |
+| Ranker band boundaries | Legacy Sprint F boundary operators (first-match-wins): pullback −3.0 → 25, −8.0 → 25; dist_to_sma20 −1.0 → 10; volume_ratio 0.8 → 0 (strict <); iv_rank 25 → 0 (strict <). Trend/RS classifiers deferred — unknown labels fail closed. | `[INFERENCE]` SCOPE D-028 (2026-10-05) | Sprint F evaluation doc (legacy archive) |
+| Fee schedules | Fully reconstructed historical fee tables replace the R06 dated snapshots: 33 SEC Section 31 periods (2000-01-01–2026-12-31) and 9 FINRA TAF periods (2002-10-01–2026-12-31), each with a primary source URL. SEC by charge date, TAF by trade date; 2027+ fail-closed for both. | `[INFERENCE]` S06-fee-tables (2026-10-06) | `~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/` |
 
 ### Supersession Map
 
@@ -59,6 +62,7 @@ This section is the authoritative project snapshot. Historical entries below pre
 - Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`. Sprint S03 does this (SCOPE D-024).
 - R12 (2026-09-27) corrects quoted values and identifiers in R01, R03 and R09: Jegadeesh's specification and DOI, Tetlock et al.'s t-statistic, Heston-Sinha's DOI and sample, the Lopez-Lira-Tang version stitching, and the Lopez-Lira-Tang-Zhu identifier. Original wording is preserved with inline `[R12: ...]` markers.
 - PREREGISTRATION.md v0.7 (2026-09-30) starts the Q2/Q3 clock at the `prereg-v1` tag and drops R07's 6-month interim look, because `textscore` is built after Step 5 and no look is evaluated before its implementation is frozen (PREREGISTRATION.md §0 rule 4). R07's 12-month interim look and 24-month efficacy look stand.
+- S06-fee-tables (2026-10-06) supersedes the R06 dated fee snapshots and corrects R06's "2004-2011 was USD 0.000075" (calendar-year boundaries) with effective-date periods (2011-07-01 $0.000090, 2012-03-01 $0.000095). R06's cost priors remain until live calibration replaces them.
 - SCOPE D-020 (2026-09-24) supersedes R05 rule 3 as the primary fill for an entry whose open is at or below the buy limit: the specification fills at the open plus the adverse buffer, and R05's fill-at-limit and no-fill rules become reported sensitivities.
 - PREREGISTRATION.md v0.6 §3.1 supersedes R10's continuous `direction` and `materiality` schema with 5-point scales, so repeatability is judged by label agreement rather than a numeric-drift tolerance.
 - S03 (2026-10-04) supersedes R07's 100-name power table: measured 24-month MDEs are 18.3 bp (§2.1, 5% forward planning rate per D-025) and 2.0 bp (§3.2), via date-block bootstrap on the actual 504-symbol panel with 15-session label proxy. Figures in PREREGISTRATION.md §2.1/§3.2 and `docs/research/power-measurement.md`. (Revised 2026-10-04 after Claude Code review: corrected horizon, planning rate, news-share methodology, and clean-room guard.)
@@ -1534,3 +1538,28 @@ RQ-12 is answered. Figures in R01, R03 and R09 carry inline `[R12: ...]` markers
 1. Do the published FAJ 73(3) tables of Heston & Sinha and the JF 63(3) Table II of Tetlock et al. match the working papers read here?
 2. Do SSRN 4412788 and 5217505 correspond to the two Lopez-Lira papers?
 3. Does the SSRN copy of Ke, Kelly & Xiu (3389884, September 2020) change Table 2 or Table 4?
+
+## R06 update - 2026-10-06 - Fee schedule rebuild
+
+The R06 dated fee snapshots were replaced with fully reconstructed historical schedules (S05-fee-tables, SCOPE D-027/D-028 era; re-audited 2026-10-06 after Claude Code review). Research notes and per-entry verification flags: `~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/` (outside the repo). Re-audit methodology: 21 of 42 rows checked directly against their cited URLs (all 9 TAF rows; 12 SEC rows spanning 2000-2026); the rest machine-checked against the research report.
+
+### What was built
+
+- `src/arcis/research/fee_schedules.py`: 33 SEC Section 31 rate periods (2000-01-01 through 2026-12-31) and 9 FINRA TAF rate/cap periods (2002-10-01 through 2026-12-31), each with a primary source URL. `costs.py` now delegates to it; the old inline snapshots are removed.
+- Date conventions made explicit: SEC Section 31 is looked up by charge date (≈ settlement date); FINRA TAF by trade date. `total_trade_cost` takes the trade date as `as_of` and requires `charge_date` for sells (no silent default — billing the SEC fee by trade date used the wrong rate around Section 31 changes; charge dates in 2027+ raise). Buys ignore `charge_date`.
+
+### Corrections to earlier R06 assumptions
+
+- Neither R06 nor the old code ever treated the TAF as $0 in 2012–2023, or had a $0 2003 period — the old code raised `UnresolvedFeeError` for those dates (unverified). What R06 actually got wrong is its statement that "2004-2011 was USD 0.000075" (research-log.md:860): the reconstructed table shows the real changes were 2011-07-01 ($0.000090/share, $4.50 cap) and 2012-03-01 ($0.000095/share, $4.75 cap), i.e. calendar-year boundaries were the wrong model — effective dates are what matter.
+- The 2002 TAF was $0.00005/share capped at $5 (the announced $0.0001/$10 from October 2002 was superseded retroactively — Federal Register Doc. 02-29314), then $0.0001/$10 from 2003-09-01 (NTM 03-43), then $0.000075/$3.75 from 2004-11-01 (NTM 04-84).
+- 9 TAF periods, not the ~10 previously expected.
+- The pre-2000 SEC rate history was not reconstructed; the schedule starts at 2000-01-01 (the backtest panel start) and raises before it.
+- Q4 2026 is a $0 TAF assessment holiday (2026-10-01–2026-12-31, Federal Register Doc. 2026-19392); $0.000195/share and the $9.79 cap applied 2026-01-01–2026-09-30. During the holiday the TAF is $0 and the cap lookup raises (no cap concept when no fee is assessed).
+- 2027+ is fail-closed for both fees: the SEC FY2026 $20.60 rate runs "until 60 days after FY2027 appropriation" (unknown date), and the TAF pause filing's "previous rates will resume" wording is ambiguous about which 2027 rate resumes.
+- The 2026-12-31 window end is a modeling choice, not a verified fact: the last row directly re-checked was dated 2026-10-06; any charge date after that gets a rate that has not been re-verified against a primary source since. Recheck the SEC FY2027 advisory before December 2026.
+- Two SEC effective dates (2007-03-17 for $15.30, 2008-01-25 for $11.00) are inferred from the statutory 30-days-after-appropriation formula and flagged as such in the module; both are corroborated by secondary sources.
+
+### Implications
+
+- Key confirmed recent periods: SEC $27.80/M (2024-05-22–2025-05-13), $0.00 (2025-05-14–2026-04-03), $20.60/M (2026-04-04 onward). TAF $0.000166/$8.30 (2024–2025), $0.000195/$9.79 (2026-01-01–2026-09-30), $0.00 (2026-10-01–2026-12-31).
+- Backtests that used the old snapshots (2027+ reuse, calendar-year TAF boundaries, unverified caps) must be re-run on the rebuilt tables.

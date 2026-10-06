@@ -7,20 +7,13 @@ Scoring: each metric maps to a score via first-match-wins bands.
 Final score is clamped to [0, 100].
 
 Fail-closed: unknown category labels raise ValueError. Degenerate
-inputs raise ValueError. Unresolved spec items raise UnresolvedError.
+inputs raise ValueError. Band boundary operators follow the recovered
+Sprint F legacy operators per SCOPE D-028.
 """
 
 from __future__ import annotations
 
 import math
-
-
-class UnresolvedError(Exception):
-    """Raised when the YAML spec does not define the required behavior.
-
-    The caller cannot proceed without a CEO decision on the unresolved item.
-    """
-
 
 # Scoring labels from incumbent_v1.yaml. The YAML lists only the labels that
 # score points; the full label vocabulary (e.g. "downtrend") is UNRESOLVED
@@ -77,18 +70,13 @@ def score_pullback_depth(pullback_depth_pct: float) -> int:
     """Score pullback depth (negative % from recent high).
 
     Bands (order-sensitive, first match wins):
-      [-8, -3)   -> 25  (upper bound exclusive per YAML note)
-      [-12, -8)  -> 10  (upper bound exclusive per YAML note)
+      [-8, -3]    -> 25  (D-028: closed upper bound per Sprint F doc §1.4,
+                          "pullback sweet spot [-8, -3] -> +25")
+      [-12, -8)   -> 10  (upper bound exclusive per YAML note)
 
-    UNRESOLVED: The YAML specifies "exclusive upper bound" for [-12,-8]
-    but is silent on [-8,-3]. For the exact boundary value -3.0, raises
-    UnresolvedError instead of picking a side. Needs CEO decision.
+    Boundary -8.0 hits the first band via first-match-wins.
     """
-    if pullback_depth_pct == -3.0:
-        raise UnresolvedError(
-            "pullback_depth_pct == -3.0: YAML is silent on whether [-8,-3] "
-            "includes -3.0; needs CEO decision")
-    if -8 <= pullback_depth_pct < -3:
+    if -8 <= pullback_depth_pct <= -3:
         return 25
     if -12 <= pullback_depth_pct < -8:
         return 10
@@ -102,14 +90,11 @@ def score_dist_to_sma20(dist_pct: float) -> int:
       [-5, -1] -> 10
       (other)  -> 0
 
-    UNRESOLVED: YAML shows range [-5, -1] without explicit bound notes.
-    For the exact boundary value -1.0, raises UnresolvedError instead of
-    picking a side (consistent with pullback_depth -3.0). Needs CEO decision.
+    Bands:
+      [-5, -1] -> 10  (D-028: closed bounds per Sprint F doc §1.4,
+                       "in [-5, -1]")
+      (other)  -> 0
     """
-    if dist_pct == -1.0:
-        raise UnresolvedError(
-            "dist_to_sma20_pct == -1.0: YAML range [-5,-1] has no bound note; "
-            "needs CEO decision")
     if -5 <= dist_pct <= -1:
         return 10
     return 0
@@ -119,18 +104,10 @@ def score_volume_ratio(volume_ratio_20d: float) -> int:
     """Score 20-day volume ratio.
 
     Bands:
-      (-inf, 0.8] -> 15  (sentinel lower bound: no lower limit)
+      (-inf, 0.8) -> 15  (D-028: strict < 0.8 per Sprint F doc §1.4)
       (other)     -> 0
-
-    UNRESOLVED: YAML shows [null, 0.8] without explicit bound notes. For the
-    exact boundary value 0.8, raises UnresolvedError instead of picking a
-    side. Needs CEO decision.
     """
-    if volume_ratio_20d == 0.8:
-        raise UnresolvedError(
-            "volume_ratio_20d == 0.8: YAML range [null, 0.8] has no bound "
-            "note; needs CEO decision")
-    if volume_ratio_20d <= 0.8:
+    if volume_ratio_20d < 0.8:
         return 15
     return 0
 
@@ -139,18 +116,10 @@ def score_iv_rank(iv_rank: float) -> int:
     """Score IV rank (0-100).
 
     Bands:
-      (-inf, 25] -> 3  (sentinel lower bound)
+      (-inf, 25) -> 3  (D-028: strict < 25 per Sprint F doc §1.4)
       (other)    -> 0
-
-    UNRESOLVED: YAML shows [null, 25] without explicit bound notes. For the
-    exact boundary value 25, raises UnresolvedError instead of picking a
-    side. Needs CEO decision.
     """
-    if iv_rank == 25:
-        raise UnresolvedError(
-            "iv_rank == 25: YAML range [null, 25] has no bound note; "
-            "needs CEO decision")
-    if iv_rank <= 25:
+    if iv_rank < 25:
         return 3
     return 0
 
@@ -308,8 +277,6 @@ def score_incumbent(
 
     Raises:
       ValueError: on unknown labels or degenerate inputs (fail-closed).
-      UnresolvedError: on ambiguous band boundaries (pullback_depth == -3.0,
-        dist_sma20 == -1.0, volume_ratio == 0.8, iv_rank == 25).
     """
     total = 0.0
     total += score_trend_state(trend_state)
