@@ -333,7 +333,8 @@ class TestRunEvaluation:
         assert rec["n_candidates"] == 2
         trial = reg.trials()[0]
         assert len(trial["code_sha256"]) == 64
-        assert len(trial["data_sha256"]) == 64
+        # data_sha256 is panel_hash:candidate_hash (129 chars)
+        assert len(trial["data_sha256"]) == 129
         assert trial["result_summary"]["n_folds"] == 2
 
     def test_run_evaluation_requires_registry(self, tmp_path):
@@ -408,6 +409,10 @@ class TestCorporateActions:
         # Post-split target is 52.5; day-3 high of 53 fills it.
         assert res.exit is not None and res.exit.kind == "target"
         assert res.exit.price == pytest.approx(52.5)
+        # P&L: entry 100 sh @ ~100 -> 200 sh @ ~50; exit 200 @ 52.5.
+        # Must be a gain (~+5%), not a sign-flipped loss.
+        assert res.pnl_dollars > 0
+        assert 3.0 < res.return_pct < 7.0
 
     def test_exdiv_stop_flagged(self):
         panel = make_panel([(100, 101, 99, 100), (100, 101, 99, 100),
@@ -460,3 +465,18 @@ class TestCorporateActions:
         assert res.exit is not None and res.exit.kind == "time"
         assert res.late_time_exit is True
         assert res.sessions_held == 15
+
+    def test_earnings_blackout_suppresses_entry(self):
+        # PREREG §0: no new entry from t-1 through t+1 for earnings
+        # with unknown timing.
+        from arcis.research.ledger import Candidate, build_ledger
+        panel = make_panel([(100, 101, 99, 100)] * 10)
+        cal = panel.calendar
+        # Earnings on cal[3]; entry would be cal[2] (t-1) -> suppressed.
+        cand = Candidate(symbol="AAA", signal_date=cal[1],
+                         limit=100.0, stop=95.0, target=105.0, shares=10,
+                         earnings_dates=frozenset([cal[3]]))
+        rows = build_ledger(panel, [cand], buffer=0.1, spread_frac=0.001)
+        assert len(rows) == 1
+        assert rows[0]["filled"] is False
+        assert rows[0]["unfilled_reason"] == "corporate_action"

@@ -33,7 +33,7 @@ Corporate actions (PREREG §1.1):
 from __future__ import annotations
 
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from statistics import median
 
@@ -268,11 +268,12 @@ def _cost_leg(notional: float, shares: int, is_sell: bool, session: date,
 
 def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
                     lv: _LiveLevels, buffer: float, corp: bool, split_adj: bool
-                    ) -> tuple[Fill, bool, bool, bool, bool, bool, int]:
+                    ) -> tuple[Fill, Fill, bool, bool, bool, bool, bool, int]:
     """Run the holding loop.
 
-    Returns (exit_fill, ambiguous, corp_action, late_time_exit, exdiv_stop,
-    split_adjusted, sessions_held).
+    Returns (entry_fill, exit_fill, ambiguous, corp_action, late_time_exit,
+    exdiv_stop, split_adjusted, sessions_held). The entry fill is returned
+    because splits scale its price (keeping entry notional invariant).
     """
     bar0 = panel.bar(spec.symbol, spec.entry_session)
     if bar0 is None:
@@ -282,7 +283,7 @@ def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
         # Entry-day stop: traversal entry -> stop is implied.
         day0_fill, _ = _stop_fill(spec.entry_session, bar0, lv.stop, buffer)
         exdiv = spec.entry_session in spec.exdiv_dates
-        return day0_fill, False, corp, False, exdiv, split_adj, 1
+        return entry, day0_fill, False, corp, False, exdiv, split_adj, 1
     held, cal_elapsed, session = 1, 0, spec.entry_session
     while True:
         try:
@@ -300,7 +301,10 @@ def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
             continue  # declared halt: skip, don't count toward the 15
         if session in spec.splits:
             # R05-20: reissue at the ratio-adjusted quantity and price.
-            lv.apply_split(spec.splits[session])
+            # Scale the entry price too so entry_notional stays invariant.
+            ratio = spec.splits[session]
+            lv.apply_split(ratio)
+            entry = replace(entry, price=entry.price / ratio)
             split_adj = True
         held += 1
         corp = corp or session in spec.events
@@ -313,7 +317,7 @@ def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
             late = (fill.kind == "time"
                     and cal_elapsed > MAX_HOLD_SESSIONS - 1)
             exdiv = fill.kind == "stop" and session in spec.exdiv_dates
-            return fill, ambiguous, corp, late, exdiv, split_adj, held
+            return entry, fill, ambiguous, corp, late, exdiv, split_adj, held
         if held > MAX_HOLD_SESSIONS + 5:
             raise PanelError(f"{spec.symbol}: exceeded session scan bound")
 
@@ -368,7 +372,7 @@ def simulate_trade(panel: Panel, spec: BracketSpec, buffer: float,
     entry, reason, corp, split_adj = _try_entry(panel, spec, lv, buffer)
     if entry is None:
         return _empty_result(spec, reason, corp, split_adj)
-    exit_fill, ambiguous, corp, late, exdiv, split_adj, held = \
+    entry, exit_fill, ambiguous, corp, late, exdiv, split_adj, held = \
         _holding_period(panel, spec, entry, lv, buffer, corp, split_adj)
     entry_cost, exit_cost, addon, pnl, ret = _settle(
         panel, spec, lv, entry, exit_fill, spread_frac,

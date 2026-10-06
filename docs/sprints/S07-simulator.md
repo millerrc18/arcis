@@ -140,13 +140,16 @@ Trial registry (PREREG §0 rules 3, 5):
     MAE/MFE measured post-entry (intraday timing unknowable),
     settlement-aware charge dates (T+3/T+2/T+1 per the prereg's
     "≈ settlement").
-  - Earnings blackout: NOT a preregistered rule — it is R05 research
-    question 7 ("does excluding earnings improve tail risk?"), so its
-    absence from the simulator is correct.
+  - Earnings blackout: IMPLEMENTED in round 3. PREREGISTRATION.md:35
+    ("No new entry from one trading day before through one trading day
+    after an earnings date whose release timing is unknown") IS a
+    preregistered rule — the round-2 Deviation claiming otherwise was
+    wrong. `Candidate.earnings_dates` expands via `expand_blackouts`
+    to {t-1, t, t+1}.
 - T+1 charge-date correction: the sprint originally prescribed T+1 for
   all history, but PREREG §1.2 says "≈ settlement" and settlement was
-  T+3/T+2 before 2024-05-28. Implemented the historical regimes as a
-  bug fix toward the preregistered intent (flagged for CEO awareness).
+  T+3/T+2 before 2024-05-28. Implemented the historical regimes as
+  D-030 (developer-proposed 2026-10-06, pending CEO sign-off).
 
 ## Acceptance
 
@@ -198,7 +201,8 @@ Trial registry (PREREG §0 rules 3, 5):
   one-sided 2.5% (spending α(t) = 2−2Φ(z_{1−α/2}/√t), gsDesign sfLDOF)
   via grid recursion + dated archival. Verified: 2-look [2.963,
   1.969], 3-look [3.710, 2.511, 1.989].
-- Tests: 307 passing, 0 skipped (66 new/updated in round 2).
+- Tests: - Tests: 308 passing, 0 skipped with research extras (306 passed,
+  2 skipped in default CI without research extras).
 - D-029 (entry limit rule) still pending CEO decision; the simulator
   takes the limit as an explicit input, default documented as signal
   close.

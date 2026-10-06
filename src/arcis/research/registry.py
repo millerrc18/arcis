@@ -102,6 +102,14 @@ class TrialRegistry:
                          f"{b.close}|{b.volume}\n".encode())
         return h.hexdigest()
 
+    def data_hash_of_candidates(self, candidates: list[Any]) -> str:
+        """SHA-256 over the candidate list (signals, levels, shares)."""
+        h = hashlib.sha256()
+        for c in candidates:
+            h.update(f"{c.symbol}|{c.signal_date}|{c.limit}|{c.stop}|"
+                     f"{c.target}|{c.shares}\n".encode())
+        return h.hexdigest()
+
     def trials(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []

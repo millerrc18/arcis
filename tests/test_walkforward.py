@@ -115,13 +115,17 @@ class TestBoundaries:
     def test_two_look_matches_ld_of(self):
         # Lan-DeMets OBF one-sided 2.5%: spending
         # α(t) = 2 − 2Φ(z_{1−α/2}/√t)  (gsDesign sfLDOF).
+        # Reference: gsDesign sfLDOF 2-look ≈ [2.9626, 1.9686].
         b = lan_demet_obf_bounds(2, alpha=0.025)
-        assert b[0] == pytest.approx(2.963, abs=0.01)
-        assert b[1] == pytest.approx(1.969, abs=0.01)
+        assert b[0] == pytest.approx(2.9626, abs=5e-4)
+        assert b[1] == pytest.approx(1.9686, abs=5e-4)
 
     def test_three_look(self):
+        # Reference: gsDesign sfLDOF 3-look ≈ [3.7103, 2.5114, 1.9931].
         b = lan_demet_obf_bounds(3, alpha=0.025)
-        assert [round(x, 2) for x in b] == [3.71, 2.51, 1.99]
+        assert b[0] == pytest.approx(3.7103, abs=5e-4)
+        assert b[1] == pytest.approx(2.5114, abs=5e-4)
+        assert b[2] == pytest.approx(1.9931, abs=5e-4)
 
     def test_spending_function_shape(self):
         from arcis.research.boundaries import spending_ld_of

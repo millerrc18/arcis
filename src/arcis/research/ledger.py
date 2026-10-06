@@ -31,6 +31,7 @@ from arcis.research.simulator import (
     BracketSpec,
     TradeResult,
     estimate_buffer,
+    expand_blackouts,
     simulate_trade,
     trailing_median_spread,
 )
@@ -50,6 +51,9 @@ class Candidate:
     blackouts: frozenset[date] = frozenset()
     splits: dict[date, float] = field(default_factory=dict)
     exdiv_dates: frozenset[date] = frozenset()
+    # Earnings dates with unknown release timing (PREREG §0: no new entry
+    # from t-1 through t+1). Expanded into blackouts by build_ledger.
+    earnings_dates: frozenset[date] = frozenset()
 
 
 def _counterfactual(panel: Panel, cand: Candidate) -> float | None:
@@ -162,15 +166,26 @@ def build_ledger(panel: Panel, candidates: list[Candidate], buffer: float | None
     rows = []
     for cand in candidates:
         entry_session = panel.next_session(cand.signal_date)
+        # PREREG §0 earnings window: t-1 through t+1 for unknown timing.
+        # expand_blackouts with resolution=next_session(t) gives exactly
+        # {prev(t), t, next(t)}.
+        earn_bo: frozenset[date] = frozenset()
+        if cand.earnings_dates:
+            res = {t: panel.next_session(t) for t in cand.earnings_dates}
+            earn_bo = expand_blackouts(set(cand.earnings_dates), panel,
+                                       resolutions=res)
         spec = BracketSpec(
             symbol=cand.symbol, signal_date=cand.signal_date,
             entry_session=entry_session,
             limit=cand.limit, stop=cand.stop, target=cand.target,
             shares=cand.shares, events=cand.events,
-            blackouts=cand.blackouts, splits=cand.splits,
+            blackouts=cand.blackouts | earn_bo, splits=cand.splits,
             exdiv_dates=cand.exdiv_dates)
         if buffer is None or spread_frac is None:
-            sp = trailing_median_spread(panel, cand.symbol, entry_session)
+            # R05-10 predeclared buffer: trailing window ends at the signal
+            # date (t), not the entry session (t+1), to avoid look-ahead.
+            sp = trailing_median_spread(panel, cand.symbol,
+                                        cand.signal_date)
             bf = estimate_buffer(sp, cand.limit, cost_model)
         else:
             sp, bf = spread_frac, buffer
@@ -223,17 +238,18 @@ def ledger_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         cum *= 1.0 + r
         equity.append(cum)
     avg_win, avg_loss = m.avg_win_avg_loss(rets) if rets else (0.0, 0.0)
-    # Fold-level series can be tiny; guard the metrics that need length.
+    # Fold-level series can be tiny; metrics that need length return None
+    # (not silent 0.0) so empty folds don't look like real results.
     from collections.abc import Callable
     def _safe(fn: Callable[..., float],
-              xs: list[float], default: float = 0.0) -> float:
+              xs: list[float]) -> float | None:
         try:
             return fn(xs)
         except ValueError:
-            return default
+            return None
     return {
         "n_trades": len(filled),
-        "sharpe_per_trade": _safe(m.sharpe_ratio, rets) if len(rets) > 1 else 0.0,
+        "sharpe_per_trade": _safe(m.sharpe_ratio, rets) if len(rets) > 1 else None,
         "max_drawdown": _safe(m.max_drawdown, equity),
         "hit_rate": _safe(m.hit_rate, rets),
         "profit_factor": _safe(m.profit_factor, rets),

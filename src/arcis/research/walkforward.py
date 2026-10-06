@@ -133,7 +133,10 @@ def run_evaluation(panel: Panel, candidates: list[Any],
     appends a "failed" record (breach evidence is preserved).
     """
     code_sha = registry.code_hash_of_package()
-    data_sha = registry.data_hash_of_panel(panel)
+    # Data hash covers both the bars and the candidate list: different
+    # signals/levels on the same bars must log different data_shas.
+    data_sha = (registry.data_hash_of_panel(panel) + ":"
+                + registry.data_hash_of_candidates(candidates))
     summary: dict[str, Any]
     with registry.logged_run(trial_id, description, code_sha, data_sha,
                              params) as summary:

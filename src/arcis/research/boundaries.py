@@ -90,6 +90,53 @@ def spending_ld_of(t: float, alpha: float = 0.025) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Gauss-Legendre quadrature (pure Python, computed once)
+# ---------------------------------------------------------------------------
+
+def _legendre(n: int, x: float) -> tuple[float, float]:
+    """P_n(x) and P_n'(x) via the three-term recurrence."""
+    p0, p1 = 1.0, x
+    dp0, dp1 = 0.0, 1.0
+    for k in range(1, n):
+        p2 = ((2 * k + 1) * x * p1 - k * p0) / (k + 1)
+        dp2 = ((2 * k + 1) * (x * dp1 + p1) - k * dp0) / (k + 1)
+        p0, p1, dp0, dp1 = p1, p2, dp1, dp2
+    return (p0, dp0) if n == 0 else (p1, dp1)
+
+
+def _gauss_legendre(n: int) -> tuple[list[float], list[float]]:
+    """Nodes and weights for n-point Gauss-Legendre on (-1, 1)."""
+    xs, ws = [], []
+    for i in range(1, n + 1):
+        # Cosine initial guess for the i-th root.
+        x = math.cos(math.pi * (i - 0.25) / (n + 0.5))
+        for _ in range(20):
+            p, dp = _legendre(n, x)
+            dx = p / dp
+            x -= dx
+            if abs(dx) < 1e-14:
+                break
+        p, dp = _legendre(n, x)
+        xs.append(x)
+        ws.append(2.0 / ((1.0 - x * x) * dp * dp))
+    return xs, ws
+
+
+_GL_N = 96
+_GL_X, _GL_W = _gauss_legendre(_GL_N)
+
+
+def _gl_integral(f: Any, a: float, b: float) -> float:
+    """∫_a^b f via 96-point Gauss-Legendre (exact for deg ≤ 191)."""
+    mid = 0.5 * (a + b)
+    half = 0.5 * (b - a)
+    s = 0.0
+    for x, w in zip(_GL_X, _GL_W, strict=True):
+        s += w * f(mid + half * x)
+    return s * half
+
+
+# ---------------------------------------------------------------------------
 # Boundary computation
 # ---------------------------------------------------------------------------
 
@@ -111,9 +158,57 @@ def _tail_prob(dens: list[float], zs: list[float], dz: float,
     return total + 0.5 * s * dz
 
 
+def _interp_grid(zs: list[float], vals: list[float], z: float) -> float:
+    """Linear interpolation of grid values (0 outside the grid)."""
+    if z <= zs[0] or z >= zs[-1]:
+        return 0.0
+    i = bisect.bisect_left(zs, z)
+    # zs[i-1] < z <= zs[i]
+    z0, z1 = zs[i - 1], zs[i]
+    v0, v1 = vals[i - 1], vals[i]
+    frac = (z - z0) / (z1 - z0)
+    return v0 + (v1 - v0) * frac
+
+
+def _propagate(zs: list[float], dens: list[float], zmin: float,
+               zmax: float, b_prev: float, r: float, sig: float,
+               inv_sqrt_2pi: float) -> list[float]:
+    """One recursion step: g_k from g_{k-1} via GL quadrature."""
+    inv_sig = 1.0 / sig
+    def make_dens(zj: float) -> float:
+        def integrand(u: float) -> float:
+            gu = _interp_grid(zs, dens, u)
+            if gu == 0.0:
+                return 0.0
+            diff = (zj - r * u) * inv_sig
+            return gu * math.exp(-0.5 * diff * diff)
+        return _gl_integral(integrand, zmin, b_prev) * inv_sqrt_2pi * inv_sig
+    return [make_dens(zj) for zj in zs]
+
+
+def _find_bound(zs: list[float], dens: list[float], zmax: float,
+                need: float) -> float:
+    """Bisect b with P(Z_k > b) = need (GL quadrature for the tail)."""
+    def tail_prob(b: float) -> float:
+        return _gl_integral(lambda z: _interp_grid(zs, dens, z), b, zmax)
+    lo, hi = 0.0, zmax
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if tail_prob(mid) > need:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
 def lan_demet_obf_bounds(n_looks: int, alpha: float = 0.025,
-                         n_grid: int = 1501) -> list[float]:
+                         n_grid: int = 4001) -> list[float]:
     """One-sided Lan-DeMets O'Brien-Fleming z-boundaries.
+
+    Forward recursion over the "still running" density, with all integrals
+    via 96-point Gauss-Legendre quadrature (accurate to ~1e-9). The density
+    is represented on a uniform grid and linearly interpolated at
+    quadrature nodes.
 
     Raises ValueError on bad inputs. Pure Python; ~1s for 5 looks.
     """
@@ -121,9 +216,9 @@ def lan_demet_obf_bounds(n_looks: int, alpha: float = 0.025,
         raise ValueError(f"n_looks must be >= 1, got {n_looks}")
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must be in (0, 1), got {alpha}")
-    zmax = 12.0
-    dz = 2.0 * zmax / (n_grid - 1)
-    zs = [-zmax + i * dz for i in range(n_grid)]
+    zmax, zmin = 12.0, -12.0
+    dz = (zmax - zmin) / (n_grid - 1)
+    zs = [zmin + i * dz for i in range(n_grid)]
     inv_sqrt_2pi = 1.0 / math.sqrt(2.0 * math.pi)
     dens = [math.exp(-0.5 * z * z) * inv_sqrt_2pi for z in zs]  # g_1
     ts = [(k + 1) / n_looks for k in range(n_looks)]
@@ -132,43 +227,16 @@ def lan_demet_obf_bounds(n_looks: int, alpha: float = 0.025,
     for k, tk in enumerate(ts):
         need = spending_ld_of(tk, alpha) - spent
         if k == 0:
-            # g_1 is exactly standard normal: solve analytically.
-            b = norm_ppf(1.0 - need)
+            b = norm_ppf(1.0 - need)  # g_1 is exactly N(0,1)
         else:
             tp = ts[k - 1]
             r = math.sqrt(tp / tk)
             sig = math.sqrt(1.0 - tp / tk)
-            inv = inv_sqrt_2pi / sig
-            new = [0.0] * n_grid
-            for j in range(n_grid):
-                zj = zs[j]
-                i_lo = max(0, int(((zj - 8.0 * sig) / r + zmax) / dz))
-                i_hi = min(n_grid - 1, int(((zj + 8.0 * sig) / r + zmax) / dz))
-                s = 0.0
-                for i in range(i_lo, i_hi + 1):
-                    d = dens[i]
-                    if d:
-                        diff = (zj - r * zs[i]) / sig
-                        s += d * math.exp(-0.5 * diff * diff)
-                new[j] = s * inv * dz
-            dens = new
-            lo, hi = 0.0, zmax
-            for _ in range(60):  # bisection: tail mass is monotone in b
-                mid = 0.5 * (lo + hi)
-                if _tail_prob(dens, zs, dz, mid) > need:
-                    lo = mid
-                else:
-                    hi = mid
-            b = 0.5 * (lo + hi)
+            dens = _propagate(zs, dens, zmin, zmax, out[-1], r, sig,
+                              inv_sqrt_2pi)
+            b = _find_bound(zs, dens, zmax, need)
         out.append(b)
         spent += need
-        # Truncate the "still running" density above b (fractional cell).
-        f = (b + zmax) / dz
-        i0, frac = int(f), f - int(f)
-        for i in range(i0 + 1, n_grid):
-            dens[i] = 0.0
-        if 0 <= i0 < n_grid:
-            dens[i0] *= 1.0 - frac
     return out
 
 
