@@ -33,7 +33,7 @@ Corporate actions (PREREG §1.1):
 from __future__ import annotations
 
 from contextlib import suppress
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
 
@@ -282,8 +282,7 @@ def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
     """Run the holding loop.
 
     Returns (entry_fill, exit_fill, ambiguous, corp_action, late_time_exit,
-    exdiv_stop, split_adjusted, sessions_held). The entry fill is returned
-    because splits scale its price (keeping entry notional invariant).
+    exdiv_stop, split_adjusted, sessions_held).
     """
     bar0 = panel.bar(spec.symbol, spec.entry_session)
     if bar0 is None:
@@ -311,10 +310,9 @@ def _holding_period(panel: Panel, spec: BracketSpec, entry: Fill,
             continue  # declared halt: skip, don't count toward the 15
         if session in spec.splits:
             # R05-20: reissue at the ratio-adjusted quantity and price.
-            # Scale the entry price too so entry_notional stays invariant.
-            ratio = spec.splits[session]
-            lv.apply_split(ratio)
-            entry = replace(entry, price=entry.price / ratio)
+            # The entry Fill keeps its original price; _settle uses
+            # spec.shares (pre-split) for entry_notional.
+            lv.apply_split(spec.splits[session])
             split_adj = True
         held += 1
         corp = corp or session in spec.events
@@ -340,9 +338,11 @@ def _settle(panel: Panel, spec: BracketSpec, lv: _LiveLevels, entry: Fill,
     """Costs, P&L, and return for a completed trade."""
     if cost_model_name not in TOD_MULT:
         raise PanelError(f"unknown cost model: {cost_model_name}")
-    entry_notional = entry.price * lv.shares
+    # Entry notional uses pre-split shares (spec.shares); the entry Fill
+    # keeps its original price. Exit uses post-split shares (lv.shares).
+    entry_notional = entry.price * spec.shares
     exit_notional = exit_fill.price * lv.shares
-    entry_cost = _cost_leg(entry_notional, lv.shares, False,
+    entry_cost = _cost_leg(entry_notional, spec.shares, False,
                            entry.session, panel, commission_model)
     exit_cost = _cost_leg(exit_notional, lv.shares, True,
                           exit_fill.session, panel, commission_model)

@@ -2,8 +2,8 @@
 
 Branch: `feat/s07-simulator`. Follows S06 (PR #10, merged at `66eaeda`).
 
-Status: in progress — PR #11 open; Claude Code round-1 REJECT addressed
-in round 2 (see Deviations).
+Status: in progress — PR #11 open; Claude Code round-4 REJECT addressed
+in round 5 (see Deviations).
 
 ## Goal
 
@@ -118,8 +118,8 @@ Trial registry (PREREG §0 rules 3, 5):
      every environment.
   2. Wrong Lan-DeMets spending function. The correct one-sided form is
      α(t) = 2 − 2Φ(z_{1−α/2}/√t) (gsDesign sfLDOF; verified against the
-     published docs). Boundaries are now [2.963, 1.969] (2-look),
-     [3.710, 2.511, 1.989] (3-look).
+     published docs). Boundaries are now [2.9626, 1.9686] (2-look),
+     [3.7103, 2.5114, 1.9931] (3-look).
   3. Task 4 cost wiring was stub-only. Now `build_ledger` derives
      per-trade spreads (21-session trailing median) and R06 buffers
      (with time-of-day multipliers: conservative 3.0/1.5/2.0), and the
@@ -202,8 +202,8 @@ Trial registry (PREREG §0 rules 3, 5):
   one-sided 2.5% via 96-point Gauss-Legendre quadrature (spending
   α(t) = 2−2Φ(z_{1−α/2}/√t), gsDesign sfLDOF) with dated archival.
   Verified: 2-look [2.9626, 1.9686], 3-look [3.7103, 2.5114, 1.9931].
-- Tests: - Tests: 308 passing, 0 skipped with research extras (306 passed,
-  2 skipped in default CI without research extras).
+- Tests: 312 passing, 0 skipped with research extras (310 passed,
+  2 skipped in default CI).
 - D-029 (entry limit rule) still pending CEO decision; the simulator
   takes the limit as an explicit input, default documented as signal
   close.

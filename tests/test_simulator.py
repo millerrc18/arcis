@@ -480,3 +480,63 @@ class TestCorporateActions:
         assert len(rows) == 1
         assert rows[0]["filled"] is False
         assert rows[0]["unfilled_reason"] == "corporate_action"
+
+    def test_mae_mfe_across_split(self):
+        # 2:1 split on day 3: pre-split bars (~100) and post-split bars
+        # (~50) must both be measured against the $100 entry.
+        from arcis.research.ledger import Candidate, build_ledger
+        panel = make_panel([(100, 101, 99, 100), (100, 102, 98, 100),
+                            (100, 101, 99, 100), (50, 53, 49, 50),
+                            (50, 51, 49, 50)] + [(50, 51, 49, 50)] * 20)
+        cal = panel.calendar
+        cand = Candidate(symbol="AAA", signal_date=cal[0],
+                         limit=100.0, stop=90.0, target=200.0, shares=10,
+                         splits={cal[3]: 2.0})
+        rows = build_ledger(panel, [cand], buffer=0.1, spread_frac=0.001)
+        # Pre-split MFE: (102-100)/100 = 2%. Post-split MFE: (53*2-100)/100 = 6%.
+        assert rows[0]["mfe_pct"] == pytest.approx(6.0, abs=0.5)
+        # MAE: pre-split (98-100)/100 = -2%; post-split (49*2-100)/100 = -2%.
+        assert rows[0]["mae_pct"] == pytest.approx(-2.0, abs=0.5)
+
+    def test_insufficient_data_row(self):
+        # Halt in the trailing window -> full unevaluable row, no crash.
+        from datetime import date, timedelta
+
+        from arcis.research.ledger import Candidate, build_ledger
+        from arcis.research.panel import Bar, Panel
+        bars = [Bar(date(2020, 1, 6) + timedelta(days=i), 100, 101, 99, 100,
+                    1_000_000) for i in range(50)]
+        halt_day = date(2020, 1, 6) + timedelta(days=20)
+        aaa = [b for b in bars if b.date != halt_day]
+        p = Panel({"AAA": aaa, "SPY": bars}, halts={"AAA": {halt_day}})
+        cal = p.calendar
+        cand = Candidate(symbol="AAA", signal_date=cal[25], limit=100.0,
+                         stop=95.0, target=105.0, shares=10)
+        rows = build_ledger(p, [cand])
+        assert rows[0]["filled"] is False
+        assert rows[0]["unfilled_reason"] == "insufficient_data"
+        assert "label_end" in rows[0]
+        assert "corporate_action" in rows[0]
+
+    def test_fractional_split_raises(self):
+        # 15 shares with 1:10 reverse split -> fractional, must raise.
+        panel = make_panel([(100, 101, 99, 100)] * 10)
+        cal = panel.calendar
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=95.0,
+                           target=105.0, shares=15,
+                           splits={cal[2]: 0.1})
+        with pytest.raises(PanelError, match="fractional"):
+            simulate_trade(panel, spec, BUF, SPREAD)
+
+    def test_entry_day_stop_mae(self):
+        # Entry-day stop-out: MAE comes from the stop fill, not 0.0.
+        from arcis.research.ledger import Candidate, build_ledger
+        panel = make_panel([(100, 101, 99, 100), (100, 101, 94, 95)]
+                           + [(95, 96, 94, 95)] * 20)
+        cal = panel.calendar
+        cand = Candidate(symbol="AAA", signal_date=cal[0],
+                         limit=100.0, stop=95.0, target=105.0, shares=10)
+        rows = build_ledger(panel, [cand], buffer=0.1, spread_frac=0.001)
+        # Stop fill below entry -> negative MAE, not 0.0.
+        assert rows[0]["mae_pct"] < 0

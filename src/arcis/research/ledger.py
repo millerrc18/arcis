@@ -86,6 +86,7 @@ def _excursions(panel: Panel, result: TradeResult
         mae = (exit_fill.price - entry.price) / entry.price * 100
         return mae, 0.0
     symbol = result.spec.symbol
+    splits = result.spec.splits
     session = entry.session
     maes, mfes = [], []
     while session < exit_fill.session:
@@ -96,9 +97,15 @@ def _excursions(panel: Panel, result: TradeResult
         bar = panel.bar(symbol, session)
         if bar is None:
             continue  # declared halt (Panel guarantees nothing else)
+        # Scale the bar to pre-split prices: cumulative ratio of splits
+        # in (entry.session, session].
+        cum = 1.0
+        for sd, ratio in splits.items():
+            if entry.session < sd <= session:
+                cum *= ratio
         if entry.price > 0:
-            maes.append((bar.low - entry.price) / entry.price * 100.0)
-            mfes.append((bar.high - entry.price) / entry.price * 100.0)
+            maes.append((bar.low * cum - entry.price) / entry.price * 100.0)
+            mfes.append((bar.high * cum - entry.price) / entry.price * 100.0)
     mae = min(maes) if maes else 0.0
     mfe = max(mfes) if mfes else 0.0
     return mae, mfe
@@ -157,6 +164,56 @@ def summarize(panel: Panel, cand: Candidate,
     }
 
 
+def _unevaluable_row(panel: Panel, cand: Candidate, reason: str,
+                      detail: str) -> dict[str, Any]:
+    """Full ledger row for a candidate that cannot be evaluated.
+
+    Declared halts in the trailing window make the predeclared buffer
+    uncomputable (fail-closed). The row has all fields downstream code
+    expects; label_end = t+1 per the unfilled rule.
+    """
+    label_end = panel.next_session(cand.signal_date)
+    return {
+        "symbol": cand.symbol,
+        "signal_date": cand.signal_date.isoformat(),
+        "label_end": label_end.isoformat(),
+        "filled": False,
+        "unfilled_reason": reason,
+        "detail": detail,
+        "entry_kind": None,
+        "exit_kind": None,
+        "entry_gap": False,
+        "exit_gap": False,
+        "counterfactual_next_open_pct": _counterfactual(panel, cand),
+        "mae_pct": None,
+        "mfe_pct": None,
+        "sessions_held": 0,
+        "pnl_dollars": 0.0,
+        "return_pct": 0.0,
+        "entry_cost": {},
+        "exit_cost": {},
+        "execution_addon_dollars": 0.0,
+        "ambiguous_bar": False,
+        "corporate_action": False,
+        "late_time_exit": False,
+        "exdiv_stop": False,
+        "split_adjusted": False,
+        "limit": cand.limit,
+        "stop": cand.stop,
+        "target": cand.target,
+        "shares": cand.shares,
+    }
+
+
+def _earnings_blackouts(panel: Panel, cand: Candidate
+                        ) -> frozenset[date]:
+    """PREREG §0 earnings window: {t-1, t, t+1} for unknown timing."""
+    if not cand.earnings_dates:
+        return frozenset()
+    res = {t: panel.next_session(t) for t in cand.earnings_dates}
+    return expand_blackouts(set(cand.earnings_dates), panel, resolutions=res)
+
+
 def build_ledger(panel: Panel, candidates: list[Candidate], buffer: float | None = None,
                  spread_frac: float | None = None,
                  cost_model: str = "conservative",
@@ -164,21 +221,14 @@ def build_ledger(panel: Panel, candidates: list[Candidate], buffer: float | None
     """Simulate every candidate and return the candidate-day ledger.
 
     When `buffer`/`spread_frac` are None (default), they are derived per
-    trade: the 21-session trailing median spread at the entry session and
+    trade: the 21-session trailing median spread at the signal date and
     the R06 predeclared buffer. Pass explicit values for synthetic
     known-answer tests.
     """
     rows = []
     for cand in candidates:
         entry_session = panel.next_session(cand.signal_date)
-        # PREREG §0 earnings window: t-1 through t+1 for unknown timing.
-        # expand_blackouts with resolution=next_session(t) gives exactly
-        # {prev(t), t, next(t)}.
-        earn_bo: frozenset[date] = frozenset()
-        if cand.earnings_dates:
-            res = {t: panel.next_session(t) for t in cand.earnings_dates}
-            earn_bo = expand_blackouts(set(cand.earnings_dates), panel,
-                                       resolutions=res)
+        earn_bo = _earnings_blackouts(panel, cand)
         spec = BracketSpec(
             symbol=cand.symbol, signal_date=cand.signal_date,
             entry_session=entry_session,
@@ -189,19 +239,12 @@ def build_ledger(panel: Panel, candidates: list[Candidate], buffer: float | None
         if buffer is None or spread_frac is None:
             # R05-10 predeclared buffer: trailing window ends at the signal
             # date (t), not the entry session (t+1), to avoid look-ahead.
-            # A declared halt in the window makes the candidate unevaluable
-            # (fail-closed: no invented buffer).
             try:
                 sp = trailing_median_spread(panel, cand.symbol,
                                             cand.signal_date)
             except PanelError as exc:
-                rows.append({
-                    "symbol": cand.symbol,
-                    "signal_date": cand.signal_date.isoformat(),
-                    "filled": False,
-                    "unfilled_reason": "insufficient_data",
-                    "detail": str(exc),
-                })
+                rows.append(_unevaluable_row(
+                    panel, cand, "insufficient_data", str(exc)))
                 continue
             bf = estimate_buffer(sp, cand.limit, cost_model)
         else:
