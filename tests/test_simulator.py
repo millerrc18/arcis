@@ -26,14 +26,14 @@ def make_panel(ohlc: list[tuple[float, float, float, float]],
     """
     ohlc = list(ohlc)
     last_c = ohlc[-1][3]
-    # Two spare flat sessions: an exit can land on the last data day, and
-    # the SEC charge date (T+1) must exist past any exit.
-    ohlc.append((last_c, last_c + 0.5, last_c - 0.5, last_c))
-    ohlc.append((last_c, last_c + 0.5, last_c - 0.5, last_c))
+    # Spare flat sessions: an exit can land on the last data day, and the
+    # SEC charge date (T+1/T+2/T+3 by settlement regime) must exist past
+    # any exit.
+    for _ in range(4):
+        ohlc.append((last_c, last_c + 0.5, last_c - 0.5, last_c))
     bars = [Bar(start + timedelta(days=i), o, h, lo, c, 1_000_000)
             for i, (o, h, lo, c) in enumerate(ohlc)]
-    cal = [b.date for b in bars]
-    return Panel({symbol: bars, "SPY": bars}, cal)
+    return Panel({symbol: bars, "SPY": bars})
 
 
 def spec_for(panel: Panel, entry_idx: int = 1, **kw) -> BracketSpec:
@@ -192,9 +192,9 @@ class TestCosts:
                             (100, 101, 94, 96)])
         r = run(panel, spec_for(panel))
         assert r.exit is not None and r.exit.kind == "stop"
-        # Conservative +2.0 bp on the exit notional, beyond the buffer.
+        # R06 conservative: +1.0 bp on the exit notional, beyond the buffer.
         assert r.execution_addon_dollars == pytest.approx(
-            0.00020 * r.exit.price * 100, abs=1e-9)
+            0.00010 * r.exit.price * 100, abs=1e-9)
 
     def test_time_exit_addon(self):
         bars = [(100, 101, 99, 100), (101, 102, 99, 100)]
@@ -202,8 +202,9 @@ class TestCosts:
         panel = make_panel(bars)
         r = run(panel, spec_for(panel))
         assert r.exit is not None and r.exit.kind == "time"
+        # R06 conservative: 0.5 × spread × close-TOD-mult (2.0) + 1.0 bp.
         assert r.execution_addon_dollars == pytest.approx(
-            (0.5 * SPREAD + 0.00010) * r.exit.price * 100, abs=1e-9)
+            (0.5 * SPREAD * 2.0 + 0.00010) * r.exit.price * 100, abs=1e-9)
 
 
 class TestFailClosed:
@@ -240,21 +241,22 @@ class TestLedger:
         cal = panel.calendar
         cands = [
             Candidate(symbol="AAA", signal_date=cal[0], limit=100.0,
-                      stop=95.0, target=105.0, shares=100, score=80.0),
+                      stop=95.0, target=105.0, shares=100),
             Candidate(symbol="AAA", signal_date=cal[2], limit=100.0,
-                      stop=95.0, target=105.0, shares=100, score=10.0),
+                      stop=95.0, target=105.0, shares=100),
         ]
         rows = build_ledger(panel, cands, BUF, SPREAD)
         assert len(rows) == 2
         assert rows[0]["filled"] is True
-        assert rows[0]["score"] == 80.0
-        assert rows[0]["next_open_return_pct"] == pytest.approx(1.0)
+        assert rows[0]["counterfactual_next_open_pct"] == pytest.approx(1.0)
         assert rows[0]["mae_pct"] is not None
+        assert rows[0]["label_end"] == rows[0]["exit_session"]
         assert rows[1]["filled"] is False  # low 100.5 > limit
+        assert rows[1]["label_end"] == cal[3].isoformat()  # t+1
         rep = ambiguity_report(rows)
         assert rep["n_candidates"] == 2
         assert rep["fill_rate"] == 0.5
-        assert rep["unfilled_reasons"] == {"no_trade_through": 1}
+        assert rep["touch_only_rate"] == 0.0
 
 
 class TestLedgerMetrics:
@@ -276,3 +278,185 @@ class TestLedgerMetrics:
         assert met["hit_rate"] == 0.5
         assert met["total_pnl_dollars"] == pytest.approx(
             rows[0]["pnl_dollars"] + rows[1]["pnl_dollars"])
+
+
+class TestTargetTouch:
+    def test_target_touch_does_not_fill(self):
+        # Holding-day high exactly equals the target: preregistered rule is
+        # strict high > target, so no fill on day 2 (then stopped out).
+        panel = make_panel([(100, 101, 99, 100), (100, 102, 99, 101),
+                            (103, 105, 102, 104), (103, 104, 102, 103.5),
+                            (103, 104, 94, 95)])
+        cal = panel.calendar
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=95.0,
+                           target=105.0, shares=100)
+        res = simulate_trade(panel, spec, BUF, SPREAD)
+        assert res.entry is not None
+        assert res.exit is not None and res.exit.kind == "stop"
+        assert res.exit.session == cal[4]
+
+
+class TestRunEvaluation:
+    def _big_panel(self, n=60):
+        # Random-walk-ish bars with enough history for the 21-session
+        # trailing spread.
+        ohlc = []
+        px = 100.0
+        for i in range(n):
+            o = px
+            h = o * 1.01
+            lo = o * 0.99
+            c = o * (1 + 0.001 * ((i % 3) - 1))
+            ohlc.append((o, h, lo, c))
+            px = c
+        return make_panel(ohlc)
+
+    def test_run_evaluation_logs_and_splits(self, tmp_path):
+        from arcis.research.ledger import Candidate
+        from arcis.research.registry import TrialRegistry
+        from arcis.research.walkforward import make_folds, run_evaluation
+        panel = self._big_panel(120)
+        cal = panel.calendar
+        cands = [Candidate(symbol="AAA", signal_date=cal[30],
+                           limit=100.0, stop=95.0, target=110.0, shares=10),
+                 Candidate(symbol="AAA", signal_date=cal[100],
+                           limit=100.0, stop=95.0, target=110.0, shares=10)]
+        folds = make_folds(cal, n_splits=2, val_size=20, embargo_sessions=15)
+        reg = TrialRegistry(tmp_path / "r.jsonl")
+        rec = run_evaluation(panel, cands, folds, registry=reg,
+                             trial_id="WF-1", description="smoke",
+                             params={"cost": "conservative"})
+        assert reg.has("WF-1")
+        assert rec["status"] == "complete"
+        assert rec["n_folds"] == 2
+        assert rec["n_candidates"] == 2
+        trial = reg.trials()[0]
+        assert len(trial["code_sha256"]) == 64
+        assert len(trial["data_sha256"]) == 64
+        assert trial["result_summary"]["n_folds"] == 2
+
+    def test_run_evaluation_requires_registry(self, tmp_path):
+        from arcis.research.walkforward import make_folds, run_evaluation
+        panel = self._big_panel(120)
+        folds = make_folds(panel.calendar, n_splits=2, val_size=20,
+                           embargo_sessions=15)
+        with pytest.raises(TypeError):
+            run_evaluation(panel, [], folds, trial_id="X",
+                           description="d", params={})
+
+    def test_auto_cost_wiring_uses_trailing_spread(self):
+        # build_ledger without explicit buffer/spread derives per-trade
+        # costs; different volatility -> different buffers.
+        from arcis.research.ledger import Candidate, build_ledger
+        calm = [(100, 100.5, 99.5, 100)] * 60
+        wild = [(100, 110, 90, 100)] * 60
+        p_calm = make_panel(calm)
+        p_wild = make_panel(wild)
+        cal = p_calm.calendar
+        def mk(p):
+            return [Candidate(symbol="AAA", signal_date=cal[30],
+                              limit=100.0, stop=90.0, target=110.0,
+                              shares=10)]
+        r_calm = build_ledger(p_calm, mk(p_calm))[0]
+        r_wild = build_ledger(p_wild, mk(p_wild))[0]
+        assert r_calm["filled"] and r_wild["filled"]
+        # Wild bars -> larger spread -> larger execution addon on time exit
+        # or a bigger buffer embedded in the fill. At minimum the rows
+        # differ in cost accounting.
+        assert (r_wild["execution_addon_dollars"]
+                != r_calm["execution_addon_dollars"]
+                or r_wild["entry_cost"] != r_calm["entry_cost"])
+
+
+class TestCorporateActions:
+    def test_blackout_suppresses_entry(self):
+        from arcis.research.simulator import expand_blackouts
+        panel = make_panel([(100, 101, 99, 100), (99, 100, 98, 99),
+                            (99, 100, 98, 99)])
+        cal = panel.calendar
+        # Event on cal[2]: blackout covers cal[1] (prior session) and cal[2].
+        bo = expand_blackouts({cal[2]}, panel)
+        assert cal[1] in bo and cal[2] in bo
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=95.0,
+                           target=105.0, shares=100, blackouts=bo)
+        res = simulate_trade(panel, spec, BUF, SPREAD)
+        assert res.entry is None
+        assert res.unfilled_reason == "corporate_action"
+        assert res.corporate_action is True
+
+    def test_blackout_with_resolution(self):
+        from arcis.research.simulator import expand_blackouts
+        panel = make_panel([(100, 101, 99, 100)] * 6)
+        cal = panel.calendar
+        bo = expand_blackouts({cal[2]}, panel,
+                              resolutions={cal[2]: cal[4]})
+        assert bo == frozenset([cal[1], cal[2], cal[3], cal[4]])
+
+    def test_split_reissues_levels(self):
+        # 2:1 split on a holding day: stop/target halve, shares double.
+        panel = make_panel([(100, 101, 99, 100), (100, 101, 99, 100.5),
+                            (50, 51, 49, 50), (50, 53, 49, 52)])
+        cal = panel.calendar
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=95.0,
+                           target=105.0, shares=100,
+                           splits={cal[2]: 2.0})
+        res = simulate_trade(panel, spec, BUF, SPREAD)
+        assert res.split_adjusted is True
+        # Post-split target is 52.5; day-3 high of 53 fills it.
+        assert res.exit is not None and res.exit.kind == "target"
+        assert res.exit.price == pytest.approx(52.5)
+
+    def test_exdiv_stop_flagged(self):
+        panel = make_panel([(100, 101, 99, 100), (100, 101, 99, 100),
+                            (98, 99, 94, 95)])
+        cal = panel.calendar
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=95.0,
+                           target=105.0, shares=100,
+                           exdiv_dates=frozenset([cal[2]]))
+        res = simulate_trade(panel, spec, BUF, SPREAD)
+        assert res.exit is not None and res.exit.kind == "stop"
+        assert res.exdiv_stop is True
+
+    def test_halted_entry_session(self):
+        bars = [(100, 101, 99, 100), (100, 101, 99, 100), (100, 101, 99, 100)]
+        b = [Bar(date(2020, 1, 6) + timedelta(days=i), o, h, lo, c, 1_000_000)
+             for i, (o, h, lo, c) in enumerate(bars)]
+        # Drop the middle bar, declare it a halt.
+        halt_day = date(2020, 1, 7)
+        p = Panel({"AAA": [b[0], b[2]], "SPY": b},
+                  halts={"AAA": {halt_day}})
+        spec = BracketSpec(symbol="AAA", signal_date=b[0].date,
+                           entry_session=halt_day, limit=100.0, stop=95.0,
+                           target=105.0, shares=100)
+        res = simulate_trade(p, spec, BUF, SPREAD)
+        assert res.entry is None
+        assert res.unfilled_reason == "halted"
+
+    def test_undeclared_gap_raises(self):
+        b = [Bar(date(2020, 1, 6) + timedelta(days=i), 100, 101, 99, 100,
+                 1_000_000) for i in range(4)]
+        # Gap on day 2, not declared: Panel construction fails closed.
+        with pytest.raises(PanelError, match="missing bar"):
+            Panel({"AAA": [b[0], b[2], b[3]], "SPY": b})
+
+    def test_late_time_exit_flagged(self):
+        # Halt the 15th counted session so the MOC exit slips a day.
+        n = 20
+        ohlc = [(100, 101, 99, 100)] * n
+        bars = [Bar(date(2020, 1, 6) + timedelta(days=i), o, h, lo, c,
+                    1_000_000) for i, (o, h, lo, c) in enumerate(ohlc)]
+        halt_day = date(2020, 1, 6) + timedelta(days=10)
+        aaa = [b for b in bars if b.date != halt_day]
+        p = Panel({"AAA": aaa, "SPY": bars}, halts={"AAA": {halt_day}})
+        cal = p.calendar
+        spec = BracketSpec(symbol="AAA", signal_date=cal[0],
+                           entry_session=cal[1], limit=100.0, stop=90.0,
+                           target=200.0, shares=100)
+        res = simulate_trade(p, spec, BUF, SPREAD)
+        assert res.exit is not None and res.exit.kind == "time"
+        assert res.late_time_exit is True
+        assert res.sessions_held == 15

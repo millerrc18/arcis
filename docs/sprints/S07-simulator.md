@@ -2,7 +2,8 @@
 
 Branch: `feat/s07-simulator`. Follows S06 (PR #10, merged at `66eaeda`).
 
-Status: in progress.
+Status: in progress — PR #11 open; Claude Code round-1 REJECT addressed
+in round 2 (see Deviations).
 
 ## Goal
 
@@ -109,6 +110,43 @@ Trial registry (PREREG §0 rules 3, 5):
 
 - D-029 pending at sprint start; the simulator is built limit-agnostic and
   the default lands when the CEO decides.
+- **Round 2 (Claude Code REJECT round 1, 2026-10-06):** six blocking
+  findings, all addressed:
+  1. mypy failed in CI (numpy import-not-found without research extras).
+     Fixed by rewriting `boundaries.py` in pure Python (stdlib only) —
+     no numpy/scipy anywhere, so the generator and its tests run in
+     every environment.
+  2. Wrong Lan-DeMets spending function. The correct one-sided form is
+     α(t) = 2 − 2Φ(z_{1−α/2}/√t) (gsDesign sfLDOF; verified against the
+     published docs). Boundaries are now [2.963, 1.969] (2-look),
+     [3.710, 2.511, 1.989] (3-look).
+  3. Task 4 cost wiring was stub-only. Now `build_ledger` derives
+     per-trade spreads (21-session trailing median) and R06 buffers
+     (with time-of-day multipliers: conservative 3.0/1.5/2.0), and the
+     marketable-exit add-ons follow R06 exactly (+1.0 bp conservative).
+  4. Missing bars were silently skipped. Now the Panel fails closed on
+     undeclared gaps; only *declared* halts are skipped (not counted).
+  5. Target filled on touch (`>=`). Fixed to strict `>` with a
+     regression test (the fix was lost before the round-1 push because
+     no test covered it — now it does).
+  6. Registry had no breach detection. Now `TrialRegistry.logged_run`
+     (complete/failed records) and `walkforward.run_evaluation`, which
+     requires a registry.
+  - Should-fix items also addressed: R05-22 entry blackouts (t−1
+    through resolution via `expand_blackouts`), R05-20 split
+    cancel/reissue (ratio-adjusted, flagged), R05-21 ex-div stop
+    flagging, R05-18 late time-exit flag, walk-forward 15-session
+    embargo made explicit and reachable, unfilled label_end = t+1,
+    MAE/MFE measured post-entry (intraday timing unknowable),
+    settlement-aware charge dates (T+3/T+2/T+1 per the prereg's
+    "≈ settlement").
+  - Earnings blackout: NOT a preregistered rule — it is R05 research
+    question 7 ("does excluding earnings improve tail risk?"), so its
+    absence from the simulator is correct.
+- T+1 charge-date correction: the sprint originally prescribed T+1 for
+  all history, but PREREG §1.2 says "≈ settlement" and settlement was
+  T+3/T+2 before 2024-05-28. Implemented the historical regimes as a
+  bug fix toward the preregistered intent (flagged for CEO awareness).
 
 ## Acceptance
 
@@ -129,32 +167,38 @@ Trial registry (PREREG §0 rules 3, 5):
   input; the S05 validation data stays outside the repo).
 - Live sizing/caps (unpreregistered; parameterized only).
 
-## Results
+## Results (round 2)
 
-- `research/panel.py`: session-indexed bar panel (plain-Python `Bar`; SPY
-  bar dates = session calendar; T+1 charge-date derivation; fail-closed).
+- `research/panel.py`: session-indexed bar panel (plain-Python `Bar`;
+  SPY bar dates = session calendar; settlement-aware charge dates
+  T+3/T+2/T+1; declared halts + fail-closed gap validation).
   Parquet read uses a lazy pandas import (research extra).
 - `research/simulator.py`: per-trade bracket event loop implementing
   PREREG §1.1 / R05 / D-020 — strict trade-through entries, D-020
-  open+buffer fills, stop/target bracket, stop-first ambiguity (flagged),
-  entry-day stop-out, no entry-day target fill, 15-session MOC time exit,
-  halted-session skipping, corporate-action event hooks. Fill prices embed
-  the R05 adverse buffer; R06 mechanical execution loss (+2.0 bp stops,
-  0.5·spread+1.0 bp time exits, conservative primary) is an explicit
-  add-on — no double-count.
+  open+buffer fills, strict target (`high > target`), stop/target
+  bracket, stop-first ambiguity (flagged), entry-day stop-out, no
+  entry-day target fill, 15-session MOC time exit with late-exit flag,
+  declared-halt skipping, R05-20 split reissue (flagged), R05-21 ex-div
+  stop flagging, R05-22 entry blackouts. Fill prices embed the R05
+  adverse buffer (R06 TOD multipliers); R06 marketable-exit loss
+  (+1.0 bp conservative) is an explicit add-on — no double-count.
 - `research/ledger.py`: candidate-day ledger per PREREG §1.1
-  (next-open counterfactual, MAE/MFE, time to exit, all flags) +
-  `ambiguity_report` (SCOPE §5 done-means) + `ledger_metrics` wiring
-  `research/metrics.py`.
-- `research/walkforward.py`: purge (label-interval overlap) + 15-session
-  embargo, date-grouped expanding folds.
+  (next-open counterfactual, post-entry MAE/MFE, sessions held, all
+  flags incl. late/exdiv/split) + `ambiguity_report` (SCOPE §5
+  done-means) + `ledger_metrics` wiring `research/metrics.py`.
+  Per-trade auto cost wiring (21-session trailing spread + R06 buffer).
+- `research/walkforward.py`: explicit 15-session embargo gap in
+  `make_folds`, reachable purge+embargo in `apply_purge_embargo`,
+  date-grouped expanding folds, and `run_evaluation` (requires a
+  registry).
 - `research/registry.py`: append-only JSON-lines trial registry
-  (timestamp, code hash, data hash per PREREG §0 rules 3/5).
-- `research/boundaries.py`: Lan-DeMets O'Brien-Fleming one-sided 2.5%
-  boundaries via grid recursion (verified against classic OBF values:
-  2-look [2.774, 1.981]) + dated archival.
-- Tests: 42 new (20 simulator known-answer, 10 walkforward/registry/
-  boundaries, 11 panel, 1 ledger-metrics); 283 total passing.
+  (timestamp, code hash, data hash per PREREG §0 rules 3/5) +
+  `logged_run` (complete/failed breach evidence).
+- `research/boundaries.py`: pure-Python Lan-DeMets O'Brien-Fleming
+  one-sided 2.5% (spending α(t) = 2−2Φ(z_{1−α/2}/√t), gsDesign sfLDOF)
+  via grid recursion + dated archival. Verified: 2-look [2.963,
+  1.969], 3-look [3.710, 2.511, 1.989].
+- Tests: 307 passing, 0 skipped (66 new/updated in round 2).
 - D-029 (entry limit rule) still pending CEO decision; the simulator
   takes the limit as an explicit input, default documented as signal
   close.

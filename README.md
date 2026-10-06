@@ -26,7 +26,7 @@ The gates are SCOPE.md §5's "done means" and PREREGISTRATION.md; this table add
 | Step 2m · S03 power figures | S01 merged, S02 T4 | 2026-10-04 | done | 24-mo §2.1 MDE 18.3 bp at 5% planning rate (< 25 bp); §3.2 MDE 2.0 bp — prereg-v1 clear (S03) |
 | **Step 2t · `prereg-v1`; the Q1 clock starts** | Steps 2 and 2m | **2026-10-04** | done | Q1/Q2/Q3 clocks running |
 | Step 3 · data plane (S04) | `prereg-v1` | 2026-10-05 | done | Partial: T2/T4/T7 UNRESOLVED (see `docs/research/data-plane-audit.md`) |
-| Step 4 · ranker, cost model, metrics | Step 3 | — | done (PR #7) | — |
+| Step 4 · ranker, cost model, metrics | Step 3 | — | done (PR #7, 2026-10-05) | — |
 | Step P · paper lane | Step 4 | — | forecast | — |
 | Step 5 · simulator, ledger, harness, registry | Step 4 | — | forecast | — |
 | Implementation freeze (PREREGISTRATION.md §0 rule 4) | Steps 3–5, and `textscore` for Q2/Q3 | before Oct 2027 | deadline | No look can be evaluated without it |
