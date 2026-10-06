@@ -212,7 +212,7 @@ Historical text results never open or close a gate. They are reported only with 
 
 | Date | Section | Change | Reason | Governed data examined before the change? |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| 2026-10-05 | §1 (Incumbent) | Sector-RS band thresholds set to Set A (+5/0/−5pp absolute) by CEO decision (SCOPE D-026) | The frozen `incumbent_v1.yaml` specifies the weighted-excess formula and band values [25,15,5,0] but no mapping cutoffs; this resolves the underspecification rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). Thresholds were chosen on 2016–2024 sector-ETF data, not the §2.1 test series. |
 
 ## 6. References
 

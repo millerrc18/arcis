@@ -12,6 +12,8 @@ inputs raise ValueError. Unresolved spec items raise UnresolvedError.
 
 from __future__ import annotations
 
+import math
+
 
 class UnresolvedError(Exception):
     """Raised when the YAML spec does not define the required behavior.
@@ -190,11 +192,14 @@ def score_sector_rs(weighted_excess: float) -> int:
                               + 0.30 * excess_6m  (percentage points vs SPY)
 
     Raises:
-      ValueError: on NaN input (fail-closed; unavailable sector RS is
-        represented as None at the blend step, never as NaN here).
+      ValueError: on NaN or non-finite input (fail-closed; unavailable
+        sector RS is represented as None at the blend step, never as NaN
+        here).
     """
-    if weighted_excess != weighted_excess:  # NaN check without math import
-        raise ValueError("score_sector_rs: weighted_excess is NaN")
+    if not math.isfinite(weighted_excess):
+        raise ValueError(
+            f"score_sector_rs: weighted_excess must be finite, got "
+            f"{weighted_excess}")
     for cutoff, points in _SECTOR_RS_BANDS:
         if weighted_excess >= cutoff:
             return points

@@ -21,26 +21,31 @@ from datetime import date
 
 # SEC Section 31: (effective_date, rate per $1M of sale principal)
 # Verified: $20.60 from 2026-04-04; zero from 2025-05-14 to 2026-04-03.
-# Earlier rates: UNRESOLVED (raise).
+# Earlier rates: UNRESOLVED (raise). The verified window closes at
+# 2026-12-31: R06 treats these as dated snapshots, not timeless constants,
+# so 2027+ raises instead of silently reusing the 2026 rate. (The full
+# historical fee-table rebuild is a separate pending decision.)
 SEC_FEE_SCHEDULE: list[tuple[date, float]] = [
     (date(2026, 4, 4), 20.60),   # $20.60 per $1M = 0.206 bp
 ]
 SEC_FEE_ZERO_START = date(2025, 5, 14)
 SEC_FEE_ZERO_END = date(2026, 4, 4)
+SEC_FEE_VERIFIED_END = date(2026, 12, 31)
 
 # FINRA TAF: (effective_date, end_date, rate per share)
-# Verified rates only. Caps: $9.79 verified for 2026 (R06:
-# "maximum USD 9.79 per trade in 2026"). Caps for other periods are
-# UNVERIFIED and raise. Do not invent caps.
+# Verified rates only. The 2026 window closes at 2026-12-31 (annual rate);
+# 2027+ raises instead of silently reusing the 2026 rate. Caps: $9.79
+# verified for 2026 (R06: "maximum USD 9.79 per trade in 2026"). Caps for
+# other periods are UNVERIFIED and raise. Do not invent caps.
 FINRA_TAF_RATES: list[tuple[date, date, float]] = [
     (date(2004, 1, 1), date(2011, 12, 31), 0.000075),   # 2004-2011
     (date(2024, 1, 1), date(2025, 12, 31), 0.000166),   # 2024-2025
-    (date(2026, 1, 1), date(9999, 12, 31), 0.000195),   # 2026+
+    (date(2026, 1, 1), date(2026, 12, 31), 0.000195),   # 2026
 ]
 # FINRA TAF caps: (effective_date, end_date, cap in dollars per trade)
 # Verified: $9.79 in 2026 (R06). Other periods: UNVERIFIED (raise).
 FINRA_TAF_CAPS: list[tuple[date, date, float]] = [
-    (date(2026, 1, 1), date(9999, 12, 31), 9.79),
+    (date(2026, 1, 1), date(2026, 12, 31), 9.79),
 ]
 FINRA_TAF_INCEPTION = date(2002, 10, 1)
 
@@ -65,13 +70,18 @@ def sec_fee_rate(as_of: date) -> float:
     """SEC Section 31 rate per $1M of sale principal on `as_of`.
 
     Raises UnresolvedFeeError for dates before 2025-05-14 (rates not
-    verified). Fail-closed: unknown rates do not silently become zero.
+    verified) and after 2026-12-31 (verified window closed; 2027+ rates
+    not verified). Fail-closed: unknown rates do not silently become zero
+    or silently reuse the 2026 rate.
     """
     if SEC_FEE_ZERO_START <= as_of < SEC_FEE_ZERO_END:
         return 0.0
     if as_of < SEC_FEE_ZERO_START:
         raise UnresolvedFeeError(
             f"SEC fee rate not verified for {as_of} (before 2025-05-14)")
+    if as_of > SEC_FEE_VERIFIED_END:
+        raise UnresolvedFeeError(
+            f"SEC fee rate not verified for {as_of} (after 2026-12-31)")
     rate = 0.0
     for eff_date, r in sorted(SEC_FEE_SCHEDULE):
         if as_of >= eff_date:

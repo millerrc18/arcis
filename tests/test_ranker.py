@@ -98,8 +98,40 @@ class TestScoringBands:
         assert scoring.score_sector_rs(-30.33) == 0
 
     def test_sector_rs_nan_fail_closed(self):
-        with pytest.raises(ValueError, match="NaN"):
+        with pytest.raises(ValueError, match="must be finite"):
             scoring.score_sector_rs(float("nan"))
+        with pytest.raises(ValueError, match="must be finite"):
+            scoring.score_sector_rs(float("inf"))
+
+    def test_sector_rs_end_to_end_units(self):
+        # The D-026 bands are in percentage points. The composer must emit
+        # pp, not fractions: a 20pp lead must score 25, a 20pp lag must
+        # score 0. A fractions/pp slip would park everything in 15/5.
+        # (Trailing return needs a rise over each window, not a high level.)
+        spy = [100.0] * 130
+        sector_up = [100.0] * 130
+        sector_up[-1] = 120.0    # +20% trailing on 21/63/126-session windows
+        wx = features.sector_weighted_excess(sector_up, spy, 21, 63, 126)
+        assert abs(wx - 20.0) < 1e-9
+        assert scoring.score_sector_rs(wx) == 25
+        sector_down = [100.0] * 130
+        sector_down[-1] = 80.0   # -20% trailing on 21/63/126-session windows
+        wx_down = features.sector_weighted_excess(sector_down, spy, 21, 63,
+                                                  126)
+        assert abs(wx_down - (-20.0)) < 1e-9
+        assert scoring.score_sector_rs(wx_down) == 0
+
+    def test_sector_weighted_excess_blend(self):
+        # Mixed windows: +10% / 0% / -10% ->
+        # 0.2*10 + 0.5*0 + 0.3*(-10) = -1.0 pp -> 5 points
+        spy = [100.0] * 130
+        sector = [100.0] * 130
+        sector[-1] = 110.0      # +10% over 21 sessions (vs 100.0)
+        sector[-64] = 110.0     # 0% over 63 sessions
+        sector[-127] = 110.0 / 0.9  # -10% over 126 sessions
+        wx = features.sector_weighted_excess(sector, spy, 21, 63, 126)
+        assert abs(wx - (-1.0)) < 1e-9
+        assert scoring.score_sector_rs(wx) == 5
 
     def test_blend_market_sector(self):
         # 60/40 blend
@@ -151,9 +183,36 @@ class TestScoringBands:
         )
         assert score == 70.0
 
+    def test_every_band_exercised(self):
+        # Band-coverage table: each scoring band from incumbent_v1.yaml
+        # (plus D-026 sector bands) is hit at least once.
+        s = scoring
+        assert s.score_trend_state("strong_uptrend") == 30
+        assert s.score_trend_state("uptrend") == 20
+        assert s.score_trend_state("neutral") == 5
+        assert s.score_relative_strength_state("strong_outperformer") == 25
+        assert s.score_relative_strength_state("outperformer") == 15
+        assert s.score_sector_rs(5.0) == 25
+        assert s.score_sector_rs(0.0) == 15
+        assert s.score_sector_rs(-5.0) == 5
+        assert s.score_sector_rs(-5.01) == 0
+        assert s.score_pullback_depth(-5.0) == 25
+        assert s.score_pullback_depth(-10.0) == 10
+        assert s.score_pullback_depth(-15.0) == 0
+        assert s.score_dist_to_sma20(-3.0) == 10
+        assert s.score_dist_to_sma20(-8.0) == 0
+        assert s.score_volume_ratio(0.5) == 15
+        assert s.score_volume_ratio(2.0) == 0
+        assert s.score_iv_rank(20.0) == 3
+        assert s.score_iv_rank(80.0) == 0
+        assert s.score_iv_put_call(80.0, 1.5) == -3
+        assert s.score_iv_put_call(20.0, 1.5) == 0
+
     def test_score_incumbent_fixture_incumbent_v1(self):
-        # Fixture reproducing incumbent_v1 end to end (SCOPE §5 Step 4
-        # done-means): every scoring band exercised with fixed inputs.
+        # Fixture reproducing the YAML-specified scoring bands end to end
+        # (SCOPE §5 Step 4 done-means for the ranker). Sector-RS bands are
+        # D-026 (post-tag CEO decision), not legacy outputs; trend/uptrend
+        # band exercised here, full band coverage in test_every_band_exercised.
         # trend(uptrend->20) + rs blend: market outperformer(15),
         #   sector +2.0->15 => 0.6*15 + 0.4*15 = 15.0
         # pullback(-5.5->25) + sma(-3->10) + vol(0.4->15) + iv(80->0)
@@ -176,8 +235,8 @@ class TestScoringBands:
 
     def test_score_incumbent_bearish(self):
         # trend(5) + rs(15, sector unavailable) + pullback(-15->0)
-        #   + sma(-8->0) + vol(2.0->0) + iv(90->0)
-        #   + iv_pc(90,1.5->-3) = 17 -> volatile_downtrend -10 -> 7
+        #   + sma(-8->0) + vol(2.0->0) + iv(80->0)
+        #   + iv_pc(80,1.5->-3) = 17 -> volatile_downtrend -10 -> 7
         score = scoring.score_incumbent(
             trend_state="neutral",
             rs_state="outperformer",

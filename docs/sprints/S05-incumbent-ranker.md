@@ -142,7 +142,7 @@ Known-answer-tested calculations:
 
 ## Sprint report
 
-**Status:** Code-complete; PR #7 opened. Fixture test reproduces `incumbent_v1` scoring end to end (SCOPE §5 Step 4 done-means for the ranker). Production use remains blocked on the UNRESOLVED items below — all fail closed rather than silently corrupting results.
+**Status:** Code-complete; PR #7 opened. Fixture test reproduces the YAML-specified scoring bands end to end (SCOPE §5 Step 4 done-means for the ranker). Production use remains blocked on the UNRESOLVED items below — all fail closed rather than silently corrupting results.
 
 **T1 (Scoring bands):** ✅ All bands from `incumbent_v1.yaml` implemented in `src/arcis/strategy/scoring.py`. First-match-wins, clamped [0, 100].
 
@@ -176,8 +176,9 @@ Known-answer-tested calculations:
 - FINRA TAF: 2026 cap $9.79 applied per R06; caps for other periods unverified (raise).
 - 21-session median smoothing: not implemented (deferred).
 - `score_incumbent` takes an explicit `sector_weighted_excess` (None = sector RS unavailable → market RS at full weight, per the YAML fallback). `market_breadth`/`spy_rsi` are required arguments; None means unknown → no adjustment for that component.
+- D-026: the sector-RS band thresholds (+5/0/−5pp, Set A) are a post-tag CEO decision (2026-10-05), not the legacy mapping — `incumbent_v1.yaml` cites legacy `src/ranking/ranker.py:133-147` but specifies no cutoffs. The fixture test verifies the YAML-specified bands plus D-026, not legacy outputs. Recorded in PREREGISTRATION.md §5.
 
-**Tests:** 227 total, all passing, 0 skipped (includes T7 membership test, fail-closed tests, composed ranker tests, fixture reproduction test, Wilder 41-bar and CS/AR known-answer tests).
+**Tests:** 231 total, all passing locally (2 skip where pandas is unavailable, e.g. CI); includes T7 membership test, fail-closed tests, composed ranker tests, fixture reproduction test, band-coverage table, Wilder 41-bar and CS/AR known-answer tests, sector-RS end-to-end units test.
 
 **Artifacts:**
 - `src/arcis/strategy/` — scoring, features, membership

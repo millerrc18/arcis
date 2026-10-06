@@ -34,6 +34,14 @@ class TestDatedFees:
         with pytest.raises(UnresolvedFeeError, match="not verified"):
             r06.sec_fee(50_000.0, date(2020, 1, 2))
 
+    def test_fee_windows_close_at_2026_end(self):
+        # Dated snapshots, not timeless constants: 2027+ raises instead of
+        # silently reusing 2026 rates/caps.
+        with pytest.raises(UnresolvedFeeError, match="not verified"):
+            r06.sec_fee_rate(date(2027, 1, 1))
+        with pytest.raises(UnresolvedFeeError, match="not verified"):
+            r06.finra_taf(500.0, date(2027, 6, 1))
+
     def test_finra_taf_2026_cap(self):
         # R06: maximum $9.79 per trade in 2026.
         # 100,000 shares @ $0.000195 = $19.50 -> capped at $9.79

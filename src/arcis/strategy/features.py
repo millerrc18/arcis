@@ -123,3 +123,25 @@ def excess_return(symbol_closes: list[float], benchmark_closes: list[float],
     sym_ret = symbol_closes[-1] / symbol_closes[-periods - 1] - 1.0
     bench_ret = benchmark_closes[-1] / benchmark_closes[-periods - 1] - 1.0
     return sym_ret - bench_ret
+
+
+def sector_weighted_excess(sector_closes: list[float],
+                           spy_closes: list[float],
+                           sessions_1m: int, sessions_3m: int,
+                           sessions_6m: int) -> float:
+    """Weighted sector excess return vs SPY, in percentage points.
+
+    0.20 * excess_1m + 0.50 * excess_3m + 0.30 * excess_6m
+    (config/incumbent_v1.yaml sector_rs formula).
+
+    Session counts are required arguments (no defaults): the YAML does not
+    specify the 1m/3m/6m day counts, so callers must choose explicitly.
+
+    Returns percentage points (not fractions) to match the D-026 Set A
+    scoring bands. A units slip here would silently misband every sector,
+    so this is covered by an end-to-end test through score_sector_rs.
+    """
+    e1 = excess_return(sector_closes, spy_closes, sessions_1m)
+    e3 = excess_return(sector_closes, spy_closes, sessions_3m)
+    e6 = excess_return(sector_closes, spy_closes, sessions_6m)
+    return (0.20 * e1 + 0.50 * e3 + 0.30 * e6) * 100.0
