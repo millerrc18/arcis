@@ -13,41 +13,23 @@ from __future__ import annotations
 import math
 from datetime import date
 
+from arcis.research.fee_schedules import (
+    sec_section31_rate,
+    taf_cap,
+    taf_rate,
+)
+
 # --- Dated fee schedules ---
 #
-# UNRESOLVED: Historical SEC and FINRA rates before the dates below are
-# not verified. The functions raise UnresolvedFeeError for such dates
-# instead of silently returning zero (fail-closed per I-8, I-15).
-
-# SEC Section 31: (effective_date, rate per $1M of sale principal)
-# Verified: $20.60 from 2026-04-04; zero from 2025-05-14 to 2026-04-03.
-# Earlier rates: UNRESOLVED (raise). The verified window closes at
-# 2026-12-31: R06 treats these as dated snapshots, not timeless constants,
-# so 2027+ raises instead of silently reusing the 2026 rate. (The full
-# historical fee-table rebuild is a separate pending decision.)
-SEC_FEE_SCHEDULE: list[tuple[date, float]] = [
-    (date(2026, 4, 4), 20.60),   # $20.60 per $1M = 0.206 bp
-]
-SEC_FEE_ZERO_START = date(2025, 5, 14)
-SEC_FEE_ZERO_END = date(2026, 4, 4)
-SEC_FEE_VERIFIED_END = date(2026, 12, 31)
-
-# FINRA TAF: (effective_date, end_date, rate per share)
-# Verified rates only. The 2026 window closes at 2026-12-31 (annual rate);
-# 2027+ raises instead of silently reusing the 2026 rate. Caps: $9.79
-# verified for 2026 (R06: "maximum USD 9.79 per trade in 2026"). Caps for
-# other periods are UNVERIFIED and raise. Do not invent caps.
-FINRA_TAF_RATES: list[tuple[date, date, float]] = [
-    (date(2004, 1, 1), date(2011, 12, 31), 0.000075),   # 2004-2011
-    (date(2024, 1, 1), date(2025, 12, 31), 0.000166),   # 2024-2025
-    (date(2026, 1, 1), date(2026, 12, 31), 0.000195),   # 2026
-]
-# FINRA TAF caps: (effective_date, end_date, cap in dollars per trade)
-# Verified: $9.79 in 2026 (R06). Other periods: UNVERIFIED (raise).
-FINRA_TAF_CAPS: list[tuple[date, date, float]] = [
-    (date(2026, 1, 1), date(2026, 12, 31), 9.79),
-]
-FINRA_TAF_INCEPTION = date(2002, 10, 1)
+# Full verified schedules live in arcis.research.fee_schedules
+# (33 SEC Section 31 periods, 1934–2026; 8 FINRA TAF periods, 2002–2026),
+# reconstructed 2026-10-06 from SEC/FINRA primary sources.
+# Research notes: ~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/
+#
+# Date conventions: SEC Section 31 is looked up by CHARGE date (≈ settlement
+# date); FINRA TAF by TRADE date. total_trade_cost takes the trade date as
+# `as_of` and an optional `charge_date` (defaults to `as_of`: a documented
+# 1-day approximation; pass the settlement date for exactness).
 
 # CAT fee per executed equivalent share (both sides)
 # R06: "Set zero until a verified Alpaca or executing-broker CAT
@@ -59,79 +41,53 @@ CAT_FEE_PER_SHARE = 0.0
 TICK_SIZE = 0.01
 
 
-class UnresolvedFeeError(Exception):
-    """Raised when a fee rate is not verified for the given date.
+def sec_fee_rate(charge_date: date) -> float:
+    """SEC Section 31 rate per $1M of sale principal for `charge_date`.
 
-    Fail-closed: unknown rates raise instead of silently returning zero.
+    Charge date generally means settlement date (not trade date).
+    Delegates to the verified schedule in fee_schedules; raises
+    UnresolvedFeeError outside the verified window.
     """
+    return sec_section31_rate(charge_date)
 
 
-def sec_fee_rate(as_of: date) -> float:
-    """SEC Section 31 rate per $1M of sale principal on `as_of`.
+def sec_fee(sale_notional: float, charge_date: date) -> float:
+    """SEC fee in dollars: sale_notional * rate / 1,000,000.
 
-    Raises UnresolvedFeeError for dates before 2025-05-14 (rates not
-    verified) and after 2026-12-31 (verified window closed; 2027+ rates
-    not verified). Fail-closed: unknown rates do not silently become zero
-    or silently reuse the 2026 rate.
+    `charge_date` is the charge date (≈ settlement date).
     """
-    if SEC_FEE_ZERO_START <= as_of < SEC_FEE_ZERO_END:
-        return 0.0
-    if as_of < SEC_FEE_ZERO_START:
-        raise UnresolvedFeeError(
-            f"SEC fee rate not verified for {as_of} (before 2025-05-14)")
-    if as_of > SEC_FEE_VERIFIED_END:
-        raise UnresolvedFeeError(
-            f"SEC fee rate not verified for {as_of} (after 2026-12-31)")
-    rate = 0.0
-    for eff_date, r in sorted(SEC_FEE_SCHEDULE):
-        if as_of >= eff_date:
-            rate = r
-    return rate
+    return sale_notional * sec_fee_rate(charge_date) / 1_000_000
 
 
-def sec_fee(sale_notional: float, as_of: date) -> float:
-    """SEC fee in dollars: sale_notional * rate / 1,000,000."""
-    return sale_notional * sec_fee_rate(as_of) / 1_000_000
+def finra_taf_rate(trade_date: date) -> float:
+    """FINRA TAF rate per share for `trade_date` (cap applied separately).
 
-
-def finra_taf_rate(as_of: date) -> float:
-    """FINRA TAF rate per share on `as_of` (cap applied separately).
-
-    Raises UnresolvedFeeError for dates with no verified rate.
-    Zero before FINRA TAF inception (2002-10-01) per R06.
+    Trade date, not settlement date. Zero before TAF inception
+    (2002-10-01); raises UnresolvedFeeError after 2026-12-31.
     """
-    if as_of < FINRA_TAF_INCEPTION:
-        return 0.0
-    for start, end, rate in FINRA_TAF_RATES:
-        if start <= as_of <= end:
-            return rate
-    # No verified rate for this date (e.g., 2002-2003, 2012-2023)
-    raise UnresolvedFeeError(
-        f"FINRA TAF rate not verified for {as_of}")
+    return taf_rate(trade_date)
 
 
-def finra_taf_cap(as_of: date) -> float:
-    """FINRA TAF cap in dollars per trade on `as_of`.
+def finra_taf_cap(trade_date: date) -> float:
+    """FINRA TAF cap in dollars per trade for `trade_date`.
 
-    Verified: $9.79 in 2026 (R06). Raises UnresolvedFeeError for periods
-    whose cap is not verified (e.g. 2024-2025, 2004-2011).
+    Raises UnresolvedFeeError during the $0 assessment holiday and
+    outside the verified window.
     """
-    for start, end, cap in FINRA_TAF_CAPS:
-        if start <= as_of <= end:
-            return cap
-    raise UnresolvedFeeError(
-        f"FINRA TAF cap not verified for {as_of}")
+    return taf_cap(trade_date)
 
 
-def finra_taf(shares_sold: float, as_of: date) -> float:
+def finra_taf(shares_sold: float, trade_date: date) -> float:
     """FINRA TAF in dollars: min(shares * rate, dated cap) per R06.
 
-    Zero before TAF inception (2002-10-01); no cap lookup needed there.
+    `trade_date` is the trade date. Zero before TAF inception
+    (2002-10-01) and during the $0 assessment holiday (2026-10-01
+    through 2026-12-31); no cap lookup needed when the rate is zero.
     """
-    rate = finra_taf_rate(as_of)  # 0.0 pre-inception; raises if unverified
+    rate = finra_taf_rate(trade_date)  # 0.0 pre-inception/holiday
     if rate == 0.0:
         return 0.0
-    return min(shares_sold * rate, finra_taf_cap(as_of))
+    return min(shares_sold * rate, finra_taf_cap(trade_date))
 
 
 def cat_fee(shares: float) -> float:
@@ -289,10 +245,17 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
                      exit_type: str = "marketable",
                      gap_shortfall: float = 0.0,
                      commission_model: str = "modern",
-                     cost_model: str = "central") -> dict[str, float]:
+                     cost_model: str = "central",
+                     charge_date: date | None = None) -> dict[str, float]:
     """Total trade cost in dollars and basis points.
 
     Returns dict with dollar amounts per component and total bp.
+
+    Date conventions: `as_of` is the trade date (drives the FINRA TAF
+    lookup). `charge_date` is the SEC Section 31 charge date (≈ settlement
+    date); when None it defaults to `as_of`, a documented 1-day
+    approximation — pass the settlement date for exactness around
+    Section 31 rate changes.
 
     Raises ValueError on non-positive notional (fail-closed: a cost in
     basis points is undefined without a notional base).
@@ -303,7 +266,9 @@ def total_trade_cost(notional: float, shares: int, is_sell: bool,
     comm = commission(shares, commission_model)
     cat = cat_fee(shares)
 
-    sec = sec_fee(notional, as_of) if is_sell else 0.0
+    sec = sec_fee(notional,
+                  charge_date if charge_date is not None else as_of
+                  ) if is_sell else 0.0
     taf = finra_taf(shares, as_of) if is_sell else 0.0
 
     if exit_type == "marketable":

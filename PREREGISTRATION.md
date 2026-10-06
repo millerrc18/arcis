@@ -213,6 +213,8 @@ Historical text results never open or close a gate. They are reported only with 
 | Date | Section | Change | Reason | Governed data examined before the change? |
 |---|---|---|---|---|
 | 2026-10-05 | §1 (Incumbent) | Sector-RS band thresholds set to Set A (+5/0/−5pp absolute) by CEO decision (SCOPE D-026) | The frozen `incumbent_v1.yaml` specifies the weighted-excess formula and band values [25,15,5,0] but no mapping cutoffs; this resolves the underspecification rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). Thresholds were chosen on 2016–2024 sector-ETF data, not the §2.1 test series. |
+| 2026-10-05 | §1 (Incumbent) | Feature lookback windows pinned by CEO decision (SCOPE D-027): pullback depth 60 trading sessions; sector-RS windows 21/63/126 trading sessions | The frozen YAML pins the sector-RS blend weights but no window lengths and no pullback lookback; this resolves the underspecification rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). No test-series data used. |
+| 2026-10-05 | §1 (Incumbent) | Band boundary operators adopted from the recovered Sprint F legacy operators by CEO decision (SCOPE D-028), superseding the fail-closed boundary reading | The frozen YAML states ranges without inclusivities; the Sprint F evaluation document (line-cited to the legacy ranker) records the actual operators, so this adopts recovered ground truth rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). No test-series data used. |
 
 ## 6. References
 

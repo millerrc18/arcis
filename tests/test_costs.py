@@ -12,7 +12,7 @@ from datetime import date
 import pytest
 
 from arcis.research import costs as r06
-from arcis.research.costs import UnresolvedFeeError
+from arcis.research.fee_schedules import UnresolvedFeeError
 
 
 class TestDatedFees:
@@ -27,12 +27,25 @@ class TestDatedFees:
         assert r06.sec_fee(50_000.0, date(2025, 8, 1)) == 0.0
         assert r06.sec_fee(50_000.0, date(2026, 4, 3)) == 0.0
 
-    def test_sec_fee_unresolved_before_2025(self):
-        # Fail-closed: unknown historical rates raise, not $0
+    def test_sec_fee_historical_rates_verified(self):
+        # Full 33-period schedule now verified (S05-fee-tables).
+        # 2024-06-03: $27.80/M -> $50,000 * 27.80 / 1e6 = $1.39
+        assert abs(r06.sec_fee(50_000.0, date(2024, 6, 3)) - 1.39) < 0.01
+        # 2020-01-02: $20.70/M -> $50,000 * 20.70 / 1e6 = $1.035
+        assert abs(r06.sec_fee(50_000.0, date(2020, 1, 2)) - 1.035) < 0.01
+        # 2008-06-01: $5.60/M -> $50,000 * 5.60 / 1e6 = $0.28
+        assert abs(r06.sec_fee(50_000.0, date(2008, 6, 1)) - 0.28) < 0.01
+        # Before the Exchange Act: fail-closed, not $0
         with pytest.raises(UnresolvedFeeError, match="not verified"):
-            r06.sec_fee(50_000.0, date(2024, 6, 3))
-        with pytest.raises(UnresolvedFeeError, match="not verified"):
-            r06.sec_fee(50_000.0, date(2020, 1, 2))
+            r06.sec_fee(50_000.0, date(1930, 1, 1))
+
+    def test_sec_fee_boundary_dates(self):
+        # $0 through charge date 2026-04-03; $20.60 from 2026-04-04.
+        assert r06.sec_fee_rate(date(2026, 4, 3)) == 0.0
+        assert r06.sec_fee_rate(date(2026, 4, 4)) == 20.60
+        # $27.80 through 2025-05-13; $0 from 2025-05-14.
+        assert r06.sec_fee_rate(date(2025, 5, 13)) == 27.80
+        assert r06.sec_fee_rate(date(2025, 5, 14)) == 0.0
 
     def test_fee_windows_close_at_2026_end(self):
         # Dated snapshots, not timeless constants: 2027+ raises instead of
@@ -57,17 +70,37 @@ class TestDatedFees:
         # Before 2002-10-01: zero (pre-TAF)
         assert r06.finra_taf(500.0, date(2000, 1, 1)) == 0.0
 
-    def test_finra_taf_2004_2011_cap_unverified(self):
-        # Rate is verified ($0.000075) but the cap is not -> fail-closed
-        with pytest.raises(UnresolvedFeeError, match="cap not verified"):
-            r06.finra_taf(1000.0, date(2008, 6, 1))
-        # The rate alone is still available
-        assert abs(r06.finra_taf_rate(date(2008, 6, 1)) - 0.000075) < 1e-9
+    def test_finra_taf_2004_2011_cap_verified(self):
+        # 2004-11-01–2011-06-30: $0.000075/share, $3.75 cap (NTM 04-84).
+        # 1000 shares -> $0.075 < $3.75 cap: uncapped
+        assert abs(r06.finra_taf(1000.0, date(2008, 6, 1)) - 0.075) < 1e-9
+        # 100,000 shares -> $7.50 > $3.75 cap: capped
+        assert abs(r06.finra_taf(100_000.0, date(2008, 6, 1)) - 3.75) < 1e-9
+        assert abs(r06.finra_taf_cap(date(2008, 6, 1)) - 3.75) < 1e-9
 
-    def test_finra_taf_unresolved_gap(self):
-        # 2012-2023: no verified rate; fail-closed
+    def test_finra_taf_2012_2023_rate_verified(self):
+        # Research correction: the TAF was NOT $0 in 2012-2023.
+        # 2012-07-01–2023-12-31: $0.000119/share, $5.95 cap (Notice 12-31).
+        assert abs(r06.finra_taf_rate(date(2016, 6, 1)) - 0.000119) < 1e-9
+        assert abs(r06.finra_taf(1000.0, date(2016, 6, 1)) - 0.119) < 1e-9
+        assert abs(r06.finra_taf_cap(date(2016, 6, 1)) - 5.95) < 1e-9
+
+    def test_finra_taf_q4_2026_holiday(self):
+        # $0 assessment 2026-10-01 through 2026-12-31 (FR Doc. 2026-19392).
+        assert r06.finra_taf(100_000.0, date(2026, 10, 1)) == 0.0
+        assert r06.finra_taf(100_000.0, date(2026, 11, 15)) == 0.0
+        assert r06.finra_taf(100_000.0, date(2026, 12, 31)) == 0.0
+        # Cap has no meaning during the $0 holiday: fail-closed.
+        with pytest.raises(UnresolvedFeeError, match="not applicable"):
+            r06.finra_taf_cap(date(2026, 11, 15))
+
+    def test_finra_taf_holiday_boundaries(self):
+        # $0.000195 through trade date 2026-09-30; $0 from 2026-10-01.
+        assert abs(r06.finra_taf_rate(date(2026, 9, 30)) - 0.000195) < 1e-9
+        assert r06.finra_taf_rate(date(2026, 10, 1)) == 0.0
+        # 2027: ambiguous which scheduled rate resumes -> fail-closed.
         with pytest.raises(UnresolvedFeeError, match="not verified"):
-            r06.finra_taf(1000.0, date(2016, 6, 1))
+            r06.finra_taf_rate(date(2027, 1, 5))
 
     def test_cat_fee_zero_per_r06(self):
         # R06: zero until verified CAT schedule; no invented $0.000003
@@ -210,3 +243,20 @@ class TestTotalCost:
             r06.total_trade_cost(
                 notional=0.0, shares=100, is_sell=True,
                 as_of=date(2026, 6, 1), spread=0.001)
+
+    def test_charge_date_vs_trade_date(self):
+        # Trade date 2026-04-03 (Fri); T+1 settlement = 2026-04-06 (Mon).
+        # SEC $0 through charge date 2026-04-03, $20.60 from 2026-04-04.
+        # Default (no charge_date): as_of doubles as the charge date.
+        default = r06.total_trade_cost(
+            notional=10_000.0, shares=100, is_sell=True,
+            as_of=date(2026, 4, 3), spread=0.001, exit_type="passive")
+        assert default["sec_fee"] == 0.0
+        # Exact: pass the settlement date -> $10,000 * 20.60 / 1e6.
+        exact = r06.total_trade_cost(
+            notional=10_000.0, shares=100, is_sell=True,
+            as_of=date(2026, 4, 3), spread=0.001, exit_type="passive",
+            charge_date=date(2026, 4, 6))
+        assert abs(exact["sec_fee"] - 0.206) < 0.01
+        # TAF always uses the trade date, unaffected by charge_date.
+        assert abs(exact["finra_taf"] - 0.0195) < 0.001

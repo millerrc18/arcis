@@ -1534,3 +1534,26 @@ RQ-12 is answered. Figures in R01, R03 and R09 carry inline `[R12: ...]` markers
 1. Do the published FAJ 73(3) tables of Heston & Sinha and the JF 63(3) Table II of Tetlock et al. match the working papers read here?
 2. Do SSRN 4412788 and 5217505 correspond to the two Lopez-Lira papers?
 3. Does the SSRN copy of Ke, Kelly & Xiu (3389884, September 2020) change Table 2 or Table 4?
+
+## R06 update - 2026-10-06 - Fee schedule rebuild
+
+The R06 dated fee snapshots were replaced with fully reconstructed historical schedules (S05-fee-tables, SCOPE D-027/D-028 era). Research notes and per-entry verification flags: `~/workspace/research_notes/sec-taf-fee-schedules-20261006-0046/` (outside the repo).
+
+### What was built
+
+- `src/arcis/research/fee_schedules.py`: 33 SEC Section 31 rate periods (1934-06-06 through 2026-12-31) and 8 FINRA TAF rate/cap periods (2002-10-01 through 2026-12-31), each with a primary source URL. `costs.py` now delegates to it; the old inline snapshots are removed.
+- Date conventions made explicit: SEC Section 31 is looked up by charge date (≈ settlement date); FINRA TAF by trade date. `total_trade_cost` takes the trade date as `as_of` plus an optional `charge_date` (defaults to `as_of`; a documented 1-day approximation — pass the settlement date for exactness around Section 31 changes).
+
+### Corrections to earlier R06 assumptions
+
+- The TAF was NOT zero in 2012–2023. 2012-07-01–2023-12-31 was $0.000119/share capped at $5.95 (FINRA Regulatory Notice 12-31). The earlier $0 treatment was an unverified assumption.
+- There was no $0 TAF period in 2003; the first reduction was 2004-11-01 ($0.000075/share, $3.75 cap, NTM 04-84).
+- 8 TAF periods, not the ~10 previously expected.
+- Q4 2026 is a $0 TAF assessment holiday (2026-10-01–2026-12-31, Federal Register Doc. 2026-19392); $0.000195/share and the $9.79 cap applied 2026-01-01–2026-09-30. During the holiday the TAF is $0 and the cap lookup raises (no cap concept when no fee is assessed).
+- 2027+ is fail-closed for both fees: the SEC FY2026 $20.60 rate runs "until 60 days after FY2027 appropriation" (unknown date), and the TAF pause filing's "previous rates will resume" wording is ambiguous about which 2027 rate resumes.
+- Two SEC effective dates (2007-03-17 for $15.30, 2008-01-25 for $11.00) are inferred from the statutory 30-days-after-appropriation formula and flagged as such in the module; both are corroborated by secondary sources.
+
+### Implications
+
+- Key confirmed recent periods: SEC $27.80/M (2024-05-22–2025-05-13), $0.00 (2025-05-14–2026-04-03), $20.60/M (2026-04-04 onward). TAF $0.000166/$8.30 (2024–2025), $0.000195/$9.79 (2026-01-01–2026-09-30), $0.00 (2026-10-01–2026-12-31).
+- Backtests that used the old snapshots (2027+ reuse, 2012–2023 TAF $0, unverified caps) must be re-run on the rebuilt tables.

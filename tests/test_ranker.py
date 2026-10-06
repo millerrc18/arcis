@@ -4,14 +4,12 @@ Tests the scoring bands, regime adjustments, and technical features
 against hand-computed values. Clean-room implementation; no legacy
 code was referenced.
 
-Fail-closed: unknown labels raise ValueError; unresolved spec items
-raise UnresolvedError; degenerate data raises ValueError.
+Fail-closed: unknown labels raise ValueError; degenerate data raises ValueError.
 """
 
 import pytest
 
 from arcis.strategy import features, scoring
-from arcis.strategy.scoring import UnresolvedError
 
 
 class TestScoringBands:
@@ -46,10 +44,10 @@ class TestScoringBands:
         assert scoring.score_pullback_depth(-12.0) == 10
         assert scoring.score_pullback_depth(-8.5) == 10
 
-    def test_pullback_depth_boundary_unresolved(self):
-        # -3.0 exactly: YAML silent on inclusivity; fail-closed
-        with pytest.raises(UnresolvedError, match="-3.0"):
-            scoring.score_pullback_depth(-3.0)
+    def test_pullback_depth_boundary_d028(self):
+        # D-028: Sprint F doc §1.4 "pullback sweet spot [-8, -3] -> +25"
+        # (closed upper bound). -3.0 scores 25; -2.9 falls through to 0.
+        assert scoring.score_pullback_depth(-3.0) == 25
         assert scoring.score_pullback_depth(-2.9) == 0
         # -8.0 goes to first band (order-sensitive)
         assert scoring.score_pullback_depth(-8.0) == 25
@@ -252,14 +250,16 @@ class TestScoringBands:
         )
         assert score == 7.0
 
-    def test_boundary_values_raise_unresolved(self):
-        # Ambiguous YAML boundaries fail closed, consistently.
-        with pytest.raises(UnresolvedError, match="-1.0"):
-            scoring.score_dist_to_sma20(-1.0)
-        with pytest.raises(UnresolvedError, match="0.8"):
-            scoring.score_volume_ratio(0.8)
-        with pytest.raises(UnresolvedError, match="== 25"):
-            scoring.score_iv_rank(25.0)
+    def test_boundary_values_d028(self):
+        # D-028: legacy operators from Sprint F doc §1.4 (line-cited to
+        # src/ranking/ranker.py). -1.0 is inside [-5,-1] -> 10; 0.8 fails
+        # the strict "< 0.8" -> 0; 25.0 fails the strict "< 25" -> 0.
+        assert scoring.score_dist_to_sma20(-1.0) == 10
+        assert scoring.score_volume_ratio(0.8) == 0
+        assert scoring.score_iv_rank(25.0) == 0
+        # Just inside the strict bounds still scores.
+        assert scoring.score_volume_ratio(0.7999) == 15
+        assert scoring.score_iv_rank(24.9999) == 3
 
 
 class TestRegimeAdjustments:
@@ -395,6 +395,41 @@ class TestFeatures:
         sym = [100.0, 110.0]
         bench = [100.0, 105.0]
         assert abs(features.excess_return(sym, bench, 1) - 0.05) < 0.001
+
+    def test_d027_session_pins(self):
+        # D-027 (CEO 2026-10-05): pinned session counts, trading sessions.
+        assert features.PULLBACK_LOOKBACK_SESSIONS == 60
+        assert features.SECTOR_RS_SESSIONS_1M == 21
+        assert features.SECTOR_RS_SESSIONS_3M == 63
+        assert features.SECTOR_RS_SESSIONS_6M == 126
+
+    def test_sector_weighted_excess_default_sessions(self):
+        # Defaults are the D-027 pins: omitting them matches explicit args.
+        spy = [100.0] * 130
+        sector = [100.0] * 130
+        sector[-1] = 120.0
+        assert (features.sector_weighted_excess(sector, spy)
+                == features.sector_weighted_excess(sector, spy, 21, 63, 126))
+
+    def test_sector_weighted_excess_bad_sessions_raise(self):
+        spy = [100.0] * 130
+        sector = [100.0] * 130
+        # Zero sessions would silently return 0.0 (scores 15, not 25).
+        with pytest.raises(ValueError, match="0 < s1m"):
+            features.sector_weighted_excess(sector, spy, 0, 0, 0)
+        # Negative sessions would wrap around the series.
+        with pytest.raises(ValueError, match="0 < s1m"):
+            features.sector_weighted_excess(sector, spy, -1, 63, 126)
+        # Non-ascending windows are misaligned by construction.
+        with pytest.raises(ValueError, match="0 < s1m"):
+            features.sector_weighted_excess(sector, spy, 63, 21, 126)
+
+    def test_sector_weighted_excess_mismatched_lengths_raise(self):
+        # Series ending on different dates silently bias the excess.
+        spy = [100.0] * 130
+        sector = [100.0] * 129
+        with pytest.raises(ValueError, match="equal length"):
+            features.sector_weighted_excess(sector, spy)
 
 
 class TestMembership:

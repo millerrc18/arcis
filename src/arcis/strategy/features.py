@@ -6,6 +6,17 @@ specified. Known-answer tests in tests/test_ranker.py.
 
 from __future__ import annotations
 
+# --- Pinned lookback / session parameters (D-027, CEO decision 2026-10-05) ---
+# The frozen incumbent_v1.yaml never specified these values; they are
+# resolved here as a dated implementation decision, not a preregistration
+# change. Units are trading sessions (not calendar days): this is a
+# daily-bar system. 21/63/126 are the market-standard 1m/3m/6m session
+# counts.
+PULLBACK_LOOKBACK_SESSIONS = 60
+SECTOR_RS_SESSIONS_1M = 21
+SECTOR_RS_SESSIONS_3M = 63
+SECTOR_RS_SESSIONS_6M = 126
+
 
 def sma(values: list[float], period: int) -> float:
     """Simple moving average of the last `period` values."""
@@ -76,7 +87,8 @@ def volume_ratio(volumes: list[float], period: int = 20) -> float:
     return volumes[-1] / avg
 
 
-def pullback_depth_pct(closes: list[float], lookback: int = 60) -> float:
+def pullback_depth_pct(closes: list[float],
+                       lookback: int = PULLBACK_LOOKBACK_SESSIONS) -> float:
     """Pullback depth: (current - recent high) / recent high * 100.
 
     Negative value indicates a pullback. E.g., -5.0 means 5% below
@@ -86,8 +98,7 @@ def pullback_depth_pct(closes: list[float], lookback: int = 60) -> float:
     fewer than `lookback` closes are available (fail-closed: measuring
     the pullback over a truncated window would silently understate it).
 
-    UNRESOLVED: lookback=60 is not in the YAML. Needs CEO decision
-    or legacy verification.
+    Default lookback is PULLBACK_LOOKBACK_SESSIONS (D-027).
     """
     if len(closes) < lookback:
         raise ValueError(f"need {lookback} closes for pullback lookback, "
@@ -127,20 +138,35 @@ def excess_return(symbol_closes: list[float], benchmark_closes: list[float],
 
 def sector_weighted_excess(sector_closes: list[float],
                            spy_closes: list[float],
-                           sessions_1m: int, sessions_3m: int,
-                           sessions_6m: int) -> float:
+                           sessions_1m: int = SECTOR_RS_SESSIONS_1M,
+                           sessions_3m: int = SECTOR_RS_SESSIONS_3M,
+                           sessions_6m: int = SECTOR_RS_SESSIONS_6M) -> float:
     """Weighted sector excess return vs SPY, in percentage points.
 
     0.20 * excess_1m + 0.50 * excess_3m + 0.30 * excess_6m
     (config/incumbent_v1.yaml sector_rs formula).
 
-    Session counts are required arguments (no defaults): the YAML does not
-    specify the 1m/3m/6m day counts, so callers must choose explicitly.
+    Default session counts are the D-027 pins (21/63/126); explicit
+    arguments still override.
 
     Returns percentage points (not fractions) to match the D-026 Set A
     scoring bands. A units slip here would silently misband every sector,
     so this is covered by an end-to-end test through score_sector_rs.
+
+    Raises ValueError on misaligned inputs: session counts must satisfy
+    0 < s1 < s3 < s6 (a zero count would silently return 0.0; a negative
+    count would wrap around the series), and both close series must have
+    equal length (a length mismatch means the two series end on different
+    dates, silently biasing the excess).
     """
+    if not (0 < sessions_1m < sessions_3m < sessions_6m):
+        raise ValueError(
+            "session counts must satisfy 0 < s1m < s3m < s6m, got "
+            f"({sessions_1m}, {sessions_3m}, {sessions_6m})")
+    if len(sector_closes) != len(spy_closes):
+        raise ValueError(
+            "sector_closes and spy_closes must have equal length, got "
+            f"{len(sector_closes)} and {len(spy_closes)}")
     e1 = excess_return(sector_closes, spy_closes, sessions_1m)
     e3 = excess_return(sector_closes, spy_closes, sessions_3m)
     e6 = excess_return(sector_closes, spy_closes, sessions_6m)
