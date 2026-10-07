@@ -57,6 +57,8 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 | Incumbent ranker | `strategy` | 4 | yes | Pure functions implementing the frozen `incumbent_v1`; shared with the live lane |
 | Research core | `research` | 4–5 | yes | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
 | Text scoring for Q2/Q3 | `textscore` | after 5 | no | ProsusAI/finbert (ONNX INT8) plus one pinned general instruction model (candidate: Qwen3-14B Q5), schema-constrained, chosen on blinded human labels without looking at returns. Research only; no training code |
+| Odd-lot tender engine | `oddlot` | E1 | yes | EDGAR SC TO-I ingestion; LLM offer-document reader (odd-lot clause, price, conditions, expiration); opportunity tracker with pre-trade checklist and lifecycle states |
+| Reconstitution monitor | `reconstitution` | E3 | yes | Russell/S&P reconstitution event tracking; long-side candidate classification (downward migrations, deletion rebounds); December 2026 live trade checklist |
 
 ### 3.2 CORE — live lane (paper-only from Step P; real money only after Q1 authorizes it)
 
@@ -142,6 +144,20 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 
 Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8). PREREGISTRATION.md is completed from the Step 2 report and tagged before Step 3 begins. S03 (Step 2m) runs once S01 has merged and S02 T4 has frozen the incumbent, and finishes before the tag. The tag starts the forward evidence clock for Q1, so Steps 3 to 5 are built while that clock runs.
 
+### 5.1 Structural edge track (D-039, 2026-10-06)
+
+Parallel to the systematic signal track above. North star is generational wealth; these phases harvest contractual/structural edges to grow capital sequentially. Each phase funds the next.
+
+| Phase | Deliverable | Done means |
+|---|---|---|
+| E1 | Odd-lot tender engine: EDGAR SC TO-I ingestion + LLM offer-document reader | Ingestion polling daily; reader extracts odd-lot clause, price/range, conditions, expiration with schema validation; opportunity tracker scoring live |
+| E2 | First live odd-lot harvest | 99-share position opened on a qualifying tender with confirmed odd-lot priority; election filed correctly |
+| E3 | December 2026 Russell recon paper trade | Backtest 2010–2026 long-side events complete with kill criterion applied; live paper positions for Dec 11 effective date |
+| E4 | Closed-end fund catalyst book (at $10K+) | CEF screener (discount + activist 13D); first position opened |
+| E5 | Systematic signals at scale (at $250K+) | Insider/activist (D-038) un-deferred; full Stage A-2 preregistration |
+
+Phase E1–E3 run now (Phase 1 capital: $2K→$25K). E4 at $10K+. E5 at $250K+. The systematic track (Steps 0–5, Q1–Q3) continues in the background; its clock is not stopped.
+
 ## 6. Change control
 
 1. **Moving an item between CORE, DEFERRED, and CUT** requires a §9 entry that links the evidence for its gate and a tagged commit, and takes effect no earlier than the next trading session.
@@ -207,6 +223,13 @@ An entry marked (proposed) takes effect only once approved. Every proposed entry
 | D-030 (proposed) | 2026-10-06 | Settlement-aware SEC charge dates: T+3 before 2017-09-05, T+2 from 2017-09-05 through 2024-05-27, T+1 from 2024-05-28. Supersedes the S07 sprint's T+1-for-all-history prescription. | Developer-proposed correction 2026-10-06, pending CEO sign-off. PREREGISTRATION.md §1.2 says charges apply "≈ settlement"; US settlement was T+3/T+2 before the 2024-05-28 move to T+1, so T+1-for-all-history bills the wrong SEC rate on pre-2024 trades. This resolves underspecification toward the preregistered intent, not a new rule. Flagged in S07 Deviations. Amends S07 |
 | D-031 | 2026-10-06 | Recovered trend_state and relative_strength_state classifiers from the 2026-09-28 legacy archive. Full 5+5 label vocabularies; unlisted labels score 0 (matching legacy ranker.py:491-501), not fail-closed. Classifier spec in config/classifiers_v1.yaml (separate from incumbent_v1.yaml to preserve the 524dd858… freeze hash). Documents intraday-vs-after-close input timing divergence. | CEO-adopted 2026-10-06. Claude Code recon found identical logic across all 19 engine.py blobs, 18 unpushed commits, and production Postgres data confirming all labels were live. Supersedes the fail-closed raising on unlisted labels. Amends PREREGISTRATION.md §5. |
 | D-032 | 2026-10-04 | Incumbent strategy frozen by hash: `config/incumbent_v1.yaml` SHA-256 `524dd858d95a08453167e46e976836601fe3f281b8d94f763cee843277e24b82`. S02 T4. The freeze starts the forward evidence clock for Q1 (prereg-v1 tag). | S02 completion. The definition was recovered from the 2026-09-28 local archive (Sprint F evaluation doc); CEO confirmed the incumbent identity (Q1 2026-10-04). `tools/verify_incumbent_freeze.py` reproduces the hash. |
+| D-033 | 2026-10-06 | Q6 resolved: the 329 `mean_reversion` trades are a **separate desk**, not mislabeled incumbent trades. The label is explicit on all 329 trades and a genuine MR scanner (`src/services/mr_scan_service.py`) existed; the incumbent setup text is a shared default. Conservative trial count becomes 6. | CEO decision 2026-10-06. Records cannot settle it (`strategy_id` empty), so this is a judgment call. Choosing the separate-desk reading is conservative for the DSR (more trials). Amends T5-016, trial ledger. |
+| D-034 | 2026-10-06 | Q7 resolved: `target_1_hit` (13 trades) **counts as a documented exit**, alongside `target_1` and `stop_loss`. Documented exits: 55 of 287 (was 42). | CEO decision 2026-10-06. The label explicitly names the first profit target being hit, a documented exit in the strategy spec. Amends T3. |
+| D-035 | 2026-10-06 | Q8 resolved: **re-draw the 20-trade sample as a listed sample** (seed 42, IDs recorded). The original sample was never listed and cannot be audited. | CEO decision 2026-10-06. Follow-up work: draw and record. Amends T3. |
+| D-036 | 2026-10-06 | Q9 resolved: **rebuild the missing 21-range table from `@78c788ec`**. Four union rows lack per-row sources; accepting them would bake unverified claims into the record. | CEO decision 2026-10-06. Follow-up work: rebuild. Amends T6. |
+| D-037 | 2026-10-06 | Q10 resolved: the Deflated Sharpe N is **22 (executions)** — every executed run counts. The harshest honest multiple-testing penalty. | CEO decision 2026-10-06. If the strategy has edge it survives N=22; if it only clears at N=6, that is informative. Amends T5, PREREGISTRATION.md §4. |
+| D-038 | 2026-10-06 | Signal suite pivot (UNRESOLVED — deferred). Adversarial review (Claude Code, 2026-10-06) killed Signals 1 and 3 as specified and narrowed Signal 2 to insider open-market purchases + activist 13Ds (prior ~20%). CEO decision: record narrowed Signal 2 as a deferred build candidate; do not build yet. Explore wider mechanism space first. | CEO decision 2026-10-06. The narrowed Signal 2 (insider/activist, LLM for context not speed) survives adversarial review better than the incumbent (~25% base rate). Deferred pending broader exploration. |
+| D-039 | 2026-10-06 | **Strategic pivot: generational wealth is the north star; trading is the vehicle.** Three research reports (amendments, mechanism sweep, opportunity landscape) establish that structural/contractual edges (odd-lot tenders ~70%, CEF catalysts ~40%) have 2–3x higher priors than statistical signals (~15–25%). New sequential strategy: Phase 1 ($2K→$25K): odd-lot tender harvesting + SPAC trust floor; Phase 2 ($25K→$250K): CEF catalysts + reconstitution + thrifts; Phase 3 ($250K+): systematic signals at scale. The incumbent test (prereg-v1) keeps running as a free background option. ARCIS project shifts from "validate one signal" to "build infrastructure for sequential edge harvesting": EDGAR event engine, LLM document reader, paper trading system, capital allocator. | CEO decision 2026-10-06. "The overall goal above all else is to build personal, generational wealth. How we get there is just the details." |
 
 ## 10. Idea parking lot
 
