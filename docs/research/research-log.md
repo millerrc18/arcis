@@ -58,6 +58,9 @@ This section is the authoritative project snapshot. Historical entries below pre
 - SCOPE D-012 (2026-09-17) supersedes the S&P 100 primary-universe wording previously carried in the Current Decision Index. R01's Universe Decision and Current Decision had already recommended the broader point-in-time top-500 / S&P 500 universe; the index row contradicted its own entry and has been corrected.
 - SCOPE D-013 (2026-09-17) supersedes the Norgate research-master candidacy in R02 and in the Current Decision Index. No paid historical vendor is in scope. RQ-13 covers free membership reconstruction and the survivorship bound.
 - SCOPE D-015 (2026-09-19) supersedes R04's two-stage holdout-plus-forward protocol as the Q1 decision rule. R04's inference machinery is retained for the §2.5 monitoring series; the gating estimand is now the §2.1 cross-sectional information test.
+- SCOPE D-033 (2026-10-06) resolves the 329 mean_reversion trades as a separate desk (trial T5-016), not mislabeled incumbent trades. Trial count is 6, not 5.
+- SCOPE D-034 (2026-10-06) resolves that target_1_hit counts as a documented exit; 55 of 287 documented exits (42 + 13).
+- SCOPE D-037 (2026-10-06) sets Deflated Sharpe N = 22 executions as headline; the frozen §2.6 sensitivity grid is retained unchanged.
 - SCOPE D-018 (2026-09-23) supersedes fingerprint-only capture (D-010, withdrawn). R08's finding that the public terms do not clearly grant storage rights still stands; the risk was accepted, not resolved. Model training on retained text remains blocked.
 - Universe-dependent figures in R01 (trade counts) and in R03 and R07 (power tables) were calibrated at ~100 names and must be re-derived on the actual S&P 500 panel before `prereg-v1`. Sprint S03 does this (SCOPE D-024).
 - R12 (2026-09-27) corrects quoted values and identifiers in R01, R03 and R09: Jegadeesh's specification and DOI, Tetlock et al.'s t-statistic, Heston-Sinha's DOI and sample, the Lopez-Lira-Tang version stitching, and the Lopez-Lira-Tang-Zhu identifier. Original wording is preserved with inline `[R12: ...]` markers.
@@ -1563,6 +1566,3 @@ The R06 dated fee snapshots were replaced with fully reconstructed historical sc
 
 - Key confirmed recent periods: SEC $27.80/M (2024-05-22–2025-05-13), $0.00 (2025-05-14–2026-04-03), $20.60/M (2026-04-04 onward). TAF $0.000166/$8.30 (2024–2025), $0.000195/$9.79 (2026-01-01–2026-09-30), $0.00 (2026-10-01–2026-12-31).
 - Backtests that used the old snapshots (2027+ reuse, calendar-year TAF boundaries, unverified caps) must be re-run on the rebuilt tables.
-- SCOPE D-033 (2026-10-06) resolves the 329 mean_reversion trades as a separate desk (T5-016), not mislabeled incumbent trades. Trial count is 6, not 5.
-- SCOPE D-034 (2026-10-06) resolves that target_1_hit counts as a documented exit; 55 of 287 documented exits (42 + 13).
-- SCOPE D-037 (2026-10-06) sets Deflated Sharpe N = 22 executions as headline; frozen §2.6 grid retained as sensitivity set.

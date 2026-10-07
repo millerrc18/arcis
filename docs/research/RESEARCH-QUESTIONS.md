@@ -129,7 +129,7 @@ Standards: give a link for every factual claim. Prefer peer-reviewed work, and l
 ```text
 Context: I'm an individual testing a personal, long-only swing-trading strategy in S&P 100 stocks (daily decisions, overlapping positions held 2–15 trading days, roughly 50 trades a year). I will judge it with a preregistered test. Daily portfolio excess returns, from a marked-to-market equity curve that includes cash days, are regressed on SPY excess returns, and the test is on the intercept (alpha). The current plan:
 - Newey–West standard errors with 15 lags.
-- Deflated Sharpe Ratio (DSR) of at least 0.95, using N = 22 executions as headline (D-037, 2026-10-06); frozen grid (6, 13, 22, known-plus-unknown) retained as sensitivity set.
+- Deflated Sharpe Ratio (DSR) of at least 0.95, using the count of every strategy variant ever tried, including variants from an earlier project whose individual Sharpe ratios may be unknown.
 - One look at an untouched historical window (one-sided t ≥ 1.96), then up to three forward looks at 12, 24, and 36 months (one-sided t ≥ 2.39 each, from a Bonferroni split).
 - A floor of 150 closed trades, and a minimum economic alpha.
 Use sources current as of September 2026.
