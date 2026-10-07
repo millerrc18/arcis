@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import math
 
-# Scoring labels from incumbent_v1.yaml. The YAML lists only the labels that
-# score points; the full label vocabulary (e.g. "downtrend") is UNRESOLVED
-# alongside the trend/RS classifiers. Unknown labels raise (fail-closed)
-# rather than silently scoring 0.
-TREND_STATES = {"strong_uptrend", "uptrend", "neutral"}
-RS_STATES = {"strong_outperformer", "outperformer"}
+# Scoring labels from incumbent_v1.yaml + classifiers_v1.yaml (D-031).
+# D-031 recovered the full 5+5 vocabularies from the legacy archive.
+# Unlisted labels score 0 (matching legacy ranker.py:491-501), not fail-closed.
+# Truly unknown labels (not in the 5+5) still raise ValueError.
+TREND_STATES = {"strong_uptrend", "uptrend", "neutral",
+                "downtrend", "strong_downtrend"}
+RS_STATES = {"strong_outperformer", "outperformer", "neutral",
+             "underperformer", "strong_underperformer"}
 REGIME_LABELS = {"calm_uptrend", "transitional", "calm_downtrend",
                  "volatile_downtrend", "volatile_uptrend"}
 BREADTH_LABELS = {"healthy", "narrowing"}
@@ -29,12 +31,14 @@ BREADTH_LABELS = {"healthy", "narrowing"}
 def score_trend_state(trend_state: str) -> int:
     """Score the trend state category.
 
-    Bands (incumbent_v1.yaml):
+    Bands (incumbent_v1.yaml + classifiers_v1.yaml D-031):
       strong_uptrend -> 30
       uptrend        -> 20
       neutral        -> 5
+      downtrend      -> 0
+      strong_downtrend -> 0
 
-    Raises ValueError for unknown labels (fail-closed).
+    Raises ValueError for labels outside the 5-label vocabulary.
     """
     if trend_state not in TREND_STATES:
         raise ValueError(f"unknown trend_state: {trend_state!r} "
@@ -43,6 +47,8 @@ def score_trend_state(trend_state: str) -> int:
         "strong_uptrend": 30,
         "uptrend": 20,
         "neutral": 5,
+        "downtrend": 0,
+        "strong_downtrend": 0,
     }
     return bands[trend_state]
 
@@ -50,11 +56,14 @@ def score_trend_state(trend_state: str) -> int:
 def score_relative_strength_state(rs_state: str) -> int:
     """Score the relative strength state category.
 
-    Bands:
-      strong_outperformer -> 25
-      outperformer        -> 15
+    Bands (D-031):
+      strong_outperformer  -> 25
+      outperformer         -> 15
+      neutral              -> 0
+      underperformer       -> 0
+      strong_underperformer -> 0
 
-    Raises ValueError for unknown labels (fail-closed).
+    Raises ValueError for labels outside the 5-label vocabulary.
     """
     if rs_state not in RS_STATES:
         raise ValueError(f"unknown rs_state: {rs_state!r} "
@@ -62,6 +71,9 @@ def score_relative_strength_state(rs_state: str) -> int:
     bands = {
         "strong_outperformer": 25,
         "outperformer": 15,
+        "neutral": 0,
+        "underperformer": 0,
+        "strong_underperformer": 0,
     }
     return bands[rs_state]
 

@@ -21,8 +21,9 @@ class TestScoringBands:
     def test_trend_state_unknown_raises(self):
         with pytest.raises(ValueError, match="unknown trend_state"):
             scoring.score_trend_state("strong-uptrend")  # typo
-        with pytest.raises(ValueError, match="unknown trend_state"):
-            scoring.score_trend_state("downtrend")
+        # D-031: downtrend is now a valid label scoring 0
+        assert scoring.score_trend_state("downtrend") == 0
+        assert scoring.score_trend_state("strong_downtrend") == 0
 
     def test_relative_strength(self):
         assert scoring.score_relative_strength_state("strong_outperformer") == 25
@@ -30,7 +31,11 @@ class TestScoringBands:
 
     def test_relative_strength_unknown_raises(self):
         with pytest.raises(ValueError, match="unknown rs_state"):
-            scoring.score_relative_strength_state("neutral")
+            scoring.score_relative_strength_state("sideways")  # truly unknown
+        # D-031: neutral/underperformer are now valid labels scoring 0
+        assert scoring.score_relative_strength_state("neutral") == 0
+        assert scoring.score_relative_strength_state("underperformer") == 0
+        assert scoring.score_relative_strength_state("strong_underperformer") == 0
 
     def test_pullback_depth_sweet_spot(self):
         # [-8, -3) -> 25

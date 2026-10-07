@@ -1,0 +1,66 @@
+# classifiers_v1.yaml — Recovered legacy classifier specification
+#
+# D-031 (2026-10-06): Recovered from the 2026-09-28 legacy archive via
+# Claude Code recon. Both classifiers were found with identical logic
+# across all 19 engine.py blobs (2026-03-24 → 2026-06-05), all 18 C-arcis
+# unpushed commits, the OneDrive merge, and the orphaned lost-found blob.
+# Production Postgres data (3,093 recommendations, 2026-05-21 → 07-02)
+# confirms all labels were live.
+#
+# This file is SEPARATE from incumbent_v1.yaml to preserve the
+# 524dd858… freeze hash. The YAML pins the scoring values; this file pins
+# the classification logic that produces the labels.
+#
+# Source citations refer to the legacy archive at commit 78c788ec.
+
+spec_version: 1
+spec_id: classifiers_v1
+description: >
+  Legacy trend_state and relative_strength_state classifiers for the
+  incumbent pullback ranker. Recovered 2026-10-06 (D-031).
+
+trend_state:
+  source: src/features/engine.py:99-110 at 78c788e
+  inputs:
+    price: last Close
+    sma50: 50-row rolling mean of Close at last row
+    sma200: 200-row rolling mean of Close at last row
+    sma50_slope: slope_direction(sma50 series, window=10)
+    sma200_slope: slope_direction(sma200 series, window=10)
+  slope_helper:
+    source: src/features/indicators.py:94-110 at 78c788e
+    window: 10
+    method: diff = last - first of 10 values; threshold = 0.1% of |first| (or 0.01 if first == 0)
+    positive: diff > threshold (strict)
+    negative: diff < -threshold (strict)
+    flat: otherwise, or fewer than 10 values
+  rules_first_match_wins:
+    - strong_uptrend: price > sma50 > sma200 AND both slopes positive
+    - uptrend: price > sma50 AND sma50 > sma200
+    - strong_downtrend: price < sma50 < sma200 AND both slopes negative
+    - downtrend: price < sma50 AND sma50 < sma200
+    - neutral: otherwise (including any equality, NaN SMA, or <200 rows skipped upstream)
+  boundaries: all comparisons strict; equality falls through to neutral
+  min_rows: 200 (tickers with fewer rows skipped before classification)
+  scores: {strong_uptrend: 30, uptrend: 20, neutral: 5, downtrend: 0, strong_downtrend: 0}
+
+relative_strength_state:
+  source: src/features/engine.py:120-141 at 78c788e
+  inputs:
+    excess_21: (ticker 21-day % return) - (SPY 21-day % return)
+    excess_63: (ticker 63-day % return) - (SPY 63-day % return)
+    excess_126: (ticker 126-day % return) - (SPY 126-day % return)
+    return_def: (last close / close N rows earlier - 1) * 100; 0.0 if fewer than N+1 rows
+  rules:
+    - strong_outperformer: all 3 excess > 0
+    - outperformer: >= 2 excess > 0
+    - strong_underperformer: all 3 excess < 0
+    - underperformer: >= 2 excess < 0
+    - neutral: otherwise (exactly 0 counts as neither positive nor negative)
+  scores: {strong_outperformer: 25, outperformer: 15, neutral: 0, underperformer: 0, strong_underperformer: 0}
+  note: equal weighting deliberate per legacy docstring; sector-RS leg is separate (D-026)
+
+input_timing_divergence:
+  legacy: scans ran every 30 min during market hours (09:30-16:00 ET); latest daily row was the in-progress bar
+  rebuild: once daily after close, on completed bars (SCOPE §1)
+  impact: classifier rules port exactly; inputs will differ from legacy intraday values (known, explainable divergence)
