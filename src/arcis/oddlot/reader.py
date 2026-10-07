@@ -189,7 +189,8 @@ def parse_extraction_response(response: str) -> OfferTerms:
 
     Raises:
         json.JSONDecodeError: if response is not valid JSON
-        ValueError: if any field has the wrong type (fail-closed)
+        ValueError: if any field has the wrong type or required fields are
+            missing (fail-closed)
     """
     # Strip markdown code fences if present
     cleaned = response.strip()
@@ -199,6 +200,12 @@ def parse_extraction_response(response: str) -> OfferTerms:
         cleaned = "\n".join(lines)
 
     data = json.loads(cleaned)
+
+    # Required fields (fail-closed if missing)
+    required = ["has_oddlot_priority"]
+    for key in required:
+        if key not in data:
+            raise ValueError(f"Required field '{key}' missing from LLM response")
 
     # Reject unknown keys (typos in LLM output)
     known_keys = {
@@ -255,7 +262,9 @@ class OddLotOpportunity:
         if not self.terms.has_oddlot_priority:
             return False
         threshold = self.terms.oddlot_threshold
-        return not (threshold is not None and self.shares_to_buy > threshold)
+        if threshold is None:
+            return False  # fail closed: no threshold = cannot verify qualification
+        return self.shares_to_buy <= threshold
 
     @property
     def gross_spread_per_share(self) -> float | None:

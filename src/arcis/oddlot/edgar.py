@@ -125,7 +125,15 @@ def _search_form(
     """Search one form, paginating EFTS results."""
     filings: list[TenderFiling] = []
     offset = 0
+    max_pages = 50  # fail-closed: refuse silent truncation on huge result sets
+    pages = 0
     while True:
+        if pages >= max_pages:
+            raise EdgarParseError(
+                f"EFTS returned >{max_pages * page_size} results for {form}; "
+                "refusing silent truncation. Narrow the date range."
+            )
+        pages += 1
         params = {
             "q": f'form:"{form}"',
             "dateRange": "custom",

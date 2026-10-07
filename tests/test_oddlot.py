@@ -61,13 +61,17 @@ class TestOfferReader:
         assert terms.effective_price == 25.50
 
     def test_parse_markdown_fences(self):
-        resp = '```json\n{"has_oddlot_priority": false, "is_dutch_auction": true, "price_range_low": 20.0, "price_range_high": 25.0}\n```'
+        resp = (
+            '```json\n'
+            '{"has_oddlot_priority": false, "is_dutch_auction": true, '
+            '"price_range_low": 20.0, "price_range_high": 25.0}\n```'
+        )
         terms = parse_extraction_response(resp)
         assert terms.is_dutch_auction is True
         assert terms.effective_price == 20.0  # conservative: range low
 
     def test_invalid_json_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_extraction_response("not json at all")
 
 

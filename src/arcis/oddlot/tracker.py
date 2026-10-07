@@ -60,6 +60,11 @@ def _check_spread(
     if opp.current_price is None:
         failures.append("No current market price; cannot verify spread.")
         return
+    if t.effective_price is None:
+        failures.append("No offer price; cannot compute spread.")
+        return
+    # Conservative cost placeholder: $1 commission amortized + 10bp slippage.
+    # Marked as UNVERIFIED — replace with broker fee schedule before live use.
     cost_per_share = 1.0 / opp.shares_to_buy + t.effective_price * 0.001
     net_spread = t.effective_price - opp.current_price - cost_per_share
     if net_spread <= 0:
