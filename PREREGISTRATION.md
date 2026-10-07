@@ -149,7 +149,7 @@ Plumbing evidence accrues from the first order of the paper-only lane (SCOPE.md 
 
 ### 2.6 Multiplicity and reporting
 
-- **Deflated Sharpe Ratio:** a multiplicity audit, not a gate. Reported over a grid of trial counts (known, and known plus unknown), annualized cross-trial Sharpe dispersion of 0.25, 0.50, and 1.00, and low- and high-correlation effective trial counts.
+- **Deflated Sharpe Ratio:** a multiplicity audit, not a gate. N = 22 executions (D-037, 2026-10-06): every executed run counts — the harshest honest multiple-testing penalty. Reported over annualized cross-trial Sharpe dispersion of 0.25, 0.50, and 1.00, and low- and high-correlation effective trial counts.
 - **Not computed:** Probability of Backtest Overfitting, since only one frozen configuration is evaluated.
 - **Descriptive only:** fill and unfilled rates, hit rate, maximum drawdown, exposure, turnover, ambiguity rate, and results by market-cap, liquidity, volatility, and regime buckets, with the S&P 100 subset reported separately.
 
@@ -215,6 +215,7 @@ Historical text results never open or close a gate. They are reported only with 
 | 2026-10-05 | §1 (Incumbent) | Sector-RS band thresholds set to Set A (+5/0/−5pp absolute) by CEO decision (SCOPE D-026) | The frozen `incumbent_v1.yaml` specifies the weighted-excess formula and band values [25,15,5,0] but no mapping cutoffs; this resolves the underspecification rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). Thresholds were chosen on 2016–2024 sector-ETF data, not the §2.1 test series. |
 | 2026-10-05 | §1 (Incumbent) | Feature lookback windows pinned by CEO decision (SCOPE D-027): pullback depth 60 trading sessions; sector-RS windows 21/63/126 trading sessions | The frozen YAML pins the sector-RS blend weights but no window lengths and no pullback lookback; this resolves the underspecification rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). No test-series data used. |
 | 2026-10-05 | §1 (Incumbent) | Band boundary operators adopted from the recovered Sprint F legacy operators by CEO decision (SCOPE D-028), superseding the fail-closed boundary reading | The frozen YAML states ranges without inclusivities; the Sprint F evaluation document (line-cited to the legacy ranker) records the actual operators, so this adopts recovered ground truth rather than changing a specified value. | No — forward Q1 data not examined (first look at 12 months). No test-series data used. |
+| 2026-10-06 | §2.6 (DSR) | Deflated Sharpe N set to 22 executions by CEO decision (SCOPE D-037) | Every executed run counts; the harshest honest multiple-testing penalty. If the strategy has edge it survives N=22; if it only clears at N=6, that is informative. | No — forward Q1 data not examined. |
 
 ## 6. References
 

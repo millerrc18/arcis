@@ -228,13 +228,13 @@ legacy S&P 100 tuning as a silent default.
 
 ### Open questions for Ryan
 
-These are inventory items 6–10, all `UNRESOLVED`:
+These are inventory items 6–10, resolved 2026-10-06 (SCOPE D-033–D-037):
 
-- (6) Are the 329 `mean_reversion` trades a separate desk or mislabeled incumbent trades?
-- (7) Does `target_1_hit` count as a documented exit?
-- (8) Accept the unlisted 20-trade sample, or re-draw it as a listed sample?
-- (9) Rebuild the missing 21-range table, or accept the sourced union?
-- (10) Which trial count feeds the Deflated Sharpe N?
+- (6) Are the 329 `mean_reversion` trades a separate desk or mislabeled incumbent trades? → **Separate desk** (D-033).
+- (7) Does `target_1_hit` count as a documented exit? → **Yes**; 55 of 287 documented exits (D-034).
+- (8) Accept the unlisted 20-trade sample, or re-draw it as a listed sample? → **Re-draw as listed sample** (seed 42, trade IDs recorded) (D-035).
+- (9) Rebuild the missing 21-range table, or accept the sourced union? → **Rebuild from legacy commit 78c788ec** (D-036).
+- (10) Which trial count feeds the Deflated Sharpe N? → **N = 22 executions** (D-037).
 
 ### Post-S02 finding
 
