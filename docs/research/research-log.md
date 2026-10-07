@@ -1563,3 +1563,6 @@ The R06 dated fee snapshots were replaced with fully reconstructed historical sc
 
 - Key confirmed recent periods: SEC $27.80/M (2024-05-22–2025-05-13), $0.00 (2025-05-14–2026-04-03), $20.60/M (2026-04-04 onward). TAF $0.000166/$8.30 (2024–2025), $0.000195/$9.79 (2026-01-01–2026-09-30), $0.00 (2026-10-01–2026-12-31).
 - Backtests that used the old snapshots (2027+ reuse, calendar-year TAF boundaries, unverified caps) must be re-run on the rebuilt tables.
+- SCOPE D-033 (2026-10-06) resolves the 329 mean_reversion trades as a separate desk (T5-016), not mislabeled incumbent trades. Trial count is 6, not 5.
+- SCOPE D-034 (2026-10-06) resolves that target_1_hit counts as a documented exit; 55 of 287 documented exits (42 + 13).
+- SCOPE D-037 (2026-10-06) sets Deflated Sharpe N = 22 executions as headline; frozen §2.6 grid retained as sensitivity set.
