@@ -23,22 +23,22 @@ Items marked **⟨CONFIRM⟩** need Ryan's sign-off before the `charter-v1` tag.
 |---|---|---|
 | Broker | Alpaca | One broker, one API surface |
 | Asset class | US equities | |
-| Universe | S&P 500, point-in-time membership; the S&P 100 is reported as a benchmark subset | D-012. Breadth is the main lever on statistical power now that Q1 is forward-only |
+| Universe | S&P 500, point-in-time membership; the S&P 100 is reported as a benchmark subset (systematic track). Structural track (D-039): any US equity with a qualifying structural event (tender offer, index migration) | D-012. Breadth is the main lever on statistical power now that Q1 is forward-only. D-039 expands universe for structural edges only. |
 | Direction | Long-only | Removes borrow, locates, and short-sale handling |
-| Strategies | One: the incumbent pullback-in-uptrend ranker (`incumbent_v1`) | A second strategy is a DEFERRED item, not a roadmap slot |
+| Strategies | Two tracks (D-039): (1) Systematic: the incumbent pullback-in-uptrend ranker (`incumbent_v1`); (2) Structural: odd-lot tenders, CEF catalysts, index-reconstitution flows, thrift conversions | Systematic track continues under original rules. Structural track harvests contractual edges; each phase funds the next. |
 | Entry | Limit order | |
-| Exit | Broker-held bracket (stop and take-profit), plus a time exit | |
-| Holding period | 2–15 trading days | |
+| Exit | Systematic track: broker-held bracket (stop and take-profit), plus a time exit. Structural track: held to tender expiration per offer terms (no stop possible). | |
+| Holding period | Systematic track: 2–15 trading days. Structural track: to tender expiration (typically 20–60 days). | |
 | Decision cadence | Once per trading day, after the close | Daily bars only; the exact decision time is fixed in PREREGISTRATION.md. Monitoring is continuous: broker-held brackets, resting limit orders, and the 10-minute recorder. Intraday entry decisions are parked in §10 |
-| Capital | None until Stage A passes, Stage B's paper plumbing check holds, and the §2.3 limits are set. Then a $2,000 live canary; the $5,000 first real-money stage follows only after the canary's fill-quality check (PREREGISTRATION.md §2.2–2.3; D-021, D-022) | A paper-only lane may run from Step P (D-017) |
+| Capital | Systematic track: None until Stage A passes, Stage B's paper plumbing check holds, and the §2.3 limits are set. Then a $2,000 live canary; the $5,000 first real-money stage follows only after the canary's fill-quality check (PREREGISTRATION.md §2.2–2.3; D-021, D-022). Structural track (D-039): Phase 1 ($2K→$25K) may deploy up to $2,000 in odd-lot tenders only, with per-position checklist gates. Phase 2 ($25K→$250K) and Phase 3 ($250K+) require separate §9 authorization. | A paper-only lane may run from Step P (D-017) |
 | Account type | OPEN (OD-1) | Decided before the live lane |
 
 ## 2. Operating principles
 
-1. **Research before capital.** No real money is committed until Q1 authorizes it. A paper-only live lane may be built from Step P, once `prereg-v1` has frozen the strategy and Step 4's ranker exists, so Stage B's execution evidence accrues while Stage A runs. It never holds real-money keys (D-017).
+1. **Research before capital (systematic track).** No real money is committed on the systematic track until Q1 authorizes it. A paper-only live lane may be built from Step P, once `prereg-v1` has frozen the strategy and Step 4's ranker exists, so Stage B's execution evidence accrues while Stage A runs. It never holds real-money keys (D-017). The structural track (D-039) follows its own capital rules in §1.
 2. **Every component has a simpler incumbent it must beat**, net of costs and after deflation for the number of trials.
 3. **No behavioral change without a new release.** No online learning, no autonomous retraining, no edits to a running system's config.
-4. **The platform dying is a safe state.** Every open position carries a broker-held stop that outlives the process.
+4. **The platform dying is a safe state (systematic track).** Every open systematic-track position carries a broker-held stop that outlives the process. Structural-track positions (tender offers) are held to expiration per their own terms and cannot carry stops; their safety comes from the pre-trade checklist gates (D-039).
 5. **Fail closed.** Missing config, an unknown order state, or stale data blocks new risk. Nothing falls back to a silent default.
 6. **Evidence windows are model-specific.** A model is evaluated only on data dated after the latest date in any of its training data, pretraining or fine-tuning.
 
@@ -57,8 +57,10 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 | Incumbent ranker | `strategy` | 4 | yes | Pure functions implementing the frozen `incumbent_v1`; shared with the live lane |
 | Research core | `research` | 4–5 | yes | Conservative cost model (R06); metrics from the daily equity curve; conservative bracket simulator (R05); candidate-day ledger; trial ledger and registry; walk-forward with purge and embargo; version-pinned sequential boundaries |
 | Text scoring for Q2/Q3 | `textscore` | after 5 | no | ProsusAI/finbert (ONNX INT8) plus one pinned general instruction model (candidate: Qwen3-14B Q5), schema-constrained, chosen on blinded human labels without looking at returns. Research only; no training code |
+| Odd-lot tender engine | `oddlot` | E1 | yes | EDGAR SC TO-I ingestion; LLM offer-document reader (odd-lot clause, price, conditions, expiration); opportunity tracker with pre-trade checklist and lifecycle states. D-039. |
+| Reconstitution monitor | `reconstitution` | E3 | no | Russell/S&P reconstitution event tracking; long-side candidate classification (downward migrations, deletion rebounds); December 2026 live trade checklist. D-039. Activates after E2 done-means met. |
 
-### 3.2 CORE — live lane (paper-only from Step P; real money only after Q1 authorizes it)
+### 3.2 CORE — live lane (paper-only from Step P; systematic-track real money only after Q1 authorizes it)
 
 | Component | Package | Active | Simplest form |
 |---|---|---|---|
@@ -73,13 +75,15 @@ Packages are subpackages of `src/arcis/`. CI fails if a subpackage exists that i
 
 | Item | Gate (evidence recorded in §9) |
 |---|---|
-| LLM in the live decision path | Q3 and its strategy test pass, then the live-lane gates |
+| LLM in the systematic live decision path | Q3 and its strategy test pass, then the live-lane gates |
+| LLM in the structural live decision path (D-039) | D-039 authorizes the odd-lot offer-document reader for Phase 1; human CEO approval required per trade (E2). The reader selects candidates; it does not place orders. |
 | Fine-tuning, GRPO, training corpus, training pipeline | Q3 passes, then Q4 is registered and passes |
 | Learned ranker challengers (linear, then gradient-boosted trees) | Q1 resolved; each challenger is a registered trial and beats the incumbent net of costs after deflation |
 | Temporal neural model | Beats the best tree model net of costs after deflation |
 | Convex portfolio optimizer | A second strategy is live, or more than 10 concurrent positions |
 | Learned execution | Live fill history, plus position sizes where market impact is measurable |
-| Second strategy | Q1 authorizes the live lane and the live lane completes its canary stage |
+| Second systematic strategy | Q1 authorizes the live lane and the live lane completes its canary stage |
+| Structural edge strategies (D-039) | D-039 authorizes Phase 1 ($2K→$25K); Phase 2 and 3 require separate §9 entries |
 | Cross-strategy risk reservations | A second strategy passes walk-forward |
 | Real-time news streaming (websocket) | Evidence that polling misses information the decision schedule needs |
 | Vintage-model historical controls (ChronoBERT, ChronoGPT-Instruct, DatedGPT) | Forward text results justify historical support, and text rights are confirmed |
@@ -106,8 +110,8 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 
 | ID | Invariant | Origin | Owner |
 |---|---|---|---|
-| I-1 | No entry order is valid without broker-held protective legs | Months of live trades with no broker-side stop or target (before old-repo issue 651) | `execution`, `shield` |
-| I-2 | Every open position has broker-confirmed, executable protective sell quantity equal to its size, except inside a logged cancel-and-replace. A mismatch blocks new entries, and protection is never cancelled because the process failed | Same; R11 | `recon` |
+| I-1 | No systematic-track entry order is valid without broker-held protective legs. Structural-track tender positions are exempt (cannot carry stops; safety via pre-trade checklist). | Months of live trades with no broker-side stop or target (before old-repo issue 651) | `execution`, `shield` |
+| I-2 | Every open systematic-track position has broker-confirmed, executable protective sell quantity equal to its size, except inside a logged cancel-and-replace. A mismatch blocks new entries, and protection is never cancelled because the process failed. Structural-track positions exempt (see I-1). | Same; R11 | `recon` |
 | I-3 | Every exit records provenance: strategy, bracket, operator, or safety mode. Operator exits are excluded from strategy statistics by default | Manual recovery exits inflated the bootcamp win rate | `records`, `research` |
 | I-4 | A trade or candidate record cannot close incomplete. Incomplete records are excluded, never imputed | Only 16 of 320 bootcamp rows had trustworthy exits | `records`, `research` |
 | I-5 | Performance comes from one tested metrics module using the daily marked-to-market equity curve | Sharpe overstated ~2.24× (√252 applied to ~50 trades a year) | `research` |
@@ -142,6 +146,27 @@ Each invariant is enforced by a test or CI check once its owning package is Acti
 
 Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8). PREREGISTRATION.md is completed from the Step 2 report and tagged before Step 3 begins. S03 (Step 2m) runs once S01 has merged and S02 T4 has frozen the incumbent, and finishes before the tag. The tag starts the forward evidence clock for Q1, so Steps 3 to 5 are built while that clock runs.
 
+### 5.1 Structural edge track (D-039)
+
+Parallel to the systematic track above. North star is generational wealth;
+these phases harvest contractual/structural edges to grow capital
+sequentially. Each phase funds the next. Evidence:
+`docs/research/2026-10-06-statistical-signal-summary.md`,
+`docs/research/2026-10-06-structural-edge-summary.md`.
+
+| Phase | Deliverable | Done means |
+|---|---|---|
+| E1 | Odd-lot tender engine: EDGAR SC TO-I ingestion + LLM offer-document reader | Ingestion polling daily; reader extracts odd-lot clause, price/range, conditions, expiration with schema validation; opportunity tracker scoring live |
+| E2 | First live odd-lot harvest | 99-share position opened on a qualifying tender with confirmed odd-lot priority; election filed correctly; requires CEO approval per trade |
+| E3 | December 2026 Russell recon paper trade | Backtest 2010–2026 long-side events complete with kill criterion applied; live paper positions for Dec 11 effective date |
+| E4 | Closed-end fund catalyst book (at $10K+) | CEF screener (discount + activist 13D); first position opened; requires separate §9 authorization |
+| E5 | Systematic signals at scale (at $250K+) | Insider/activist (D-038) un-deferred; full Stage A-2 preregistration; requires separate §9 authorization |
+
+Phase E1–E3 run now (Phase 1 capital: $2K→$25K). E4 at $10K+ (requires §9).
+E5 at $250K+ (requires §9). The systematic track (Steps 0–5, Q1–Q3)
+continues in the background; its clock is not stopped. No phase commits
+real money without explicit CEO approval per trade (E2) or per phase (E4, E5).
+
 ## 6. Change control
 
 1. **Moving an item between CORE, DEFERRED, and CUT** requires a §9 entry that links the evidence for its gate and a tagged commit, and takes effect no earlier than the next trading session.
@@ -162,8 +187,8 @@ Steps 1 and 2 run in parallel, alongside the written questions to Alpaca (OD-8).
 
 | ID | Decision | Needed before | Notes |
 |---|---|---|---|
-| OD-1 | Account type (cash or margin) | Real-money trading | Ask Alpaca whether an individual account can be cash-only (R11). Either way, enforce an internal no-borrow limit |
-| OD-2 | Always-on host | Real-money trading. The recorder and the paper lane may run on the desktop until then; days it is off produce no paper orders (D-017) | Shield and OMS must not share a failure domain with the research/GPU machine once real money is at stake |
+| OD-1 | Account type (cash or margin) | Systematic-track real-money trading | Ask Alpaca whether an individual account can be cash-only (R11). Either way, enforce an internal no-borrow limit |
+| OD-2 | Always-on host | Systematic-track real-money trading. The recorder and the paper lane may run on the desktop until then; days it is off produce no paper orders (D-017). Structural-track Phase 1 ($2K) may run on desktop with manual oversight. | Shield and OMS must not share a failure domain with the research/GPU machine once real money is at stake |
 | OD-3 | Pinned LLM configuration for Q3 | First scored forward day | Candidate Qwen3-14B Q5; backup Mistral Small 3.1 24B Q4; 12 GB options Gemma 3 12B or Qwen3-8B (R10). Final choice by R10's blinded label test, which needs retained text (OD-8) |
 | OD-5 | News fallback if the current plan refuses Alpaca news access | Only if the S01 preflight fails | Do not build a fallback speculatively |
 | OD-8 | Written confirmations from Alpaca | Text rights: before any model is trained on retained text; a written refusal requires removing it (D-018). Brokerage behavior: before real-money trading | Question lists in the research log (R08, R11) and RESEARCH-QUESTIONS.md |
@@ -207,6 +232,12 @@ An entry marked (proposed) takes effect only once approved. Every proposed entry
 | D-030 (proposed) | 2026-10-06 | Settlement-aware SEC charge dates: T+3 before 2017-09-05, T+2 from 2017-09-05 through 2024-05-27, T+1 from 2024-05-28. Supersedes the S07 sprint's T+1-for-all-history prescription. | Developer-proposed correction 2026-10-06, pending CEO sign-off. PREREGISTRATION.md §1.2 says charges apply "≈ settlement"; US settlement was T+3/T+2 before the 2024-05-28 move to T+1, so T+1-for-all-history bills the wrong SEC rate on pre-2024 trades. This resolves underspecification toward the preregistered intent, not a new rule. Flagged in S07 Deviations. Amends S07 |
 | D-031 | 2026-10-06 | Recovered trend_state and relative_strength_state classifiers from the 2026-09-28 legacy archive. Full 5+5 label vocabularies; unlisted labels score 0 (matching legacy ranker.py:491-501), not fail-closed. Classifier spec in config/classifiers_v1.yaml (separate from incumbent_v1.yaml to preserve the 524dd858… freeze hash). Documents intraday-vs-after-close input timing divergence. | CEO-adopted 2026-10-06. Claude Code recon found identical logic across all 19 engine.py blobs, 18 unpushed commits, and production Postgres data confirming all labels were live. Supersedes the fail-closed raising on unlisted labels. Amends PREREGISTRATION.md §5. |
 | D-032 | 2026-10-04 | Incumbent strategy frozen by hash: `config/incumbent_v1.yaml` SHA-256 `524dd858d95a08453167e46e976836601fe3f281b8d94f763cee843277e24b82`. S02 T4. The freeze starts the forward evidence clock for Q1 (prereg-v1 tag). | S02 completion. The definition was recovered from the 2026-09-28 local archive (Sprint F evaluation doc); CEO confirmed the incumbent identity (Q1 2026-10-04). `tools/verify_incumbent_freeze.py` reproduces the hash. |
+| D-033 | 2026-10-06 | Q6 resolved: the 329 `mean_reversion` trades are a **separate desk**, not mislabeled incumbent trades. The label is explicit on all 329 trades and a genuine MR scanner (`src/services/mr_scan_service.py`) existed; the incumbent setup text is a shared default. Conservative trial count becomes 6. | CEO decision 2026-10-06. Records cannot settle it (`strategy_id` empty), so this is a judgment call. Choosing the separate-desk reading is conservative for the DSR (more trials). Amends T5-016, trial ledger. |
+| D-034 | 2026-10-06 | Q7 resolved: `target_1_hit` (13 trades) **counts as a documented exit**, alongside `target_1` and `stop_loss`. Documented exits: 55 of 287 (was 42). | CEO decision 2026-10-06. The label explicitly names the first profit target being hit, a documented exit in the strategy spec. Amends T3. |
+| D-035 | 2026-10-06 | Q8 resolved: **re-draw the 20-trade sample as a listed sample** (seed 42, IDs recorded). The original sample was never listed and cannot be audited. | CEO decision 2026-10-06. Follow-up work: draw and record. Amends T3. |
+| D-036 | 2026-10-06 | Q9 resolved: **rebuild the missing 21-range table from `@78c788ec`**. Four union rows lack per-row sources; accepting them would bake unverified claims into the record. | CEO decision 2026-10-06. Follow-up work: rebuild. Amends T6. |
+| D-037 | 2026-10-06 | Q10 resolved: the Deflated Sharpe N is **22 (executions)** — every executed run counts. The harshest honest multiple-testing penalty. | CEO decision 2026-10-06. If the strategy has edge it survives N=22; if it only clears at N=6, that is informative. Amends T5, PREREGISTRATION.md §5 (amendment log; frozen §2.6 text retained as sensitivity grid). |
+| D-039 | 2026-10-06 | Strategic pivot: generational wealth is the north star; trading is the vehicle. Two-track structure: (1) Systematic track continues (incumbent test, S08 automation, Steps 0-5, Q1-Q3); (2) Structural edge track harvests contractual edges in phases: E1 odd-lot tender engine, E2 first live harvest, E3 December 2026 Russell recon paper trade, E4 CEF catalyst book (at $10K+), E5 systematic signals at scale (at $250K+). Phase 1 capital ($2K→$25K): odd-lot tenders only (SPAC trust floor removed pending its own controls). Moves the "Second strategy" DEFERRED item and the "LLM in the live decision path" gate (split for structural track) per §6.1/§6.4. | CEO decision 2026-10-06: "The overall goal above all else is to build personal, generational wealth. How we get there is just the details." Evidence: `docs/research/2026-10-06-statistical-signal-summary.md`, `docs/research/2026-10-06-structural-edge-summary.md`. Gates moved: §3.3 "Second strategy" (was: Q1 authorizes live lane + canary; now: D-039 authorizes structural Phase 1); §3.3 "LLM in the live decision path" (split: systematic retains Q3 gate, structural authorized by D-039 with per-trade CEO approval). Amends §1 (Strategies, Universe, Capital, Exit, Holding period), §2 (principles 1 and 4), §3.1 (ledger rows), §3.2 (heading), §3.3 (Second strategy, LLM gates), §4 (I-1, I-2 structural exemptions), §5 (§5.1), §8 (OD-1, OD-2). Supersedes D-012 (universe scope for structural track) and §2.1 capital principle for structural Phase 1. Takes effect next trading session per §6.1. Phase 2/3 require separate §9 authorization. No real money without explicit CEO approval per trade (E2) or per phase (E4, E5). |
 
 ## 10. Idea parking lot
 

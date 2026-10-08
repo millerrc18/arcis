@@ -161,11 +161,11 @@ dates were read; no P&L was recomputed.
 | 287 trades with `strategy_type: pullback`, 2026-03-24 → 2026-06-30, 61 tickers | 287; 2026-03-24 → 2026-06-30; 61 tickers. By store: 107 bootcamp SQLite, 105 SQLite, 75 Postgres | Confirmed |
 | `ranking_at_entry` dead; `rec_priority_score` 60–100 on 183/287 | `ranking_at_entry` is 0 (150) or null (137); `rec_priority_score` is non-null on 183, all in 60–100 | Confirmed |
 | `regime_at_entry` `GREEN`/null 150/137 | 150 / 137 | Confirmed |
-| 171/287 `reconciled_stale`; "only 42/287 hit documented exit reasons" | 171 confirmed. The 42 is `target_1` (22) + `stop_loss` (20). A further 13 are `target_1_hit`, which also names a documented exit, giving 55 if counted | **UNRESOLVED** (which exit labels count as documented) |
+| 171/287 `reconciled_stale`; "only 42/287 hit documented exit reasons" | 171 confirmed. The 42 is `target_1` (22) + `stop_loss` (20). A further 13 are `target_1_hit`, which also names a documented exit, giving 55 if counted | **RESOLVED D-034 (2026-10-06)**: target_1_hit counts; 55 of 287 documented exits |
 | "Random sample of 20 (seed 42)" | The 20 sampled trade IDs and the per-decision rule checks are not recorded anywhere in this repo, so the sample cannot be re-drawn or audited | **Gap**: the ≥20-decision requirement was met in count but is not reproducible |
 | Per-decision candidate count and universe size (S02 T3 bullet 2) | Not recorded per sampled date. The "15–20%" estimate was superseded for planning by D-025 (5%, `docs/research/power-measurement.md`). For the record: in `pg 246ccc1f` `recommendations` (2026-05-21 → 07-02, 27 days, all `action_packet`/`Buy`), the median is 17 distinct tickers a day against the ~100-name S&P 100. This counts recommendations, not order-eligible candidates | Partially closed; no change to D-025 |
 
-**New discrepancy (UNRESOLVED): which trades the incumbent produced.** 329 of
+**RESOLVED D-033 (2026-10-06)**: the 329 mean_reversion trades are a separate desk. 329 of
 the 620 trades are labeled `strategy_type: mean_reversion` (2026-05-08 →
 2026-07-02; 320 Postgres, 9 SQLite). The original T3 excluded them. But
 every one links to a recommendation whose setup text is "Pullback in strong
@@ -233,7 +233,7 @@ For the Deflated Sharpe audit, the **liberal** count is the stricter penalty.
 
 | Count | Value | Rows |
 |---|---|---|
-| Conservative | **5** (6 if T5-016 is a distinct configuration; UNRESOLVED) | (1) incumbent pullback paper cohort: T5-001/002/003/005/014/015; (2) LLM-desk conviction cohort: T5-004; (3) `lazy_prices_v1` spec `ea78fed3…`: T5-009/011, plus T5-012, whose spec hash is unrecorded so it is not clearly distinct; (4) `post_audit_ruleset_v1` spec `463853b5…`: T5-010; (5) regime-scenario simulation, config `f2232925…`: T5-013 |
+| Conservative | **6** (T5-016 resolved as separate desk per D-033, 2026-10-06) | (1) incumbent pullback paper cohort: T5-001/002/003/005/014/015; (2) LLM-desk conviction cohort: T5-004; (3) `lazy_prices_v1` spec `ea78fed3…`: T5-009/011, plus T5-012, whose spec hash is unrecorded so it is not clearly distinct; (4) `post_audit_ruleset_v1` spec `463853b5…`: T5-010; (5) regime-scenario simulation, config `f2232925…`: T5-013 |
 | Liberal | **13** | Every row except the three synthetic runs T5-006/007/008 |
 | Executions (sensitivity) | **22** | Liberal, with T5-013 counted once per run (10 runs of one config at different code versions) |
 
