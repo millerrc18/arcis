@@ -1,13 +1,19 @@
-# S09-structural-code — E1+E3: odd-lot tender engine and reconstitution monitor
+# S09-structural-code — E1: odd-lot tender engine
 
-Branch: `feat/oddlot-code-v2`. Follows charter PR #14 (D-039) and docs PR #15
+Branch: `feat/oddlot-code-v2`. Follows charter PR #17 (D-039) and docs PR #18
 (D-033–D-037), which must merge first per §6.2.
 
-Status: in progress — addressing Claude Code REJECT on PR #13.
+Status: in progress — addressing Claude Code REJECT on PR #19.
+
+## Deviations
+
+E3 (reconstitution monitor) removed from this sprint. D-039 sets `reconstitution`
+to Active = no until E2's done-means is met. The `src/arcis/reconstitution/`
+package and `tests/test_recon.py` are deferred to a sprint after E2.
 
 ## Goal
 
-Build the E1 (odd-lot tender engine) and E3 (reconstitution monitor) code
+Build the E1 (odd-lot tender engine) code
 per the D-039 charter amendment. Done when:
 - EDGAR SC TO-I ingestion polls daily with typed errors (not swallowed),
   paginates through all results, and filters amendments
@@ -33,21 +39,30 @@ per the D-039 charter amendment. Done when:
 - [x] Lifecycle gates (VETTED requires passed checklist)
 - [x] Expiry check: fail on ≤2 days (not warning)
 
-### E3: Reconstitution monitor (`src/arcis/reconstitution/`)
-- [x] Migration classification (downward, deletion_rebound)
-- [x] Strict deletion rule (requires explicit "none", not empty string)
-- [x] December 2026 schedule and checklist
+### E3: Reconstitution monitor — DEFERRED (see Deviations above)
 
 ### Tests
-- [x] 28 tests passing (15 oddlot + 13 recon)
+- [x] 15 oddlot tests passing
 - [x] New tests for checklist gates and strict validation
+
+## Sprint report
+
+Built the E1 odd-lot tender engine per D-039: EDGAR SC TO-I ingestion with
+typed errors and fail-closed pagination, LLM offer-document reader with
+strict schema validation, and a pre-trade checklist that fails closed on
+missing data. The cost model is UNRESOLVED (no sourced broker fee schedule)
+so the checklist always fails until it's sourced. E3 (reconstitution) was
+removed from this sprint (see Deviations) because D-039 sets it to Active=no
+until E2's done-means is met.
 
 ## Out of scope
 - Actual LLM API integration (prompt builder only; caller supplies model)
 - Live EDGAR polling (manual scan only; cron setup separate)
-- December 2026 preliminary list fetching (starts Nov 13)
+- E3 reconstitution monitor (deferred to post-E2 sprint)
 
 ## Deviations
 - Branch renamed from `feat/oddlot-engine` to `feat/oddlot-code-v2` to
   reflect the three-PR split (charter, docs, code).
 - `OppStatus` changed from `str, Enum` to `StrEnum` (ruff UP042).
+- E3 removed: `src/arcis/reconstitution/` and `tests/test_recon.py` deleted.
+  D-039 (merged) sets `reconstitution` to Active=no until E2 done-means met.

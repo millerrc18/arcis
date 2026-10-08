@@ -184,25 +184,15 @@ def _require_str_list(data: dict[str, object], key: str) -> list[str]:
     return val
 
 
-def parse_extraction_response(response: str) -> OfferTerms:
-    """Parse LLM JSON response into OfferTerms with strict schema validation.
-
-    Raises:
-        json.JSONDecodeError: if response is not valid JSON
-        ValueError: if any field has the wrong type or required fields are
-            missing (fail-closed)
-    """
-    # Strip markdown code fences if present
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        lines = [ln for ln in lines if not ln.strip().startswith("```")]
-        cleaned = "\n".join(lines)
-
-    data = json.loads(cleaned)
+def _validate_response_dict(data: object) -> dict[str, object]:
+    """Validate the parsed JSON is a dict with required fields."""
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"LLM response must be a JSON object, got {type(data).__name__}"
+        )
 
     # Required fields (fail-closed if missing)
-    required = ["has_oddlot_priority"]
+    required = ["has_oddlot_priority", "is_dutch_auction"]
     for key in required:
         if key not in data:
             raise ValueError(f"Required field '{key}' missing from LLM response")
@@ -225,6 +215,25 @@ def parse_extraction_response(response: str) -> OfferTerms:
     unknown = set(data.keys()) - known_keys
     if unknown:
         raise ValueError(f"Unknown fields in LLM response: {unknown}")
+    return data
+
+
+def parse_extraction_response(response: str) -> OfferTerms:
+    """Parse LLM JSON response into OfferTerms with strict schema validation.
+
+    Raises:
+        json.JSONDecodeError: if response is not valid JSON
+        ValueError: if any field has the wrong type or required fields are
+            missing (fail-closed)
+    """
+    # Strip markdown code fences if present
+    cleaned = response.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        lines = [ln for ln in lines if not ln.strip().startswith("```")]
+        cleaned = "\n".join(lines)
+
+    data = _validate_response_dict(json.loads(cleaned))
 
     return OfferTerms(
         has_oddlot_priority=_require_bool(data, "has_oddlot_priority"),
@@ -232,7 +241,7 @@ def parse_extraction_response(response: str) -> OfferTerms:
         offer_price=_require_float(data, "offer_price"),
         price_range_low=_require_float(data, "price_range_low"),
         price_range_high=_require_float(data, "price_range_high"),
-        is_dutch_auction=_require_bool(data, "is_dutch_auction", False) or False,
+        is_dutch_auction=_require_bool(data, "is_dutch_auction") or False,
         expiration_date=_require_str(data, "expiration_date"),
         expiration_time=_require_str(data, "expiration_time"),
         min_tender_condition=_require_str(data, "min_tender_condition"),
@@ -277,7 +286,7 @@ class OddLotOpportunity:
     def gross_spread_per_share(self) -> float | None:
         """Offer price minus current market price."""
         px = self.terms.effective_price
-        if px and self.current_price:
+        if px is not None and self.current_price is not None:
             return px - self.current_price
         return None
 

@@ -67,16 +67,12 @@ def _check_spread(
     if gross_spread <= 0:
         failures.append(f"No gross spread: ${gross_spread:.4f}/share.")
         return
-    # Cost model UNVERIFIED: $1 commission + 10bp slippage is a placeholder.
-    # Do not gate live trades on this; replace with broker fee schedule.
-    # For now, warn if the placeholder costs erase the edge.
-    cost_per_share = 1.0 / opp.shares_to_buy + t.effective_price * 0.001
-    net_spread = gross_spread - cost_per_share
-    if net_spread <= 0:
-        failures.append(
-            f"Edge erased by UNVERIFIED cost model: net ${net_spread:.4f}/share. "
-            "Replace with real broker fees before live use."
-        )
+    # Cost model UNRESOLVED per CLAUDE.md: no sourced broker fee schedule.
+    # Fail closed until the cost model is sourced.
+    failures.append(
+        "Cost model UNRESOLVED: no sourced broker fee schedule. "
+        "Cannot verify net edge. Source the cost model before live use."
+    )
 
 
 def _check_capital(
@@ -101,9 +97,12 @@ def _check_capital(
 def run_pretrade_checklist(
     opp: OddLotOpportunity,
     account_capital: float,
-    max_position_pct: float = 0.50,
+    max_position_pct: float,
 ) -> ChecklistResult:
-    """Run the pre-trade checklist. Fail-closed: missing data = failure."""
+    """Run the pre-trade checklist. Fail-closed: missing data = failure.
+
+    max_position_pct must be provided by the caller (no invented default).
+    """
     failures: list[str] = []
     warnings: list[str] = []
     t = opp.terms

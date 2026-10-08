@@ -124,12 +124,16 @@ def _process_hits(
     """Process one page of EFTS hits into filings."""
     for hit in hits:
         src: dict[str, Any] = hit.get("_source", {})
+        if not src:
+            raise EdgarParseError(f"EFTS hit missing '_source': {str(hit)[:200]}")
         returned_form = str(src.get("form", form))
         if exclude_amendments and returned_form.endswith("/A"):
             continue
         ciks = src.get("ciks", [])
         cik = str(ciks[0]).lstrip("0") if ciks else ""
         accession = str(src.get("adsh", "")).replace("-", "")
+        if not accession:
+            raise EdgarParseError(f"EFTS hit missing accession: {str(src)[:200]}")
         if any(f.accession == accession for f in filings):
             continue
         disp = src.get("display_names", [""])
@@ -175,7 +179,14 @@ def _search_form(
         if "hits" not in hits_data or "total" not in hits_data:
             raise EdgarParseError("EFTS missing hits/total keys")
         hits = hits_data["hits"]
-        total = hits_data["total"].get("value", 0)
+        total_obj = hits_data["total"]
+        if not isinstance(total_obj, dict) or "value" not in total_obj:
+            raise EdgarParseError(
+                f"EFTS total missing 'value': {str(total_obj)[:200]}"
+            )
+        total = total_obj["value"]
+        if not isinstance(total, int) or total < 0:
+            raise EdgarParseError(f"EFTS total invalid: {total!r}")
         if not hits:
             break
 
@@ -226,7 +237,10 @@ def get_filing_index(cik: str, accession: str) -> dict[str, Any]:
     acc_nodash = accession.replace("-", "")
     url = f"{EDGAR_BASE}/Archives/edgar/data/{cik_padded}/{acc_nodash}/index.json"
     raw = _request(url)
-    result: dict[str, Any] = json.loads(raw)
+    try:
+        result: dict[str, Any] = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise EdgarParseError(f"Invalid JSON in filing index: {e}") from e
     return result
 
 

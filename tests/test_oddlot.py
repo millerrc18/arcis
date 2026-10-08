@@ -117,28 +117,29 @@ class TestChecklist:
             current_price=24.00,
         )
 
-    def test_passes_clean(self):
+    def test_fails_unresolved_cost_model(self):
+        # Cost model is UNRESOLVED: checklist always fails until sourced
         opp = self._make_opp()
-        result = run_pretrade_checklist(opp, account_capital=10000)
-        assert result.passed
-        assert result.failures == []
+        result = run_pretrade_checklist(opp, account_capital=10000, max_position_pct=0.10)
+        assert not result.passed
+        assert any("UNRESOLVED" in f for f in result.failures)
 
     def test_fails_no_oddlot(self):
         opp = self._make_opp()
         opp.terms.has_oddlot_priority = False
-        result = run_pretrade_checklist(opp, account_capital=10000)
+        result = run_pretrade_checklist(opp, account_capital=10000, max_position_pct=0.10)
         assert not result.passed
         assert any("Odd-lot" in f for f in result.failures)
 
     def test_fails_negative_spread(self):
         opp = self._make_opp()
         opp.current_price = 26.00  # above offer
-        result = run_pretrade_checklist(opp, account_capital=10000)
+        result = run_pretrade_checklist(opp, account_capital=10000, max_position_pct=0.10)
         assert not result.passed
 
     def test_fails_insufficient_capital(self):
         opp = self._make_opp()
-        result = run_pretrade_checklist(opp, account_capital=1000)
+        result = run_pretrade_checklist(opp, account_capital=1000, max_position_pct=0.10)
         assert not result.passed
 
     def test_warns_dutch_auction(self):
@@ -147,7 +148,7 @@ class TestChecklist:
         opp.terms.offer_price = None
         opp.terms.price_range_low = 22.00
         opp.terms.price_range_high = 26.00
-        result = run_pretrade_checklist(opp, account_capital=10000)
+        result = run_pretrade_checklist(opp, account_capital=10000, max_position_pct=0.10)
         assert any("Dutch" in w for w in result.warnings)
 
 
