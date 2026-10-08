@@ -43,10 +43,16 @@ def _check_oddlot_gates(
     if t.has_oddlot_priority is not True:
         failures.append("Odd-lot priority NOT confirmed. Do not trade.")
     if not opp.qualifies_for_oddlot:
-        failures.append(
-            f"Position size {opp.shares_to_buy} exceeds odd-lot threshold "
-            f"{t.oddlot_threshold}. Would not receive priority."
-        )
+        if t.oddlot_threshold is None:
+            failures.append(
+                "No odd-lot threshold extracted; cannot verify qualification. "
+                "Failing closed."
+            )
+        else:
+            failures.append(
+                f"Position size {opp.shares_to_buy} exceeds odd-lot threshold "
+                f"{t.oddlot_threshold}. Would not receive priority."
+            )
 
 
 def _check_spread(
@@ -59,9 +65,6 @@ def _check_spread(
         return
     if opp.current_price is None:
         failures.append("No current market price; cannot verify spread.")
-        return
-    if t.effective_price is None:
-        failures.append("No offer price; cannot compute spread.")
         return
     gross_spread = t.effective_price - opp.current_price
     if gross_spread <= 0:
