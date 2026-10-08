@@ -145,6 +145,28 @@ def _process_hits(
         ))
 
 
+def _validate_page(
+    hits_data: dict[str, Any], hits: list[dict[str, Any]], offset: int
+) -> int:
+    """Validate EFTS page structure and total. Returns total count."""
+    if "hits" not in hits_data or "total" not in hits_data:
+        raise EdgarParseError("EFTS missing hits/total keys")
+    total_obj = hits_data["total"]
+    if not isinstance(total_obj, dict) or "value" not in total_obj:
+        raise EdgarParseError(
+            f"EFTS total missing 'value': {str(total_obj)[:200]}"
+        )
+    total = total_obj["value"]
+    if not isinstance(total, int) or total < 0:
+        raise EdgarParseError(f"EFTS total invalid: {total!r}")
+    if not hits and offset < total:
+        raise EdgarParseError(
+            f"EFTS returned empty page at offset {offset} "
+            f"with total={total}; refusing silent truncation."
+        )
+    return total
+
+
 def _search_form(
     form: str,
     start_date: str,
@@ -176,23 +198,9 @@ def _search_form(
         if "hits" not in data:
             raise EdgarParseError(f"EFTS missing 'hits': {str(data)[:200]}")
         hits_data = data["hits"]
-        if "hits" not in hits_data or "total" not in hits_data:
-            raise EdgarParseError("EFTS missing hits/total keys")
         hits = hits_data["hits"]
-        total_obj = hits_data["total"]
-        if not isinstance(total_obj, dict) or "value" not in total_obj:
-            raise EdgarParseError(
-                f"EFTS total missing 'value': {str(total_obj)[:200]}"
-            )
-        total = total_obj["value"]
-        if not isinstance(total, int) or total < 0:
-            raise EdgarParseError(f"EFTS total invalid: {total!r}")
+        total = _validate_page(hits_data, hits, offset)
         if not hits:
-            if offset < total:
-                raise EdgarParseError(
-                    f"EFTS returned empty page at offset {offset} "
-                    f"with total={total}; refusing silent truncation."
-                )
             break
 
         _process_hits(hits, form, exclude_amendments, filings)
