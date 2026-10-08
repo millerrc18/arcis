@@ -169,7 +169,7 @@ PREREGISTRATION.md §1.4 needs this: a model may only be evaluated on articles f
 
 ## Sprint report
 
-**Status (2026-10-06):** complete, with five decisions open for Ryan. Built
+**Status (2026-10-06):** complete. The five decisions that were open for Ryan (items 6–10) are now resolved (SCOPE D-033–D-037). Built
 on 2026-10-04 (PR #4) and completed on 2026-10-06 by a read-only
 verification pass. The full findings live in
 `docs/research/old-platform-inventory.md`. This report summarizes them and
@@ -228,13 +228,13 @@ legacy S&P 100 tuning as a silent default.
 
 ### Open questions for Ryan
 
-These are inventory items 6–10, all `UNRESOLVED`:
+These are inventory items 6–10, resolved 2026-10-06 (SCOPE D-033–D-037):
 
-- (6) Are the 329 `mean_reversion` trades a separate desk or mislabeled incumbent trades?
-- (7) Does `target_1_hit` count as a documented exit?
-- (8) Accept the unlisted 20-trade sample, or re-draw it as a listed sample?
-- (9) Rebuild the missing 21-range table, or accept the sourced union?
-- (10) Which trial count feeds the Deflated Sharpe N?
+- (6) Are the 329 `mean_reversion` trades a separate desk or mislabeled incumbent trades? → **Separate desk** (D-033).
+- (7) Does `target_1_hit` count as a documented exit? → **Yes**; 55 of 287 documented exits (D-034).
+- (8) Accept the unlisted 20-trade sample, or re-draw it as a listed sample? → **Re-draw as listed sample** (seed 42, trade IDs recorded) (D-035).
+- (9) Rebuild the missing 21-range table, or accept the sourced union? → **Rebuild from legacy commit 78c788ec** (D-036).
+- (10) Which trial count feeds the Deflated Sharpe N? → **N = 22 executions** (D-037).
 
 ### Post-S02 finding
 
