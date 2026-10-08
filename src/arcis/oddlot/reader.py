@@ -273,7 +273,7 @@ class OddLotOpportunity:
         """Check if our position size qualifies for odd-lot priority.
 
         If the document specifies a threshold (usually 99), our shares_to_buy
-        must be <= threshold. If no threshold specified, assume 99 is safe.
+        must be <= threshold. If no threshold specified, fail closed.
         """
         if not self.terms.has_oddlot_priority:
             return False
