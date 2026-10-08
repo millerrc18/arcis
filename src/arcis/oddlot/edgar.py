@@ -188,6 +188,11 @@ def _search_form(
         if not isinstance(total, int) or total < 0:
             raise EdgarParseError(f"EFTS total invalid: {total!r}")
         if not hits:
+            if offset < total:
+                raise EdgarParseError(
+                    f"EFTS returned empty page at offset {offset} "
+                    f"with total={total}; refusing silent truncation."
+                )
             break
 
         _process_hits(hits, form, exclude_amendments, filings)
