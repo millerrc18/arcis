@@ -63,12 +63,20 @@ def _check_spread(
     if t.effective_price is None:
         failures.append("No offer price; cannot compute spread.")
         return
-    # Conservative cost placeholder: $1 commission amortized + 10bp slippage.
-    # Marked as UNVERIFIED — replace with broker fee schedule before live use.
+    gross_spread = t.effective_price - opp.current_price
+    if gross_spread <= 0:
+        failures.append(f"No gross spread: ${gross_spread:.4f}/share.")
+        return
+    # Cost model UNVERIFIED: $1 commission + 10bp slippage is a placeholder.
+    # Do not gate live trades on this; replace with broker fee schedule.
+    # For now, warn if the placeholder costs erase the edge.
     cost_per_share = 1.0 / opp.shares_to_buy + t.effective_price * 0.001
-    net_spread = t.effective_price - opp.current_price - cost_per_share
+    net_spread = gross_spread - cost_per_share
     if net_spread <= 0:
-        failures.append(f"No edge after costs: net spread ${net_spread:.4f}/share.")
+        failures.append(
+            f"Edge erased by UNVERIFIED cost model: net ${net_spread:.4f}/share. "
+            "Replace with real broker fees before live use."
+        )
 
 
 def _check_capital(

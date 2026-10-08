@@ -207,6 +207,13 @@ def parse_extraction_response(response: str) -> OfferTerms:
         if key not in data:
             raise ValueError(f"Required field '{key}' missing from LLM response")
 
+    # At least one price indicator must be present
+    price_keys = ["offer_price", "price_range_low", "price_range_high"]
+    if not any(k in data and data[k] is not None for k in price_keys):
+        raise ValueError(
+            "No price data in LLM response; need offer_price or price_range"
+        )
+
     # Reject unknown keys (typos in LLM output)
     known_keys = {
         "has_oddlot_priority", "oddlot_threshold", "offer_price",

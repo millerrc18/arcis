@@ -115,6 +115,32 @@ def _request(url: str, retries: int = 3) -> bytes:
     raise EdgarNetworkError(f"Failed after {retries} attempts: {url}") from last_error
 
 
+def _process_hits(
+    hits: list[dict[str, Any]],
+    form: str,
+    exclude_amendments: bool,
+    filings: list[TenderFiling],
+) -> None:
+    """Process one page of EFTS hits into filings."""
+    for hit in hits:
+        src: dict[str, Any] = hit.get("_source", {})
+        returned_form = str(src.get("form", form))
+        if exclude_amendments and returned_form.endswith("/A"):
+            continue
+        ciks = src.get("ciks", [])
+        cik = str(ciks[0]).lstrip("0") if ciks else ""
+        accession = str(src.get("adsh", "")).replace("-", "")
+        if any(f.accession == accession for f in filings):
+            continue
+        disp = src.get("display_names", [""])
+        company = str(disp[0]) if disp else str(src.get("c_name", ""))
+        filings.append(TenderFiling(
+            cik=cik, company=company, form=returned_form,
+            filing_date=str(src.get("file_date", "")),
+            accession=accession,
+        ))
+
+
 def _search_form(
     form: str,
     start_date: str,
@@ -125,15 +151,8 @@ def _search_form(
     """Search one form, paginating EFTS results."""
     filings: list[TenderFiling] = []
     offset = 0
-    max_pages = 50  # fail-closed: refuse silent truncation on huge result sets
-    pages = 0
-    while True:
-        if pages >= max_pages:
-            raise EdgarParseError(
-                f"EFTS returned >{max_pages * page_size} results for {form}; "
-                "refusing silent truncation. Narrow the date range."
-            )
-        pages += 1
+    max_pages = 50  # fail-closed: refuse silent truncation
+    for _ in range(max_pages):
         params = {
             "q": f'form:"{form}"',
             "dateRange": "custom",
@@ -160,27 +179,16 @@ def _search_form(
         if not hits:
             break
 
-        for hit in hits:
-            src: dict[str, Any] = hit.get("_source", {})
-            returned_form = str(src.get("form", form))
-            if exclude_amendments and returned_form.endswith("/A"):
-                continue
-            ciks = src.get("ciks", [])
-            cik = str(ciks[0]).lstrip("0") if ciks else ""
-            accession = str(src.get("adsh", "")).replace("-", "")
-            if any(f.accession == accession for f in filings):
-                continue
-            disp = src.get("display_names", [""])
-            company = str(disp[0]) if disp else str(src.get("c_name", ""))
-            filings.append(TenderFiling(
-                cik=cik, company=company, form=returned_form,
-                filing_date=str(src.get("file_date", "")),
-                accession=accession,
-            ))
+        _process_hits(hits, form, exclude_amendments, filings)
         offset += len(hits)
         if offset >= total:
             break
         time.sleep(0.2)
+    else:
+        raise EdgarParseError(
+            f"EFTS returned >{max_pages * page_size} results for {form}; "
+            "refusing silent truncation. Narrow the date range."
+        )
     return filings
 
 
