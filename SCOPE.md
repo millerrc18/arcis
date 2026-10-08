@@ -211,7 +211,7 @@ An entry marked (proposed) takes effect only once approved. Every proposed entry
 | D-034 | 2026-10-06 | Q7 resolved: `target_1_hit` (13 trades) **counts as a documented exit**, alongside `target_1` and `stop_loss`. Documented exits: 55 of 287 (was 42). | CEO decision 2026-10-06. The label explicitly names the first profit target being hit, a documented exit in the strategy spec. Amends T3. |
 | D-035 | 2026-10-06 | Q8 resolved: **re-draw the 20-trade sample as a listed sample** (seed 42, IDs recorded). The original sample was never listed and cannot be audited. | CEO decision 2026-10-06. Follow-up work: draw and record. Amends T3. |
 | D-036 | 2026-10-06 | Q9 resolved: **rebuild the missing 21-range table from `@78c788ec`**. Four union rows lack per-row sources; accepting them would bake unverified claims into the record. | CEO decision 2026-10-06. Follow-up work: rebuild. Amends T6. |
-| D-037 | 2026-10-06 | Q10 resolved: the Deflated Sharpe N is **22 (executions)** — every executed run counts. The harshest honest multiple-testing penalty. | CEO decision 2026-10-06. If the strategy has edge it survives N=22; if it only clears at N=6, that is informative. Amends T5, PREREGISTRATION.md §4. |
+| D-037 | 2026-10-06 | Q10 resolved: the Deflated Sharpe N is **22 (executions)** — every executed run counts. The harshest honest multiple-testing penalty. | CEO decision 2026-10-06. If the strategy has edge it survives N=22; if it only clears at N=6, that is informative. Amends T5, PREREGISTRATION.md §5 (amendment log; frozen §2.6 text retained as sensitivity grid). |
 
 ## 10. Idea parking lot
 

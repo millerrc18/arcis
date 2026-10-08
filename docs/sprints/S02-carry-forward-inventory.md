@@ -169,7 +169,7 @@ PREREGISTRATION.md §1.4 needs this: a model may only be evaluated on articles f
 
 ## Sprint report
 
-**Status (2026-10-06):** complete, with five decisions open for Ryan. Built
+**Status (2026-10-06):** complete. The five decisions that were open for Ryan (items 6–10) are now resolved (SCOPE D-033–D-037). Built
 on 2026-10-04 (PR #4) and completed on 2026-10-06 by a read-only
 verification pass. The full findings live in
 `docs/research/old-platform-inventory.md`. This report summarizes them and
