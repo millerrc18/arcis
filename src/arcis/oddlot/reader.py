@@ -14,6 +14,10 @@ outputs are logged for audit.
 from __future__ import annotations
 
 import json
+import os
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 
 OFFER_READER_SYSTEM = """You are a precise extractor of tender offer terms from SEC filings.
@@ -252,6 +256,78 @@ def parse_extraction_response(response: str) -> OfferTerms:
         risk_flags=_require_str_list(data, "risk_flags"),
         raw_response=response,
     )
+
+
+# ---------------------------------------------------------------------------
+# Gemini Flash extraction
+# ---------------------------------------------------------------------------
+
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+class ReaderConfigError(Exception):
+    """Missing reader configuration (fail-closed)."""
+
+
+class ReaderNetworkError(Exception):
+    """LLM API network failure (after retries)."""
+
+
+def _gemini_api_key() -> str:
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        raise ReaderConfigError("GEMINI_API_KEY not set; see "
+                                "https://aistudio.google.com/apikey")
+    return key
+
+
+def _call_gemini(prompt: str, retries: int = 3) -> str:
+    """POST prompt to Gemini Flash; return raw response text.
+
+    Raises ReaderConfigError (no API key), ReaderNetworkError (HTTP/
+    network failure after retries), ValueError (no usable text).
+    """
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    url = f"{GEMINI_API_BASE}/models/{model}:generateContent?key={_gemini_api_key()}"
+    body = json.dumps(
+        {
+            "system_instruction": {"parts": [{"text": OFFER_READER_SYSTEM}]},
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.0,
+                                 "response_mime_type": "application/json"},
+        }
+    ).encode()
+
+    last_error: Exception | None = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(
+                url, data=body, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                payload = json.loads(resp.read())
+            parts = payload["candidates"][0]["content"]["parts"]
+            return str(parts[0]["text"])
+        except (KeyError, IndexError, TypeError) as e:
+            raise ValueError(
+                f"Gemini response missing text: {str(payload)[:200]}") from e
+        except urllib.error.HTTPError as e:
+            if e.code == 429 or 500 <= e.code < 600:
+                last_error = e
+            else:
+                raise ReaderNetworkError(f"Gemini HTTP {e.code}") from e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_error = e
+        if attempt < retries - 1:
+            time.sleep(2**attempt)
+
+    raise ReaderNetworkError(f"Gemini failed after {retries}: {last_error}")
+
+
+def extract_offer_terms(document_text: str) -> OfferTerms:
+    """Extract offer terms via Gemini Flash. Fail-closed throughout."""
+    prompt = build_extraction_prompt(document_text)
+    return parse_extraction_response(_call_gemini(prompt))
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,17 @@
 """Tests for the odd-lot tender engine."""
 
+import io
+import json
+
 import pytest
 
 from arcis.oddlot.edgar import check_oddlot_provision
 from arcis.oddlot.reader import (
     OddLotOpportunity,
     OfferTerms,
+    ReaderConfigError,
+    ReaderNetworkError,
+    extract_offer_terms,
     parse_extraction_response,
 )
 from arcis.oddlot.tracker import (
@@ -195,3 +201,66 @@ class TestLifecycle:
         tracked = TrackedOpportunity(opp=opp)
         with pytest.raises(ValueError):
             tracked.transition(OppStatus.CLOSED)  # skip steps
+
+
+class TestExtractOfferTerms:
+    SAMPLE_LLM_JSON = """{
+        "has_oddlot_priority": true,
+        "oddlot_threshold": 99,
+        "offer_price": 45.0,
+        "price_range_low": null,
+        "price_range_high": null,
+        "is_dutch_auction": false,
+        "expiration_date": "2026-11-15",
+        "expiration_time": "17:00",
+        "min_tender_condition": "none",
+        "proration_description": "odd lots accepted in full",
+        "withdrawal_rights": "any time before expiration",
+        "conditions": ["customary"],
+        "issuer_cik": "1234567",
+        "risk_flags": []
+    }"""
+
+    def _mock_response(self, text):
+        payload = json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+        ).encode()
+        resp = io.BytesIO(payload)
+        resp.headers = {}
+        return resp
+
+    def test_missing_api_key_fails_closed(self, monkeypatch):
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        with pytest.raises(ReaderConfigError, match="GEMINI_API_KEY"):
+            extract_offer_terms("some document text")
+
+    def test_extract_parses_llm_response(self, monkeypatch):
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        mock_resp = self._mock_response(self.SAMPLE_LLM_JSON)
+
+        class FakeContext:
+            def __enter__(self):
+                return mock_resp
+
+            def __exit__(self, *a):
+                return False
+
+        monkeypatch.setattr(
+            "urllib.request.urlopen", lambda req, timeout=None: FakeContext()
+        )
+        terms = extract_offer_terms("offer document text here")
+        assert terms.has_oddlot_priority is True
+        assert terms.offer_price == 45.0
+        assert terms.expiration_date == "2026-11-15"
+
+    def test_network_failure_raises(self, monkeypatch):
+        import urllib.error
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+        def boom(req, timeout=None):
+            raise urllib.error.URLError("down")
+
+        monkeypatch.setattr("urllib.request.urlopen", boom)
+        with pytest.raises(ReaderNetworkError):
+            extract_offer_terms("doc")
