@@ -287,7 +287,7 @@ def _call_gemini(prompt: str, retries: int = 3) -> str:
     Raises ReaderConfigError (no API key), ReaderNetworkError (HTTP/
     network failure after retries), ValueError (no usable text).
     """
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
     url = f"{GEMINI_API_BASE}/models/{model}:generateContent?key={_gemini_api_key()}"
     body = json.dumps(
         {
